@@ -1,5 +1,8 @@
 Lumia 코드 저장소
 
+Git: https://github.com/daewoong12/LMProject.git
+개발 브랜치: dev / 검증 브랜치: main
+
 소유권
 - Git: Source/**, Plugins/**/Source/**, 이 안내, .gitignore, .gitattributes.
 - Perforce: Lumia.uproject, Config, Content, SourceArt, 플러그인 설명/콘텐츠,
@@ -13,7 +16,7 @@ Lumia 코드 저장소
 - 서버: ssl:ugit.seohwido.site:1666
 - 개발 스트림: //LMProject/Game/dev
 - 검증 스트림: //LMProject/Game/main
-- Perforce의 Git 코드 경로 제외가 적용된 뒤 같은 폴더로 Get Latest합니다.
+- 같은 폴더로 Get Latest합니다. 서버가 Source를 제외하므로 Git 코드를 덮어쓰지 않습니다.
 - Lumia.uproject를 Rider에서 열고 .vsconfig 기준 C++ 도구를 준비합니다.
 - Unreal의 Revision Control은 Perforce, Rider의 코드 버전 관리는 Git을 사용합니다.
 
@@ -34,9 +37,10 @@ Lumia 코드 저장소
 - 아트 작업자는 Perforce에 배포된 DLL과 에셋만 받으면 됩니다.
 - 새 모듈/플러그인은 설명 파일과 필요한 런타임 의존 파일도 Perforce에 배포합니다.
 
-전환 상태
-- 이 시작점은 //LMProject/Game/dev/Source/...@47의 제출된 코드입니다.
-- 전환 중이던 로컬 수정/삭제는 시작 커밋에 포함하지 않습니다.
-- Git 원격 연결과 시작 커밋 업로드 확인 전에는 기존 Perforce 코드가 유지됩니다.
-- 원격 연결과 서버 코드 제외 적용 여부는 Perforce의 TEAM_ENVIRONMENT.txt를 확인합니다.
-- 이전 코드의 상세 변경 이력은 기존 Perforce 이력에서 조회할 수 있습니다.
+전환 기준
+- p4-code-baseline-cl47 태그는 //LMProject/Game/dev/Source/...@47의 제출된 코드입니다.
+- 전환 중이던 로컬 수정/삭제는 시작 커밋에 포함하지 않았습니다.
+- Git 원격 업로드와 서버 Source 제외가 적용되었습니다.
+- 기존 Perforce 코드 이력은 보존되지만, 일반 Workspace에서는 코드가 제외됩니다.
+- 현재 배포 기준과 상세 설정은 Perforce의 TEAM_ENVIRONMENT.txt를 확인합니다.
+- 자동 빌드/자동 Perforce 배포는 연결되어 있지 않습니다. 배포 담당자가 빌드를 제출합니다.
