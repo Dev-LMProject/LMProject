@@ -1,0 +1,45 @@
+# Lumia code repository. Perforce owns all project data outside this allowlist.
+/*
+!/.gitignore
+!/.gitattributes
+!/README_CODE.ko.txt
+!/Source/
+!/Plugins/
+
+# Plugin descriptors, assets and runtime files stay in Perforce.
+/Plugins/**
+!/Plugins/**/
+!/Plugins/**/Source/
+!/Plugins/**/Source/**
+
+# Generated or private files must not enter Git, even below a source directory.
+**/Intermediate/
+**/Binaries/
+**/Saved/
+**/DerivedDataCache/
+**/.vs/
+**/.idea/
+**/.vscode/
+**/__pycache__/
+**/.p4config
+**/.p4config.*
+**/p4config.txt
+*.sln
+*.slnx
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.VC.db
+*.VC.opendb
+*.pyc
+*.pdb
+*.dll
+*.exe
+*.obj
+*.uasset
+*.umap
+*.fbx
+*.blend
+*.psd
