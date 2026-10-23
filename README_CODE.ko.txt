@@ -51,3 +51,10 @@ Git: https://github.com/daewoong12/LMProject.git
 - 기존 Perforce 코드 이력은 보존되지만, 일반 Workspace에서는 코드가 제외됩니다.
 - 현재 배포 기준과 상세 설정은 Perforce의 TEAM_ENVIRONMENT.txt를 확인합니다.
 - 자동 빌드/자동 Perforce 배포는 연결되어 있지 않습니다. 배포 담당자가 빌드를 제출합니다.
+
+팀 Git 작업 절차
+- 작업 시작 전에 dev를 Pull합니다.
+- dev에서 작업별 브랜치를 생성합니다.
+- 작업 브랜치에서 Commit과 Push를 진행합니다.
+- 작업 브랜치에서 dev로 PR을 생성하고 검토 후 병합합니다.
+- 검증이 끝난 dev는 main으로 PR을 생성해 반영합니다.
