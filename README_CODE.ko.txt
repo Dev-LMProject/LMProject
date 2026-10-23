@@ -1,5 +1,7 @@
 Lumia 코드 저장소
 
+로컬 브런치 테스트:서휘도
+
 Git: https://github.com/daewoong12/LMProject.git
 개발 브랜치: dev / 검증 브랜치: main
 
