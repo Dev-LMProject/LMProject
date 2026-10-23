@@ -3,6 +3,13 @@ Lumia 코드 저장소
 Git: https://github.com/daewoong12/LMProject.git
 개발 브랜치: dev / 검증 브랜치: main
 
+현재 시작점: Blank (2026-10-23)
+- C++ 기본 모듈과 빌드 대상 파일 5개만 남겼습니다.
+- Perforce의 Content에는 빈 맵 Maps/L_Blank.umap 하나만 있습니다.
+- 기본 게임 모드는 엔진의 GameModeBase입니다. Third Person 캐릭터, 입력 에셋,
+  전투/플랫폼/횡스크롤 샘플과 이전 P4 테스트 에셋은 제거했습니다.
+- 새 코드, 에셋, 맵은 이 Blank 기준에서 작업합니다.
+
 소유권
 - Git: Source/**, Plugins/**/Source/**, 이 안내, .gitignore, .gitattributes.
 - Perforce: Lumia.uproject, Config, Content, SourceArt, 플러그인 설명/콘텐츠,
@@ -39,7 +46,7 @@ Git: https://github.com/daewoong12/LMProject.git
 
 전환 기준
 - p4-code-baseline-cl47 태그는 //LMProject/Game/dev/Source/...@47의 제출된 코드입니다.
-- 전환 중이던 로컬 수정/삭제는 시작 커밋에 포함하지 않았습니다.
+- 초기 전환 때 보존했던 로컬 수정/삭제는 이후 Blank 정리 작업에 반영했습니다.
 - Git 원격 업로드와 서버 Source 제외가 적용되었습니다.
 - 기존 Perforce 코드 이력은 보존되지만, 일반 Workspace에서는 코드가 제외됩니다.
 - 현재 배포 기준과 상세 설정은 Perforce의 TEAM_ENVIRONMENT.txt를 확인합니다.
