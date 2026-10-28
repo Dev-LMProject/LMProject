@@ -27,9 +27,13 @@ struct FLMInteractionResult
 {
 	GENERATED_BODY()
 	//인터렉션 가능 여부
+	UPROPERTY(BlueprintReadOnly, Category = "Interaction")
 	bool bCanInteraction=false;
+	UPROPERTY(BlueprintReadOnly, Category = "Interaction")
 	InteractionFailure Failure=InteractionFailure::Succsess;
+	UPROPERTY(BlueprintReadOnly, Category = "Interaction")
 	FGameplayTagContainer HasTags;
+	UPROPERTY(BlueprintReadOnly, Category = "Interaction")
 	FGuid InteractionId; 
 };
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
@@ -57,10 +61,8 @@ protected:
 	// Called when the game starts
 	UPROPERTY(EditAnywhere, Category = "Interaction|UI")
 	TSubclassOf<UUserWidget> PromptWidgetClass;
-	
 	FLMInteractionResult EvaluateInteraction(FGameplayTagContainer* ActionTags);
 private:
 	FGuid InteractionId;
-	
 	bool bIsBusy=false;
 };
