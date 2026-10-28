@@ -14,13 +14,14 @@ public class Lumia : ModuleRules
 			"Engine"
 		});
 
-		// 입력과 카메라 시퀀스 재생의 상세 구현은 cpp에서 사용한다.
+		// 입력, 카메라 시퀀스, 이동 애니메이션 계산에서 사용하는 모듈.
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"InputCore",
 			"EnhancedInput",
 			"LevelSequence",
-			"MovieScene"
+			"MovieScene",
+			"AnimationLocomotionLibraryRuntime"
 		});
 
 		if (Target.bBuildEditor)
