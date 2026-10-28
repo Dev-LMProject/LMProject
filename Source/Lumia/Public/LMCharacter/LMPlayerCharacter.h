@@ -11,60 +11,194 @@ class ULMInteractorComponent;
 class UAnimMontage;
 struct FInputActionValue;
 
-/**
- * 플레이어가 조종하는 캐릭터.
- *
- * 입력을 받아 CharacterMovement에 이동과 점프를 요청하고,
- * 기본 3인칭 카메라를 구성한다.
- */
+/** 자유 이동의 최종 조건. 이후 한 연결 담당이 상태·효과의 제한을 합산해 전달한다. */
+USTRUCT(BlueprintType)
+struct FLMFreeMovementPolicy
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool AllowMove = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool AllowLook = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool AllowJump = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool AllowRun = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool FaceMovement = true;
+
+    // 외부 행동 중에는 자유 이동이 입력·속도·몸 회전을 덮어쓰지 않는다.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool ExternalMovement = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite,
+        meta = (ClampMin = "0.0"))
+    float SpeedMultiplier = 1.0f;
+};
+
+/** 입력 요청을 이동 처리와 연결하고, 실제 도약·착지 결과를 애니메이션에 제공한다. */
 UCLASS()
 class LUMIA_API ALMPlayerCharacter : public ALMBaseCharacter
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	/** 캡슐, 이동 기본값, 카메라를 구성한다. */
-	ALMPlayerCharacter();
+    /** 캡슐·이동 기본값·카메라 컴포넌트를 구성한다. */
+    ALMPlayerCharacter();
+
+    /** 점프 준비 시간과 착지 직전 입력 버퍼를 검사한다. */
+    virtual void Tick(float DeltaSeconds) override;
+
+    /** 최종 이동 조건을 적용하고, 금지된 점프 예약과 이동 입력을 정리한다. */
+    UFUNCTION(BlueprintCallable, Category = "LM|Movement")
+    void ApplyFreeMovementPolicy(
+        const FLMFreeMovementPolicy& NewPolicy);
+
+    /** 예약·미처리 점프 명령을 취소한다. 이미 발생한 공중 속도는 제거하지 않는다. */
+    UFUNCTION(BlueprintCallable, Category = "LM|Movement")
+    void CancelPendingJump();
+
+    /** 현재 제한을 통과한 유효한 이동 입력이 있는지 반환한다. */
+    bool HasMoveInput() const;
+
+    /** Shift 입력이 유지되고 현재 달리기가 허용되는지 반환한다. */
+    bool IsRunRequestedAndAllowed() const;
+
+    /** 대시·연출 등 외부 행동이 이동을 맡고 있지 않은지 반환한다. */
+    bool UsesFreeMovement() const
+    {
+        return !MovementPolicy.ExternalMovement;
+    }
+
+    /** 속도 보정 전의 걷기 기준값을 반환한다. */
+    float GetWalkSpeed() const
+    {
+        return WalkSpeed;
+    }
+
+    /** 속도 보정 전의 달리기 기준값을 반환한다. */
+    float GetRunSpeed() const
+    {
+        return RunSpeed;
+    }
+
+    /** 실제 도약 발생 번호를 반환해 AnimInstance가 사건을 한 번만 처리하게 한다. */
+    uint32 GetJumpSerial() const
+    {
+        return JumpSerial;
+    }
+
+    /** 실제 착지 발생 번호를 반환해 AnimInstance가 사건을 한 번만 처리하게 한다. */
+    uint32 GetLandingSerial() const
+    {
+        return LandingSerial;
+    }
+
+    /** 실제 이륙 순간의 수평 속도(cm/s)를 반환한다. */
+    float GetTakeoffSpeed() const
+    {
+        return TakeoffSpeed;
+    }
+
+    /** 접지 직전 아래 방향 속도의 크기(cm/s)를 반환한다. */
+    float GetLandingImpactSpeed() const
+    {
+        return LandingImpactSpeed;
+    }
+
+    /** 착지 순간 이동 입력 또는 유의미한 수평 속도가 있었는지 반환한다. */
+    bool WasMovingAtLanding() const
+    {
+        return bMovingAtLanding;
+    }
+
+    /** 접지 당시 자유 이동이었는지 반환해 특수 행동의 착지를 구분한다. */
+    bool WasFreeMovementAtLanding() const
+    {
+        return bFreeMovementAtLanding;
+    }
+
+    /** 현재 공중 상태가 기본 점프 성공에서 시작되었는지 반환한다. */
+    bool IsCurrentFallFromJump() const
+    {
+        return bCurrentFallFromJump;
+    }
+
+    /** 마지막 접지의 월드 시간(초)을 반환한다. */
+    double GetLastLandingTime() const
+    {
+        return LastLandingTime;
+    }
+
+    /** 지상에서 유효한 점프 준비가 진행 중인지 반환한다. */
+    bool IsPreparingJump() const;
+
+    /** 준비부터 이륙 이후까지 연속된 점프 포즈 경과 시간(초)을 반환한다. */
+    float GetJumpAnimationElapsed() const;
 
 protected:
-	/** 캐릭터의 입력 액션과 처리 함수를 연결한다. */
-	virtual void SetupPlayerInputComponent(
-		UInputComponent* PlayerInputComponent) override;
+    /** BP 설정을 검증하고 초기 이동 속도를 반영한다. */
+    virtual void BeginPlay() override;
 
-	/** 실제 지면 접촉 시 착지 몽타주를 한 번 재생한다. */
-	virtual void Landed(const FHitResult& Hit) override;
+    /** Enhanced Input 액션을 이동·시점·점프·달리기 함수에 연결한다. */
+    virtual void SetupPlayerInputComponent(
+        UInputComponent* PlayerInputComponent) override;
 
-	/** 재점프하거나 다시 떨어지면 착지 몽타주를 중단한다. */
-	virtual void OnMovementModeChanged(
-		EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
+    /** 현재 행동 제한과 엔진의 기본 점프 가능 조건을 함께 검사한다. */
+    virtual bool CanJumpInternal_Implementation() const override;
+
+    /** 엔진의 점프 처리 후 성공하지 못한 1회 명령을 정리한다. */
+    virtual void CheckJumpInput(float DeltaTime) override;
+
+    /** 실제 도약 성공 시 속도·시간·발생 번호를 기록한다. */
+    virtual void OnJumped_Implementation() override;
+
+    /** 접지 직전 속도와 이동 상태를 기록한다. 몽타주는 강제 재생하지 않는다. */
+    virtual void Landed(const FHitResult& Hit) override;
+
+    /** 지상·공중 전환에 맞춰 속도 기준과 점프 예약을 갱신한다. */
+    virtual void OnMovementModeChanged(
+        EMovementMode PreviousMode,
+        uint8 PreviousCustomMode = 0) override;
+
+    /** 조종 해제 시 이동·달리기 의도와 점프 예약을 비운다. */
+    virtual void UnPossessed() override;
+
+    /** 준비된 점프를 한 번 요청한다. 이후 GAS 승인 경로로 교체할 지점이다. */
+    virtual bool ExecutePreparedJump();
 
 private:
-	/** 카메라의 수평 방향을 기준으로 이동을 요청한다. */
-	void Move(const FInputActionValue& Value);
+    /** 입력 크기를 제한하고 카메라의 수평 축으로 이동을 요청한다. */
+    void Move(const FInputActionValue& Value);
 
-	/** 마우스 입력으로 시점을 회전한다. */
-	void Look(const FInputActionValue& Value);
+    /** 키 해제·취소 시 저장한 이동축을 비운다. */
+    void ClearMoveInput();
 
-	/** 지상에서 기본 점프를 요청한다. */
-	void RequestJump();
+    /** 허용된 마우스 입력을 카메라의 컨트롤러 회전에 반영한다. */
+    void Look(const FInputActionValue& Value);
 
-	/** 점프 입력의 유지 상태를 해제한다. */
-	void ReleaseJumpInput();
+    /** 지상 준비 또는 착지 직전 버퍼에 사용할 점프 요청을 기록한다. */
+    void RequestJump();
 
-	/** 달리기 상태와 이동 속도를 함께 적용한다. */
-	void StartSprint();
+    /** 정상 버튼 해제를 처리하되 짧게 누른 1회 요청은 보존한다. */
+    void ReleaseJumpInput();
 
-	/** 달리기 입력이 해제되거나 취소되면 걷기로 복귀한다. */
-	void StopSprint();
+    /** 달리기 입력 의도를 켜고 공통 경로에서 속도를 갱신한다. */
+    void StartSprint();
 
-	static constexpr float WalkSpeed = 240.0f;
-	static constexpr float SprintSpeed = 480.0f;
+    /** 달리기 입력 의도를 끄되 이륙 당시 공중 속도 기준은 유지한다. */
+    void StopSprint();
 
-	/** AnimBP가 Walk / Run을 선택할 때 읽는 달리기 상태. */
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Movement",
-		meta = (AllowPrivateAccess = "true"))
-	bool bIsSprinting = false;
+    /** 현재 자유 이동 상태에서 기본 점프 요청이 허용되는지 검사한다. */
+    bool CanUseBasicJump() const;
 
+    /** 준비 완료·유효 시간·허용 조건을 확인해 점프 명령을 한 번 발행한다. */
+    void TryBufferedJump();
 	// BP에서 만든 콜리전을 이 컴포넌트의 SetInteractionCollision으로 연결한다.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Interaction",
 		meta=(AllowPrivateAccess="true"))
@@ -78,31 +212,80 @@ private:
 		meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<USpringArmComponent> CameraBoom;
 
-	/** 기본 플레이 시점이며 카메라 연출 종료 후 복귀할 카메라. */
-	UPROPERTY(
-		VisibleAnywhere,
-		BlueprintReadOnly,
-		Category = "Camera",
-		meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UCameraComponent> FollowCamera;
+    /** 현재 조건과 속도 배율을 합쳐 자유 이동의 회전·최고 속도를 적용한다. */
+    void RefreshMovementSettings();
 
-	/** BP의 Class Defaults에서 지정할 이동 입력 에셋. */
-	UPROPERTY(EditDefaultsOnly, Category = "Input")
-	TObjectPtr<UInputAction> MoveAction;
+    /** 공중 진입 속도를 기록하여 공중 Shift 변경과 분리한다. */
+    void CaptureAirSpeed();
 
-	/** BP의 Class Defaults에서 지정할 시점 입력 에셋. */
-	UPROPERTY(EditDefaultsOnly, Category = "Input")
-	TObjectPtr<UInputAction> LookAction;
+    // 실제 이동의 기준 속도(cm/s). 최종 속도에는 SpeedMultiplier를 적용한다.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement",
+        meta = (ClampMin = "1.0"))
+    float WalkSpeed = 140.0f;
 
-	/** BP의 Class Defaults에서 지정할 점프 입력 에셋. */
-	UPROPERTY(EditDefaultsOnly, Category = "Input")
-	TObjectPtr<UInputAction> JumpAction;
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement",
+        meta = (ClampMin = "2.0"))
+    float RunSpeed = 420.0f;
 
-	/** BP의 Class Defaults에서 IA_LM_Sprint를 지정한다. */
-	UPROPERTY(EditDefaultsOnly, Category = "Input")
-	TObjectPtr<UInputAction> SprintAction;
+    // 제자리·걷기 점프의 지상 준비 시간(초). 이동 중 달리기 점프는 즉시 요청한다.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Jump",
+        meta = (ClampMin = "0.0", ClampMax = "0.1"))
+    float JumpPreparationSeconds = 0.05f;
 
-	/** BP에서 지정할 1회성 착지 몽타주. */
-	UPROPERTY(EditDefaultsOnly, Category = "Animation")
-	TObjectPtr<UAnimMontage> LandingMontage;
+    // 착지 직전 누른 점프 입력을 보관하는 시간(초).
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Jump",
+        meta = (ClampMin = "0.0", ClampMax = "0.3"))
+    float JumpBufferSeconds = 0.12f;
+
+    // 현재 적용 중인 최종 조건. 지금은 기본값으로 동작한다.
+    UPROPERTY(Transient, VisibleInstanceOnly, Category = "LM|Movement")
+    FLMFreeMovementPolicy MovementPolicy;
+
+    // 몸 회전과 독립된 카메라 연결. 기존 컴포넌트 이름을 유지한다.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
+        meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<USpringArmComponent> CameraBoom;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
+        meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UCameraComponent> FollowCamera;
+
+    // 캐릭터 BP의 Class Defaults에서 네 입력 에셋을 지정한다.
+    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    TObjectPtr<UInputAction> MoveAction;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    TObjectPtr<UInputAction> LookAction;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    TObjectPtr<UInputAction> JumpAction;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    TObjectPtr<UInputAction> SprintAction;
+
+    // 원시 입력과 실행 중인 점프 요청을 구분한다. 실제 허용 여부는 별도로 검사한다.
+    FVector2D MoveAxis = FVector2D::ZeroVector;
+
+    bool bWantsToRun = false;
+    bool bJumpPending = false;
+    bool bJumpIssued = false;
+    bool bJumpBeganGrounded = false;
+    bool bCurrentFallFromJump = false;
+    bool bMovingAtLanding = false;
+    bool bFreeMovementAtLanding = true;
+
+    // 월드 시간과 사건 기록. AnimInstance가 실제 도약·착지를 기준으로 포즈를 선택한다.
+    double JumpRequestedAt = -1.0;
+    double JumpReadyAt = -1.0;
+    double JumpExpiresAt = -1.0;
+    double LastJumpTime = -1.0;
+    double LastLandingTime = -1.0;
+
+    float PreparationElapsed = 0.0f;
+    float AirBaseSpeed = 140.0f;
+    float TakeoffSpeed = 0.0f;
+    float LandingImpactSpeed = 0.0f;
+
+    uint32 JumpSerial = 0;
+    uint32 LandingSerial = 0;
 };

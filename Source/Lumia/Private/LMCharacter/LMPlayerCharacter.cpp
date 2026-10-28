@@ -1,96 +1,106 @@
 #include "LMCharacter/LMPlayerCharacter.h"
 
-#include "Animation/AnimMontage.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "LMComponent/LMInteractorComponent.h"
 #include "EnhancedInputComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
-#include "InputAction.h"
 #include "InputActionValue.h"
 #include "Math/RotationMatrix.h"
 
-/**
- * 플레이어의 충돌, 이동 방식, 기본 카메라를 구성한다.
- *
- * 캐릭터는 컨트롤러의 수평 시점 방향을 바라본다.
- * 따라서 S를 누르면 몸을 돌리지 않고 후진할 수 있다.
- */
+/** 몸은 이동 방향, 카메라는 컨트롤러 방향을 사용하도록 기본값을 구성한다. */
 ALMPlayerCharacter::ALMPlayerCharacter()
 {
-    // 캡슐이 캐릭터의 이동 충돌을 담당한다.
-    // 두 번째 값 90은 전체 높이가 아니라 반높이다.
+    PrimaryActorTick.bCanEverTick = true;
+
     GetCapsuleComponent()->InitCapsuleSize(42.0f, 90.0f);
 
-    // 몸은 좌우 회전만 컨트롤러를 따라간다.
-    // 카메라를 위아래로 돌려도 몸이 앞으로 기울지 않게 한다.
+    // 컨트롤러의 시점 회전이 캐릭터 몸에 직접 적용되지 않게 한다.
     bUseControllerRotationPitch = false;
-    bUseControllerRotationYaw = true;
+    bUseControllerRotationYaw = false;
     bUseControllerRotationRoll = false;
 
     UCharacterMovementComponent* Movement = GetCharacterMovement();
 
-    // 입력 방향으로 몸을 돌리는 기능을 끈다.
-    // S 입력 시 뒤를 돌아보지 않고 뒤로 이동하게 하는 핵심 설정이다.
-    Movement->bOrientRotationToMovement = false;
-
-    // 몸의 좌우 회전은 위의 bUseControllerRotationYaw로 처리한다.
+    // 실제 이동 입력의 가속 방향을 향해 몸을 회전시킨다.
+    Movement->bOrientRotationToMovement = true;
     Movement->bUseControllerDesiredRotation = false;
+    Movement->RotationRate = FRotator(0.0f, 720.0f, 0.0f);
 
-    // 이동 조작감을 확인하기 위한 프로토타입 값.
-    // MaxWalkSpeed의 단위는 cm/s이다.
     Movement->MaxWalkSpeed = WalkSpeed;
     Movement->MaxAcceleration = 2048.0f;
-    Movement->BrakingDecelerationWalking = 1600.0f;
+    Movement->GroundFriction = 8.0f;
 
-    // 점프 초기 상승 속도, 공중 방향 조작 정도, 중력 배율.
+    // 방향 전환용 마찰과 정지할 때의 감속을 구분한다.
+    Movement->bUseSeparateBrakingFriction = true;
+    Movement->BrakingFriction = 0.0f;
+    Movement->BrakingFrictionFactor = 1.0f;
+    Movement->BrakingDecelerationWalking = 1200.0f;
+
     Movement->JumpZVelocity = 500.0f;
-    Movement->AirControl = 0.25f;
     Movement->GravityScale = 1.0f;
+    Movement->AirControl = 0.25f;
+    Movement->AirControlBoostMultiplier = 1.0f;
 
-    // 기본 점프 한 번만 허용한다.
+    // 공중에서 이동키를 놓아도 수평 관성이 바로 사라지지 않게 한다.
+    Movement->FallingLateralFriction = 0.0f;
+    Movement->BrakingDecelerationFalling = 0.0f;
+
     JumpMaxCount = 1;
-
-    // 버튼을 오래 눌러도 점프 높이가 추가로 늘어나지 않게 한다.
     JumpMaxHoldTime = 0.0f;
 
-    // 캐릭터 뒤에 카메라를 배치할 SpringArm을 만든다.
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(
         TEXT("CameraBoom"));
 
     CameraBoom->SetupAttachment(GetRootComponent());
     CameraBoom->TargetArmLength = 350.0f;
     CameraBoom->TargetOffset = FVector(0.0f, 0.0f, 60.0f);
-
-    // 마우스 입력으로 변경한 컨트롤러 회전을 사용한다.
     CameraBoom->bUsePawnControlRotation = true;
-
-    // 벽이 캐릭터와 카메라 사이에 들어오면 카메라 거리를 줄인다.
     CameraBoom->bDoCollisionTest = true;
 
-    // SpringArm 끝에 실제 카메라를 연결한다.
     FollowCamera = CreateDefaultSubobject<UCameraComponent>(
         TEXT("FollowCamera"));
 
     FollowCamera->SetupAttachment(
-        CameraBoom,
-        USpringArmComponent::SocketName);
+        CameraBoom, USpringArmComponent::SocketName);
 
-    // 카메라 회전은 부모인 SpringArm을 따라간다.
     FollowCamera->bUsePawnControlRotation = false;
 
     // BP가 추가한 콜리전을 연결할 목록 관리 컴포넌트를 준비한다.
     InteractorComponent = CreateDefaultSubobject<ULMInteractorComponent>(TEXT("InteractorComponent"));
 }
 
-/**
- * 입력 액션과 실제 처리 함수를 연결한다.
- *
- * 키 배치 자체는 PlayerController가 등록하고,
- * 여기서는 액션이 발생했을 때 호출할 함수를 지정한다.
- */
+/** BP에 저장된 설정을 포함하여 시작 속도와 점프 준비 시간을 확정한다. */
+void ALMPlayerCharacter::BeginPlay()
+{
+    Super::BeginPlay();
+
+    WalkSpeed = FMath::Max(WalkSpeed, 1.0f);
+    RunSpeed = FMath::Max(RunSpeed, WalkSpeed + 1.0f);
+
+    JumpPreparationSeconds = FMath::Clamp(
+        JumpPreparationSeconds, 0.0f, 0.1f);
+
+    JumpBufferSeconds = FMath::Clamp(
+        JumpBufferSeconds, 0.0f, 0.3f);
+
+    AirBaseSpeed = WalkSpeed;
+
+    RefreshMovementSettings();
+}
+
+/** 준비 시간이나 착지를 기다리고 있는 점프 요청을 검사한다. */
+void ALMPlayerCharacter::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+
+    TryBufferedJump();
+}
+
+/** 입력 실행·해제·취소를 각각 연결하여 입력 상태가 남지 않게 한다. */
 void ALMPlayerCharacter::SetupPlayerInputComponent(
     UInputComponent* PlayerInputComponent)
 {
@@ -100,159 +110,496 @@ void ALMPlayerCharacter::SetupPlayerInputComponent(
         Cast<UEnhancedInputComponent>(PlayerInputComponent);
 
     if (!ensureMsgf(
-        Input,
-        TEXT("Enhanced Input Component is required.")))
+            Input,
+            TEXT("Enhanced Input Component is required.")) ||
+        !ensureMsgf(
+            MoveAction && LookAction && JumpAction && SprintAction,
+            TEXT("Assign MoveAction, LookAction, JumpAction and SprintAction in the player BP.")))
     {
         return;
     }
 
-    // BP에서 입력 에셋을 빠뜨렸다면 원인을 로그에 표시한다.
-    if (!ensureMsgf(
-        MoveAction && LookAction && JumpAction && SprintAction,
-        TEXT("Assign MoveAction, LookAction, JumpAction and SprintAction in the player BP.")))
-    {
-        return;
-    }
-
-    // 이동 입력이 들어오는 동안 이동 방향을 전달한다.
     Input->BindAction(
-        MoveAction,
-        ETriggerEvent::Triggered,
-        this,
-        &ALMPlayerCharacter::Move);
+        MoveAction, ETriggerEvent::Triggered,
+        this, &ThisClass::Move);
 
-    // 마우스 이동이 발생하면 시점을 회전한다.
     Input->BindAction(
-        LookAction,
-        ETriggerEvent::Triggered,
-        this,
-        &ALMPlayerCharacter::Look);
+        MoveAction, ETriggerEvent::Completed,
+        this, &ThisClass::ClearMoveInput);
 
-    // 점프 버튼을 누른 순간 한 번 요청한다.
     Input->BindAction(
-        JumpAction,
-        ETriggerEvent::Started,
-        this,
-        &ALMPlayerCharacter::RequestJump);
+        MoveAction, ETriggerEvent::Canceled,
+        this, &ThisClass::ClearMoveInput);
 
-    // 일반적으로 버튼을 놓았을 때 점프 입력을 해제한다.
     Input->BindAction(
-        JumpAction,
-        ETriggerEvent::Completed,
-        this,
-        &ALMPlayerCharacter::ReleaseJumpInput);
+        LookAction, ETriggerEvent::Triggered,
+        this, &ThisClass::Look);
 
-    // 트리거 평가가 취소되는 경로에서도 입력을 해제한다.
     Input->BindAction(
-        JumpAction,
-        ETriggerEvent::Canceled,
-        this,
-        &ALMPlayerCharacter::ReleaseJumpInput);
+        JumpAction, ETriggerEvent::Started,
+        this, &ThisClass::RequestJump);
 
-    // 입력 취소 시에도 걷기로 복귀시켜 달리기 상태가 남지 않게 한다.
-    Input->BindAction(SprintAction, ETriggerEvent::Started,
-        this, &ALMPlayerCharacter::StartSprint);
-    Input->BindAction(SprintAction, ETriggerEvent::Completed,
-        this, &ALMPlayerCharacter::StopSprint);
-    Input->BindAction(SprintAction, ETriggerEvent::Canceled,
-        this, &ALMPlayerCharacter::StopSprint);
+    Input->BindAction(
+        JumpAction, ETriggerEvent::Completed,
+        this, &ThisClass::ReleaseJumpInput);
+
+    Input->BindAction(
+        JumpAction, ETriggerEvent::Canceled,
+        this, &ThisClass::CancelPendingJump);
+
+    Input->BindAction(
+        SprintAction, ETriggerEvent::Started,
+        this, &ThisClass::StartSprint);
+
+    Input->BindAction(
+        SprintAction, ETriggerEvent::Completed,
+        this, &ThisClass::StopSprint);
+
+    Input->BindAction(
+        SprintAction, ETriggerEvent::Canceled,
+        this, &ThisClass::StopSprint);
 }
 
-/**
- * 카메라의 수평 방향을 기준으로 이동한다.
- *
- * 입력 X: 좌우 이동
- * 입력 Y: 전진과 후진
- */
+/** 현재 제한을 통과한 유효한 이동 입력이 있는지 반환한다. */
+bool ALMPlayerCharacter::HasMoveInput() const
+{
+    return UsesFreeMovement() &&
+        MovementPolicy.AllowMove &&
+        Controller &&
+        !IsMoveInputIgnored() &&
+        !MoveAxis.IsNearlyZero(0.01f);
+}
+
+/** Shift 입력 의도와 현재 달리기 허용 조건을 함께 검사한다. */
+bool ALMPlayerCharacter::IsRunRequestedAndAllowed() const
+{
+    return UsesFreeMovement() &&
+        MovementPolicy.AllowRun &&
+        bWantsToRun;
+}
+
+/** 카메라의 수평 방향을 기준으로 이동 입력을 전달한다. */
 void ALMPlayerCharacter::Move(const FInputActionValue& Value)
 {
-    if (!Controller)
+    // 대각선 입력의 크기가 직선 입력보다 커지지 않도록 제한한다.
+    MoveAxis = Value.Get<FVector2D>().GetClampedToMaxSize(1.0f);
+
+    if (!HasMoveInput())
     {
         return;
     }
 
-    // 대각선 입력도 입력 크기가 1을 넘지 않게 한다.
-    const FVector2D MoveAxis =
-        Value.Get<FVector2D>().GetClampedToMaxSize(1.0f);
-
-    // 위아래 시점인 Pitch는 제외하고 좌우 회전인 Yaw만 사용한다.
     const FRotator YawRotation(
-        0.0f,
-        Controller->GetControlRotation().Yaw,
-        0.0f);
+        0.0f, Controller->GetControlRotation().Yaw, 0.0f);
 
-    const FVector ForwardDirection =
-        FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+    const FRotationMatrix CameraAxes(YawRotation);
 
-    const FVector RightDirection =
-        FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+    AddMovementInput(
+        CameraAxes.GetUnitAxis(EAxis::X), MoveAxis.Y);
 
-    // 실제 위치 변경, 가속과 충돌은 CharacterMovement가 처리한다.
-    // S는 MoveAxis.Y가 음수이므로 앞 방향의 반대로 이동한다.
-    AddMovementInput(ForwardDirection, MoveAxis.Y);
-    AddMovementInput(RightDirection, MoveAxis.X);
+    AddMovementInput(
+        CameraAxes.GetUnitAxis(EAxis::Y), MoveAxis.X);
 }
 
-/** 마우스 이동량을 시점 회전에 반영한다. */
+/** 이동 입력을 비운다. 실제 속도는 CharacterMovement가 감속시킨다. */
+void ALMPlayerCharacter::ClearMoveInput()
+{
+    MoveAxis = FVector2D::ZeroVector;
+}
+
+/** 허용된 마우스 입력으로 카메라의 컨트롤러 회전을 변경한다. */
 void ALMPlayerCharacter::Look(const FInputActionValue& Value)
 {
+    if (!Controller ||
+        !MovementPolicy.AllowLook ||
+        Controller->IsLookInputIgnored())
+    {
+        return;
+    }
+
     const FVector2D LookAxis = Value.Get<FVector2D>();
 
-    // 마우스 이동량 입력이므로 DeltaTime을 추가로 곱하지 않는다.
     AddControllerYawInput(LookAxis.X);
     AddControllerPitchInput(LookAxis.Y);
 }
 
-/** 지상에서만 기본 점프를 요청한다. */
+/** 기본 점프 요청과 실행이 현재 행동 제한을 통과하는지 검사한다. */
+bool ALMPlayerCharacter::CanUseBasicJump() const
+{
+    return UsesFreeMovement() &&
+        MovementPolicy.AllowJump &&
+        Controller &&
+        !IsMoveInputIgnored();
+}
+
+/** 행동 제한과 엔진의 기본 점프 가능 조건을 함께 검사한다. */
+bool ALMPlayerCharacter::CanJumpInternal_Implementation() const
+{
+    return CanUseBasicJump() &&
+        Super::CanJumpInternal_Implementation();
+}
+
+/** 지상 준비 또는 착지 직전 입력 버퍼에 사용할 점프 요청을 기록한다. */
 void ALMPlayerCharacter::RequestJump()
 {
-    if (!GetCharacterMovement()->IsMovingOnGround())
+    if (!CanUseBasicJump() || bJumpIssued || !GetWorld())
     {
         return;
     }
 
-    // 엔진에 실제 점프를 요청한다.
-    // 애니메이션은 AnimBP가 공중 상태를 읽어 별도로 재생한다.
-    Jump();
+    const UCharacterMovementComponent* Movement =
+        GetCharacterMovement();
+
+    const bool bGrounded = Movement->IsMovingOnGround();
+
+    if ((!bGrounded && !Movement->IsFalling()) ||
+        (bGrounded && !CanJump()) ||
+        (!bGrounded && JumpBufferSeconds <= 0.0f))
+    {
+        return;
+    }
+
+    const double Now = GetWorld()->GetTimeSeconds();
+
+    bJumpPending = true;
+    bJumpBeganGrounded = bGrounded;
+
+    // 이동 중 달리기를 요청했다면 준비 대기를 생략한다.
+    // 대기하는 동안 발판을 벗어나 점프 예약이 취소되는 경우를 줄인다.
+    const bool bRunningJump =
+        bGrounded &&
+        IsRunRequestedAndAllowed() &&
+        HasMoveInput() &&
+        GetVelocity().Size2D() > 5.0f;
+
+    JumpRequestedAt = Now;
+    JumpReadyAt = Now +
+        (bGrounded && !bRunningJump ? JumpPreparationSeconds : 0.0f);
+
+    // 공중에서 누른 점프 입력의 유효 시간이다.
+    JumpExpiresAt = Now + JumpBufferSeconds;
+
+    TryBufferedJump();
 }
 
-/** 점프 버튼의 유지 상태를 해제한다. */
+/** 정상적인 버튼 해제에서는 짧게 누른 1회 점프 요청을 보존한다. */
 void ALMPlayerCharacter::ReleaseJumpInput()
 {
-    // 공중 속도를 즉시 0으로 만드는 함수가 아니다.
+    // 엔진이 아직 처리하지 않은 명령은 검사 시점까지 유지한다.
+    if (!bJumpIssued)
+    {
+        StopJumping();
+    }
+}
+
+/** 준비 완료·유효 시간·허용 조건을 확인하여 점프 명령을 한 번 발행한다. */
+void ALMPlayerCharacter::TryBufferedJump()
+{
+    if ((!bJumpPending && !bJumpIssued) || !GetWorld())
+    {
+        return;
+    }
+
+    if (!CanUseBasicJump())
+    {
+        CancelPendingJump();
+        return;
+    }
+
+    if (bJumpIssued)
+    {
+        return;
+    }
+
+    const double Now = GetWorld()->GetTimeSeconds();
+    const bool bGrounded =
+        GetCharacterMovement()->IsMovingOnGround();
+
+    if ((!bJumpBeganGrounded && Now > JumpExpiresAt) ||
+        (bJumpBeganGrounded && !bGrounded))
+    {
+        CancelPendingJump();
+        return;
+    }
+
+    if (!bGrounded || Now < JumpReadyAt)
+    {
+        return;
+    }
+
+    bJumpPending = false;
+    bJumpIssued = true;
+
+    if (!ExecutePreparedJump())
+    {
+        CancelPendingJump();
+    }
+}
+
+/** 준비된 점프를 엔진에 요청한다. 이후 GAS 승인 경로를 연결할 지점이다. */
+bool ALMPlayerCharacter::ExecutePreparedJump()
+{
+    if (!CanJump())
+    {
+        return false;
+    }
+
+    Jump();
+    return true;
+}
+
+/** 엔진의 점프 검사 후 성공하지 못한 1회 명령을 정리한다. */
+void ALMPlayerCharacter::CheckJumpInput(float DeltaTime)
+{
+    if (bJumpIssued && !CanUseBasicJump())
+    {
+        CancelPendingJump();
+    }
+
+    Super::CheckJumpInput(DeltaTime);
+
+    // 성공했다면 OnJumped에서 이미 false로 바뀐다.
+    if (bJumpIssued)
+    {
+        CancelPendingJump();
+    }
+}
+
+/** 실제 도약 성공 시 속도·시간·발생 번호를 기록한다. */
+void ALMPlayerCharacter::OnJumped_Implementation()
+{
+    Super::OnJumped_Implementation();
+
+    const double Now = GetWorld()->GetTimeSeconds();
+
+    PreparationElapsed =
+        (bJumpIssued && bJumpBeganGrounded)
+        ? static_cast<float>(Now - JumpRequestedAt)
+        : 0.0f;
+
+    LastJumpTime = Now;
+    TakeoffSpeed = GetVelocity().Size2D();
+
+    bCurrentFallFromJump = true;
+    bJumpPending = false;
+    bJumpIssued = false;
+
+    ++JumpSerial;
+
+    // 버튼을 계속 누르고 있어도 이번 1회 명령은 소비한다.
     StopJumping();
 }
 
-void ALMPlayerCharacter::StartSprint()
+/** 준비·예약·미처리 점프 명령을 취소한다. 실제 공중 속도는 제거하지 않는다. */
+void ALMPlayerCharacter::CancelPendingJump()
 {
-    bIsSprinting = true;
-    GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+    bJumpPending = false;
+    bJumpIssued = false;
+    bJumpBeganGrounded = false;
+
+    JumpRequestedAt = -1.0;
+    JumpReadyAt = -1.0;
+    JumpExpiresAt = -1.0;
+
+    StopJumping();
 }
 
-void ALMPlayerCharacter::StopSprint()
+/** 공중 진입 당시 속도를 기록하여 공중 Shift 변경과 분리한다. */
+void ALMPlayerCharacter::CaptureAirSpeed()
 {
-    bIsSprinting = false;
-    GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+    const float Scale = MovementPolicy.SpeedMultiplier;
+
+    AirBaseSpeed = Scale > KINDA_SMALL_NUMBER
+        ? FMath::Max(WalkSpeed, GetVelocity().Size2D() / Scale)
+        : WalkSpeed;
 }
 
+/** 지상·공중 전환에 맞춰 속도 기준과 점프 예약을 갱신한다. */
+void ALMPlayerCharacter::OnMovementModeChanged(
+    EMovementMode PreviousMode,
+    uint8 PreviousCustomMode)
+{
+    Super::OnMovementModeChanged(
+        PreviousMode, PreviousCustomMode);
+
+    const UCharacterMovementComponent* Movement =
+        GetCharacterMovement();
+
+    if (Movement->IsFalling() && PreviousMode != MOVE_Falling)
+    {
+        bCurrentFallFromJump = false;
+
+        if (UsesFreeMovement())
+        {
+            CaptureAirSpeed();
+        }
+
+        // 지상에서 준비하는 동안 발판 밖으로 나갔다면 요청을 취소한다.
+        if (bJumpPending && bJumpBeganGrounded && !bJumpIssued)
+        {
+            CancelPendingJump();
+        }
+    }
+    else if (Movement->IsMovingOnGround())
+    {
+        bCurrentFallFromJump = false;
+    }
+    else if (!Movement->IsFalling())
+    {
+        bCurrentFallFromJump = false;
+        CancelPendingJump();
+    }
+
+    RefreshMovementSettings();
+}
+
+/** 접지 직전 속도와 이동 상태를 기록하여 AnimInstance에 전달한다. */
 void ALMPlayerCharacter::Landed(const FHitResult& Hit)
 {
-    Super::Landed(Hit);
+    bFreeMovementAtLanding = UsesFreeMovement();
 
-    if (LandingMontage)
+    LandingImpactSpeed =
+        FMath::Max(0.0f, -GetVelocity().Z);
+
+    bMovingAtLanding =
+        HasMoveInput() || GetVelocity().Size2D() > 40.0f;
+
+    LastLandingTime = GetWorld()->GetTimeSeconds();
+
+    ++LandingSerial;
+
+    // 착지 몽타주를 강제 재생하지 않고 AnimBP가 착지 표현을 선택한다.
+    Super::Landed(Hit);
+}
+
+/** 지상에서 유효한 점프 준비가 진행 중인지 반환한다. */
+bool ALMPlayerCharacter::IsPreparingJump() const
+{
+    return (bJumpPending || bJumpIssued) &&
+        bJumpBeganGrounded &&
+        CanUseBasicJump() &&
+        GetCharacterMovement()->IsMovingOnGround();
+}
+
+/** 준비부터 이륙 이후까지 연속된 애니메이션 경과 시간을 반환한다. */
+float ALMPlayerCharacter::GetJumpAnimationElapsed() const
+{
+    if (!GetWorld())
     {
-        // AnimGraph의 DefaultSlot을 통해 현재 이동 포즈 위에 재생한다.
-        PlayAnimMontage(LandingMontage);
+        return 0.0f;
+    }
+
+    const double Now = GetWorld()->GetTimeSeconds();
+
+    if (IsPreparingJump())
+    {
+        return static_cast<float>(Now - JumpRequestedAt);
+    }
+
+    return bCurrentFallFromJump
+        ? PreparationElapsed +
+            static_cast<float>(Now - LastJumpTime)
+        : 0.0f;
+}
+
+/** 달리기 입력 의도를 켜고 공통 경로에서 이동 설정을 갱신한다. */
+void ALMPlayerCharacter::StartSprint()
+{
+    bWantsToRun = true;
+
+    RefreshMovementSettings();
+}
+
+/** 달리기 입력 의도를 끄되 이륙 당시 공중 속도 기준은 유지한다. */
+void ALMPlayerCharacter::StopSprint()
+{
+    bWantsToRun = false;
+
+    RefreshMovementSettings();
+}
+
+/** 현재 조건과 속도 배율을 합쳐 자유 이동의 회전·최고 속도를 적용한다. */
+void ALMPlayerCharacter::RefreshMovementSettings()
+{
+    UCharacterMovementComponent* Movement =
+        GetCharacterMovement();
+
+    Movement->bOrientRotationToMovement =
+        UsesFreeMovement() &&
+        MovementPolicy.FaceMovement &&
+        MovementPolicy.AllowMove;
+
+    if (Movement->bOrientRotationToMovement)
+    {
+        bUseControllerRotationYaw = false;
+        Movement->bUseControllerDesiredRotation = false;
+    }
+
+    // 외부 행동이 이동을 맡는 동안에는 자유 이동의 속도를 덮어쓰지 않는다.
+    if (!UsesFreeMovement())
+    {
+        return;
+    }
+
+    if (Movement->IsMovingOnGround())
+    {
+        Movement->MaxWalkSpeed =
+            (IsRunRequestedAndAllowed() ? RunSpeed : WalkSpeed) *
+            MovementPolicy.SpeedMultiplier;
+    }
+    else if (Movement->IsFalling())
+    {
+        Movement->MaxWalkSpeed =
+            AirBaseSpeed * MovementPolicy.SpeedMultiplier;
     }
 }
 
-void ALMPlayerCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode)
+/** 최종 이동 조건을 적용하고 금지된 입력·점프 예약을 정리한다. */
+void ALMPlayerCharacter::ApplyFreeMovementPolicy(
+    const FLMFreeMovementPolicy& NewPolicy)
 {
-    Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
+    const bool bWasExternal = MovementPolicy.ExternalMovement;
 
-    // 재점프·낙하 자세가 착지 몽타주에 가려지지 않도록 중단한다.
-    if (LandingMontage && GetCharacterMovement()->IsFalling())
+    MovementPolicy = NewPolicy;
+    MovementPolicy.SpeedMultiplier =
+        FMath::Max(0.0f, MovementPolicy.SpeedMultiplier);
+
+    if (!CanUseBasicJump())
     {
-        StopAnimMontage(LandingMontage);
+        CancelPendingJump();
     }
+
+    if (!MovementPolicy.AllowMove || !UsesFreeMovement())
+    {
+        ConsumeMovementInputVector();
+    }
+
+    if (!UsesFreeMovement())
+    {
+        bCurrentFallFromJump = false;
+    }
+
+    if (bWasExternal &&
+        UsesFreeMovement() &&
+        GetCharacterMovement()->IsFalling())
+    {
+        CaptureAirSpeed();
+    }
+
+    RefreshMovementSettings();
+}
+
+/** 조종 해제 시 이동·달리기 의도와 점프 예약을 비운다. */
+void ALMPlayerCharacter::UnPossessed()
+{
+    ClearMoveInput();
+
+    bWantsToRun = false;
+
+    CancelPendingJump();
+    ConsumeMovementInputVector();
+
+    Super::UnPossessed();
+
+    RefreshMovementSettings();
 }
