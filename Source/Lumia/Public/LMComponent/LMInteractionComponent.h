@@ -13,6 +13,7 @@ struct FGameplayTag;
 
 UENUM(BlueprintType)
 enum class InteractionFailure:uint8 {
+
 	Succsess=0,
 	NotHasAllRequireTags,
 	CantAccessActor,
@@ -47,21 +48,20 @@ public:
 	//인터렉션 가능 여부 체크
 	UFUNCTION(BlueprintCallable,Category="Interaction")
 	FLMInteractionResult RequestInteraction(AActor* RequestActor ,UPARAM(ref) FGameplayTagContainer& ActionTags);
+	
+	//getter,setter
+	FORCEINLINE FGuid GetId() const {return InteractionId;}
+	FORCEINLINE bool GetIsBusy() const{return bIsBusy;}
 
-	constexpr FGuid GetId() const {return InteractionId;}
-	constexpr bool GetIsBusy() const{return bIsBusy;}
 	UFUNCTION(BlueprintCallable,Category="Interaction")
-	void SetIsBusy(bool BUsedCond)
-	{
-		bIsBusy = BUsedCond;
-	}
+	FORCEINLINE void SetIsBusy(const bool bUsedCond){bIsBusy = bUsedCond;}
+	
 protected:
 	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="Interaction|GameplayTags")
 	FGameplayTagContainer HasTagContainer;
 	// Called when the game starts
-	UPROPERTY(EditAnywhere, Category = "Interaction|UI")
-	TSubclassOf<UUserWidget> PromptWidgetClass;
-	FLMInteractionResult EvaluateInteraction(FGameplayTagContainer* ActionTags);
+	FLMInteractionResult EvaluateInteraction(AActor* RequestActor, FGameplayTagContainer* ActionTags);
+	
 private:
 	FGuid InteractionId;
 	bool bIsBusy=false;

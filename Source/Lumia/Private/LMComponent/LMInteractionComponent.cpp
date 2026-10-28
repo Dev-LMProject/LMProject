@@ -12,20 +12,10 @@ ULMInteractionComponent::ULMInteractionComponent()
 	PrimaryComponentTick.bStartWithTickEnabled=false;
 	InteractionId=FGuid::NewGuid();
 	bIsBusy=false;
-	//BP에서 할당시 해당 WBP 사용
-	/*
-	if (!IsValid(PromptWidgetClass))
-	{
-		static ConstructorHelpers::FClassFinder<UUserWidget> WidgetClassFinder(TEXT("/Game/_BP/LMUI/WBP_LM_InteractionPrompt.WBP_LM_InteractionPrompt_C"));
-		if (WidgetClassFinder.Succeeded())
-		{
-			PromptWidgetClass = WidgetClassFinder.Class;
-		}	
-	}
-	*/
 }
+
 //자신이 요청자와 상호작용이 가능한지
-FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(FGameplayTagContainer* ActionTags)
+FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* RequestActor,FGameplayTagContainer* ActionTags)
 {
 	FLMInteractionResult R;
 	//자신이 이미 상호작용중
@@ -43,6 +33,7 @@ FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(FGameplayTagCo
 		R.Failure=InteractionFailure::NotHasAllRequireTags;
 		return R;
 	}
+	
 	return R;
 }
 //대상에게 인터렉션 요청->대상이 요청자와 인터렉션가능한지 확인->가능한경우 인터페이스로 구현된 interact 실행
@@ -57,7 +48,7 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
 		return R;
 	}
 
-	if (&ActionTags == nullptr)
+	if (!ActionTags.IsValid())
 	{
 		R.Failure = InteractionFailure::InvalidActionTags;
 		return R;
@@ -69,7 +60,8 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
 		R.Failure = InteractionFailure::NotHasInterface; 
 		return R;
 	}
-	R = EvaluateInteraction(&ActionTags);
+	
+	R = EvaluateInteraction(RequestActor, &ActionTags);
 	if (!R.bCanInteraction)
 	{
 		return R;
