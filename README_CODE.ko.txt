@@ -5,6 +5,8 @@ Lumia 코드 저장소
 Git: https://github.com/daewoong12/LMProject.git
 개발 브랜치: dev / 검증 브랜치: main
 
+PR 반영 테스트: daewoong/git-workflow에서 dev로 문서 변경 전달
+
 현재 시작점: Blank (2026-10-23)
 - C++ 기본 모듈과 빌드 대상 파일 5개만 남겼습니다.
 - Perforce의 Content에는 빈 맵 Maps/L_Blank.umap 하나만 있습니다.
