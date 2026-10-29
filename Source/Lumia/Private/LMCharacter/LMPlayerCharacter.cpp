@@ -3,6 +3,7 @@
 #include "Animation/AnimMontage.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "LMComponent/LMInteractorComponent.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
@@ -79,6 +80,9 @@ ALMPlayerCharacter::ALMPlayerCharacter()
 
     // 카메라 회전은 부모인 SpringArm을 따라간다.
     FollowCamera->bUsePawnControlRotation = false;
+
+    // BP가 추가한 콜리전을 연결할 목록 관리 컴포넌트를 준비한다.
+    InteractorComponent = CreateDefaultSubobject<ULMInteractorComponent>(TEXT("InteractorComponent"));
 }
 
 /**
