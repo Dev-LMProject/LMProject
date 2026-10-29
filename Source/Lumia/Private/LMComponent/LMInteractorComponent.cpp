@@ -47,7 +47,7 @@ void ULMInteractorComponent::SetInteractionCollision(UPrimitiveComponent* InColl
                 if (ULMInteractionComponent* Interaction =
                     Target->FindComponentByClass<ULMInteractionComponent>())
                 {
-                    Interaction->RefreshDetectedInteractors();
+                    Interaction->RefreshDetectedInteractor();
                 }
             }
         }
@@ -106,7 +106,7 @@ void ULMInteractorComponent::SetInteractionCollision(UPrimitiveComponent* InColl
 
         if (IsValid(Interaction) && Interaction->GetDetectionCollision() == OtherComp)
         {
-            Interaction->RefreshDetectedInteractors();
+            Interaction->RefreshDetectedInteractor();
         }
     }
 }
@@ -163,6 +163,28 @@ TArray<AActor*> ULMInteractorComponent::GetInteractionTargets() const
 		}
 	}
 	return Targets;
+}
+
+FLMInteractionResult ULMInteractorComponent::TryInteract(
+    AActor* TargetActor, FGameplayTagContainer ActionTags)
+{
+    FLMInteractionResult Result;
+    Result.Failure = InteractionFailure::CantAccessActor;
+
+    if (bIsEndingPlay || !IsValid(GetOwner()) || !IsValid(TargetActor) ||
+        !InteractionTargets.Contains(TWeakObjectPtr<AActor>(TargetActor)))
+    {
+        return Result;
+    }
+
+    ULMInteractionComponent* Interaction =
+        TargetActor->FindComponentByClass<ULMInteractionComponent>();
+    if (!IsValid(Interaction))
+    {
+        return Result;
+    }
+
+    return Interaction->RequestInteraction(GetOwner(), ActionTags);
 }
 
 void ULMInteractorComponent::ClearInteractionTargets()

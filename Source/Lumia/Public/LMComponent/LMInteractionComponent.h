@@ -70,7 +70,7 @@ public:
     UPrimitiveComponent* GetDetectionCollision() const;
 
     // 플레이어의 콜리전이 나중에 연결되는 경우에도 기존 겹침을 다시 확인한다.
-    void RefreshDetectedInteractors();
+    void RefreshDetectedInteractor();
 
 protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Interaction|GameplayTags")
@@ -82,7 +82,7 @@ protected:
 
     /** BP 또는 사전 초기화에서 연결한 센서도 같은 경로로 동기화한다. */
     virtual void BeginPlay() override;
-    /** EndOverlap이 없어도 컴포넌트 종료 시 모든 요청자에게 해제를 알린다. */
+    /** EndOverlap이 없어도 컴포넌트 종료 시 플레이어에게 해제를 알린다. */
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
@@ -96,7 +96,8 @@ private:
     UPROPERTY(Transient)
     TObjectPtr<UPrimitiveComponent> DetectionCollision;
 
-    TSet<TWeakObjectPtr<ULMInteractorComponent>> DetectedInteractors;
+    // 싱글 플레이 대상이므로 현재 감지한 플레이어 하나만 기록한다.
+    TWeakObjectPtr<ULMInteractorComponent> DetectedInteractor;
 
     /** 이벤트와 초기 연결이 같은 판정 경로를 사용하게 한다. */
     UFUNCTION()

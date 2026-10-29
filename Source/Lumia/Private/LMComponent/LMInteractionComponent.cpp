@@ -80,7 +80,7 @@ void ULMInteractionComponent::SetDetectionCollision(UPrimitiveComponent* InColli
         this, &ThisClass::OnDetectionEndOverlap);
 
     Collision->UpdateOverlaps();
-    RefreshDetectedInteractors();
+    RefreshDetectedInteractor();
 }
 
 UPrimitiveComponent* ULMInteractionComponent::GetDetectionCollision() const
@@ -88,14 +88,14 @@ UPrimitiveComponent* ULMInteractionComponent::GetDetectionCollision() const
     return IsValid(DetectionCollision) ? DetectionCollision.Get() : nullptr;
 }
 
-void ULMInteractionComponent::RefreshDetectedInteractors()
+void ULMInteractionComponent::RefreshDetectedInteractor()
 {
     if (bIsEndingPlay)
     {
         return;
     }
 
-    TSet<TWeakObjectPtr<ULMInteractorComponent>> CurrentInteractors;
+    ULMInteractorComponent* CurrentInteractor = nullptr;
 
     if (IsValid(DetectionCollision) &&
         DetectionCollision->IsRegistered() &&
@@ -120,40 +120,30 @@ void ULMInteractionComponent::RefreshDetectedInteractors()
 
             if (IsValid(Interactor) && OtherComp == Interactor->GetInteractionCollision())
             {
-                CurrentInteractors.Add(TWeakObjectPtr<ULMInteractorComponent>(Interactor));
+                CurrentInteractor = Interactor;
+                break;
             }
         }
     }
 
-    const TSet<TWeakObjectPtr<ULMInteractorComponent>> PreviousInteractors = DetectedInteractors;
+    const TWeakObjectPtr<ULMInteractorComponent> PreviousInteractor = DetectedInteractor;
 
     // Broadcast 중 종료 처리가 재진입해도 정리할 수 있도록 기록부터 갱신한다.
-    DetectedInteractors = CurrentInteractors;
+    DetectedInteractor = CurrentInteractor;
 
-    for (const TWeakObjectPtr<ULMInteractorComponent>& WeakInteractor : PreviousInteractors)
+    if (PreviousInteractor != DetectedInteractor)
     {
-        if (!DetectedInteractors.Contains(WeakInteractor))
+        if (ULMInteractorComponent* Interactor = PreviousInteractor.Get())
         {
-            if (ULMInteractorComponent* Interactor = WeakInteractor.Get())
-            {
-                Interactor->UnregisterInteractionTarget(GetOwner());
-            }
+            Interactor->UnregisterInteractionTarget(GetOwner());
         }
     }
 
-    for (const TWeakObjectPtr<ULMInteractorComponent>& WeakInteractor : CurrentInteractors)
+    if (!bIsEndingPlay && DetectedInteractor.Get() == CurrentInteractor)
     {
-        if (bIsEndingPlay)
+        if (ULMInteractorComponent* Interactor = DetectedInteractor.Get())
         {
-            return;
-        }
-
-        if (DetectedInteractors.Contains(WeakInteractor))
-        {
-            if (ULMInteractorComponent* Interactor = WeakInteractor.Get())
-            {
-                Interactor->RegisterInteractionTarget(GetOwner());
-            }
+            Interactor->RegisterInteractionTarget(GetOwner());
         }
     }
 }
@@ -168,7 +158,7 @@ void ULMInteractionComponent::OnDetectionBeginOverlap(
 {
     if (OverlappedComponent == DetectionCollision)
     {
-        RefreshDetectedInteractors();
+        RefreshDetectedInteractor();
     }
 }
 
@@ -181,7 +171,7 @@ void ULMInteractionComponent::OnDetectionEndOverlap(
     if (OverlappedComponent == DetectionCollision)
     {
         // 다른 Body가 여전히 겹치면 현재 겹침 목록에 남아 있어 해제되지 않는다.
-        RefreshDetectedInteractors();
+        RefreshDetectedInteractor();
     }
 }
 
@@ -196,15 +186,12 @@ void ULMInteractionComponent::ClearDetection()
     }
     DetectionCollision = nullptr;
 
-    const TSet<TWeakObjectPtr<ULMInteractorComponent>> PreviousInteractors = DetectedInteractors;
-    DetectedInteractors.Empty();
+    const TWeakObjectPtr<ULMInteractorComponent> PreviousInteractor = DetectedInteractor;
+    DetectedInteractor.Reset();
 
-    for (const TWeakObjectPtr<ULMInteractorComponent>& WeakInteractor : PreviousInteractors)
+    if (ULMInteractorComponent* Interactor = PreviousInteractor.Get())
     {
-        if (ULMInteractorComponent* Interactor = WeakInteractor.Get())
-        {
-            Interactor->UnregisterInteractionTarget(GetOwner());
-        }
+        Interactor->UnregisterInteractionTarget(GetOwner());
     }
 }
 

@@ -21,6 +21,7 @@ public class Lumia : ModuleRules
 		{
 			"InputCore",
 			"EnhancedInput",
+			"SlateCore",
 			"LevelSequence",
 			"MovieScene"
 		});

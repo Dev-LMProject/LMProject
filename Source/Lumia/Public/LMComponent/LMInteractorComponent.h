@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "LMComponent/LMInteractionComponent.h"
 #include "LMInteractorComponent.generated.h"
 
 class UPrimitiveComponent;
@@ -37,6 +38,10 @@ public:
     /** 내부 약한 참조를 노출하지 않고 유효한 액터의 복사본만 넘긴다. */
     UFUNCTION(BlueprintPure, Category="Interaction")
     TArray<AActor*> GetInteractionTargets() const;
+
+    /** HUD가 선택한 현재 후보만 요청하고 실제 실행 조건은 대상이 다시 판단한다. */
+    UFUNCTION(BlueprintCallable, Category="Interaction")
+    FLMInteractionResult TryInteract(AActor* TargetActor, FGameplayTagContainer ActionTags);
 
 protected:
     /** 다시 플레이에 진입한 인스턴스의 종료 상태를 해제한다. */
