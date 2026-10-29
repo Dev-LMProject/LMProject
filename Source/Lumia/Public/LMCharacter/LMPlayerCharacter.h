@@ -49,7 +49,7 @@ public:
     /** 캡슐·이동 기본값·카메라 컴포넌트를 구성한다. */
     ALMPlayerCharacter();
 
-    /** 점프 준비 시간과 착지 직전 입력 버퍼를 검사한다. */
+    /** 점프 요청을 검사하고 허용된 카메라 줌을 갱신한다. */
     virtual void Tick(float DeltaSeconds) override;
 
     /** 최종 이동 조건을 적용하고, 금지된 점프 예약과 이동 입력을 정리한다. */
@@ -64,7 +64,7 @@ public:
     /** 현재 제한을 통과한 유효한 이동 입력이 있는지 반환한다. */
     bool HasMoveInput() const;
 
-    /** Shift 입력이 유지되고 현재 달리기가 허용되는지 반환한다. */
+    /** 토글로 켠 달리기 상태가 유지되고 현재 이동·달리기가 허용되는지 반환한다. */
     bool IsRunRequestedAndAllowed() const;
 
     /** 대시·연출 등 외부 행동이 이동을 맡고 있지 않은지 반환한다. */
@@ -109,7 +109,7 @@ public:
         return LandingImpactSpeed;
     }
 
-    /** 착지 순간 이동 입력 또는 유의미한 수평 속도가 있었는지 반환한다. */
+    /** 착지 순간 이동을 계속하려는 입력이 있었는지 반환한다. */
     bool WasMovingAtLanding() const
     {
         return bMovingAtLanding;
@@ -140,10 +140,10 @@ public:
     float GetJumpAnimationElapsed() const;
 
 protected:
-    /** BP 설정을 검증하고 초기 이동 속도를 반영한다. */
+    /** BP 설정을 검증하고 초기 이동 속도와 카메라 거리를 반영한다. */
     virtual void BeginPlay() override;
 
-    /** Enhanced Input 액션을 이동·시점·점프·달리기 함수에 연결한다. */
+    /** Enhanced Input 액션을 이동·시점·점프·달리기·줌 함수에 연결한다. */
     virtual void SetupPlayerInputComponent(
         UInputComponent* PlayerInputComponent) override;
 
@@ -174,11 +174,20 @@ private:
     /** 입력 크기를 제한하고 카메라의 수평 축으로 이동을 요청한다. */
     void Move(const FInputActionValue& Value);
 
-    /** 키 해제·취소 시 저장한 이동축을 비운다. */
+    /** 이동키 해제·취소 시 이동축을 비우고 달리기 토글을 해제한다. */
     void ClearMoveInput();
 
     /** 허용된 마우스 입력을 카메라의 컨트롤러 회전에 반영한다. */
     void Look(const FInputActionValue& Value);
+
+    /** 현재 로컬 플레이어가 게임 카메라의 줌을 조작할 수 있는지 검사한다. */
+    bool CanUseCameraZoom() const;
+
+    /** 휠 입력을 목표 거리에 누적하고 최소·최대 거리를 제한한다. */
+    void ZoomCamera(const FInputActionValue& Value);
+
+    /** 카메라 암 길이를 목표 거리까지 부드럽게 변경한다. */
+    void UpdateCameraZoom(float DeltaSeconds);
 
     /** 지상 준비 또는 착지 직전 버퍼에 사용할 점프 요청을 기록한다. */
     void RequestJump();
@@ -186,10 +195,10 @@ private:
     /** 정상 버튼 해제를 처리하되 짧게 누른 1회 요청은 보존한다. */
     void ReleaseJumpInput();
 
-    /** 달리기 입력 의도를 켜고 공통 경로에서 속도를 갱신한다. */
+    /** Shift를 누를 때마다 달리기를 켜거나 끄고 이동 설정을 갱신한다. */
     void StartSprint();
 
-    /** 달리기 입력 의도를 끄되 이륙 당시 공중 속도 기준은 유지한다. */
+    /** 달리기 토글을 해제하되 이륙 당시 공중 속도 기준은 유지한다. */
     void StopSprint();
 
     /** 현재 자유 이동 상태에서 기본 점프 요청이 허용되는지 검사한다. */
@@ -207,11 +216,11 @@ private:
     // 실제 이동의 기준 속도(cm/s). 최종 속도에는 SpeedMultiplier를 적용한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Movement",
         meta = (ClampMin = "1.0"))
-    float WalkSpeed = 140.0f;
+    float WalkSpeed = 330.0f;
 
     UPROPERTY(EditDefaultsOnly, Category = "LM|Movement",
         meta = (ClampMin = "2.0"))
-    float RunSpeed = 420.0f;
+    float RunSpeed = 500.0f;
 
     // 제자리·걷기 점프의 지상 준비 시간(초). 이동 중 달리기 점프는 즉시 요청한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Jump",
@@ -236,7 +245,30 @@ private:
         meta = (AllowPrivateAccess = "true"))
     TObjectPtr<UCameraComponent> FollowCamera;
 
-    // 캐릭터 BP의 Class Defaults에서 네 입력 에셋을 지정한다.
+    // 플레이어가 선택할 수 있는 카메라 암 길이의 범위(cm).
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Camera|Zoom",
+        meta = (ClampMin = "1.0", Units = "cm"))
+    float MinZoomDistance = 220.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Camera|Zoom",
+        meta = (ClampMin = "1.0", Units = "cm"))
+    float MaxZoomDistance = 500.0f;
+
+    // 휠 입력 1단위에 변경할 거리(cm).
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Camera|Zoom",
+        meta = (ClampMin = "1.0", Units = "cm"))
+    float ZoomStep = 35.0f;
+
+    // 값이 클수록 목표 거리에 빠르게 도달한다.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Camera|Zoom",
+        meta = (ClampMin = "0.1"))
+    float ZoomInterpSpeed = 10.0f;
+
+    // 벽 충돌로 카메라가 당겨져도 플레이어가 선택한 거리는 보존한다.
+    UPROPERTY(Transient, VisibleInstanceOnly, Category = "LM|Camera|Zoom")
+    float TargetZoomDistance = 350.0f;
+
+    // 캐릭터 BP의 Class Defaults에서 입력 에셋을 지정한다.
     UPROPERTY(EditDefaultsOnly, Category = "Input")
     TObjectPtr<UInputAction> MoveAction;
 
@@ -249,9 +281,13 @@ private:
     UPROPERTY(EditDefaultsOnly, Category = "Input")
     TObjectPtr<UInputAction> SprintAction;
 
+    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    TObjectPtr<UInputAction> CameraZoomAction;
+
     // 원시 입력과 실행 중인 점프 요청을 구분한다. 실제 허용 여부는 별도로 검사한다.
     FVector2D MoveAxis = FVector2D::ZeroVector;
 
+    // Shift 해제·점프·착지에는 유지하고, 이동 입력을 놓으면 해제하는 달리기 상태다.
     bool bWantsToRun = false;
     bool bJumpPending = false;
     bool bJumpIssued = false;
