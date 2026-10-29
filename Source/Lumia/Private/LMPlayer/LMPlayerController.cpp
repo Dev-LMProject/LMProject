@@ -1,16 +1,35 @@
 #include "LMPlayer/LMPlayerController.h"
 
 #include "Engine/LocalPlayer.h"
+#include "Components/InputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
+#include "InputCoreTypes.h"
 #include "LMCamera/LMPlayerCameraManager.h"
+#include "LMUI/LMInteractionHUDWidget.h"
+#include "LMUI/LMUserHUDWidget.h"
 
 ALMPlayerController::ALMPlayerController()
 {
 	PlayerCameraManagerClass = ALMPlayerCameraManager::StaticClass();
 }
 
-/** 로컬 플레이어에게 기본 키 배치를 등록한다. */
+void ALMPlayerController::BeginPlay()
+{
+	Super::BeginPlay();
+	if (IsLocalPlayerController() &&
+		ensureMsgf(UserHUDClass, TEXT("Assign UserHUDClass in the player controller BP.")))
+	{
+		UserHUD = CreateWidget<ULMUserHUDWidget>(this, UserHUDClass);
+		if (UserHUD)
+		{
+			InteractionHUD = UserHUD->GetInteractionHUD();
+			UserHUD->AddToPlayerScreen();
+		}
+	}
+}
+
+// 로컬 플레이어에게 기본 키 배치를 등록한다.
 void ALMPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -20,6 +39,18 @@ void ALMPlayerController::SetupInputComponent()
 	{
 		return;
 	}
+
+	// 컨트롤러에서 소비해 캐릭터 BP의 임시 E 입력과 중복 실행되지 않게 한다.
+	InputComponent->BindKey(EKeys::Up, IE_Pressed,
+		this, &ThisClass::SelectPreviousInteractionTarget).bConsumeInput = true;
+	InputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed,
+		this, &ThisClass::SelectPreviousInteractionTarget).bConsumeInput = true;
+	InputComponent->BindKey(EKeys::Down, IE_Pressed,
+		this, &ThisClass::SelectNextInteractionTarget).bConsumeInput = true;
+	InputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed,
+		this, &ThisClass::SelectNextInteractionTarget).bConsumeInput = true;
+	InputComponent->BindKey(EKeys::E, IE_Pressed,
+		this, &ThisClass::InteractWithSelectedTarget).bConsumeInput = true;
 	
 	ULocalPlayer* LocalPlayer = GetLocalPlayer();
 	if (!LocalPlayer)
@@ -45,10 +76,17 @@ void ALMPlayerController::SetupInputComponent()
 	SetInputMode(FInputModeGameOnly());
 }
 
-/** 플레이 종료 또는 컨트롤러 제거 시 입력 매핑을 정리한다. */
+// 플레이 종료 또는 컨트롤러 제거 시 입력 매핑을 정리한다.
 void ALMPlayerController::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
+	if (UserHUD)
+	{
+		UserHUD->RemoveFromParent();
+		UserHUD = nullptr;
+	}
+	InteractionHUD = nullptr;
+
 	if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
 	{
 		UEnhancedInputLocalPlayerSubsystem* Subsystem =
@@ -61,4 +99,33 @@ void ALMPlayerController::EndPlay(
 		}
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+void ALMPlayerController::SelectPreviousInteractionTarget()
+{
+	if (InteractionHUD)
+	{
+		InteractionHUD->MoveSelection(-1);
+	}
+}
+
+void ALMPlayerController::SelectNextInteractionTarget()
+{
+	if (InteractionHUD)
+	{
+		InteractionHUD->MoveSelection(1);
+	}
+}
+
+void ALMPlayerController::InteractWithSelectedTarget()
+{
+	if (InteractionHUD)
+	{
+		const FLMInteractionResult Result = InteractionHUD->TryInteractSelected();
+		if (Result.Failure != InteractionFailure::Succsess)
+		{
+			UE_LOG(LogTemp, Verbose, TEXT("Interaction request failed: %d"),
+				static_cast<int32>(Result.Failure));
+		}
+	}
 }

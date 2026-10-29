@@ -7,6 +7,7 @@
 class UCameraComponent;
 class USpringArmComponent;
 class UInputAction;
+class ULMInteractorComponent;
 class UAnimMontage;
 struct FInputActionValue;
 
@@ -63,6 +64,11 @@ private:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Movement",
 		meta = (AllowPrivateAccess = "true"))
 	bool bIsSprinting = false;
+
+	// BP에서 만든 콜리전을 이 컴포넌트의 SetInteractionCollision으로 연결한다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Interaction",
+		meta=(AllowPrivateAccess="true"))
+	TObjectPtr<ULMInteractorComponent> InteractorComponent;
 
 	/** 카메라 거리와 카메라의 벽 충돌을 처리한다. */
 	UPROPERTY(
