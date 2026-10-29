@@ -3,7 +3,6 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/ScrollBox.h"
 #include "Components/ScrollBoxSlot.h"
-#include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -33,10 +32,8 @@ void ULMInteractionHUDWidget::NativeOnInitialized()
         return;
     }
 
-    ListSizeBox = Cast<USizeBox>(ListLayout->GetRootWidget());
     TargetList = Cast<UScrollBox>(ListLayout->GetWidgetFromName(TEXT("ScrollBox_101")));
-    if (!ensureMsgf(ListSizeBox && TargetList,
-        TEXT("Interaction HUD expects a SizeBox containing ScrollBox_101.")))
+    if (!ensureMsgf(TargetList, TEXT("Interaction HUD requires ScrollBox_101.")))
     {
         return;
     }
@@ -44,7 +41,6 @@ void ULMInteractionHUDWidget::NativeOnInitialized()
     // 레이아웃은 기존 BP를 사용하고, 입력은 게임 컨트롤러가 받는다.
     WidgetTree->RootWidget = ListLayout;
     SetVisibility(ESlateVisibility::HitTestInvisible);
-    ListSizeBox->SetWidthOverride(340.0f);
     TargetList->SetScrollBarVisibility(ESlateVisibility::Collapsed);
     TargetList->SetConsumeMouseWheel(EConsumeMouseWheel::Never);
 
@@ -136,7 +132,7 @@ void ULMInteractionHUDWidget::RefreshTargets()
         SelectedActor.Reset();
     }
 
-    if (!IsValid(TargetList) || !IsValid(ListLayout) || !IsValid(ListSizeBox))
+    if (!IsValid(TargetList) || !IsValid(ListLayout))
     {
         return;
     }
@@ -149,8 +145,6 @@ void ULMInteractionHUDWidget::RefreshTargets()
     {
         return;
     }
-
-    ListSizeBox->SetHeightOverride(FMath::Min(360.0f, 84.0f + 32.0f * DisplayedTargets.Num()));
 
     UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>();
     Title->SetText(NSLOCTEXT("LMInteractionHUD", "Title", "상호작용"));

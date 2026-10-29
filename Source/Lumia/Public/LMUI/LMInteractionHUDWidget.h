@@ -8,7 +8,6 @@
 class APawn;
 class ULMInteractorComponent;
 class UScrollBox;
-class USizeBox;
 class UTextBlock;
 
 // 자신의 상호작용 목록을 표시하고 사용자가 고른 액터를 보관한다.
@@ -32,7 +31,7 @@ public:
     AActor* GetSelectedActor() const;
 
 protected:
-    // 목록 레이아웃을 생성하고 크기·스크롤·초기 표시 상태를 설정한다.
+    // 목록 레이아웃을 생성하고 스크롤·초기 표시 상태를 설정한다.
     virtual void NativeOnInitialized() override;
     // Pawn 변경 이벤트를 구독하고 현재 Pawn의 Interactor에 연결한다.
     virtual void NativeConstruct() override;
@@ -59,9 +58,6 @@ private:
 
     UPROPERTY(Transient)
     TObjectPtr<UUserWidget> ListLayout;
-
-    UPROPERTY(Transient)
-    TObjectPtr<USizeBox> ListSizeBox;
 
     UPROPERTY(Transient)
     TObjectPtr<UScrollBox> TargetList;
