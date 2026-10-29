@@ -83,6 +83,11 @@ void ALMPlayerCameraManager::StopCameraEffect()
 	RestoreGameplayView();
 }
 
+bool ALMPlayerCameraManager::IsSequenceCameraActive() const
+{
+	return IsValid(ActiveSequencePlayer);
+}
+
 void ALMPlayerCameraManager::RestoreGameplayView()
 {
 	ULevelSequencePlayer* SequencePlayer = ActiveSequencePlayer;
