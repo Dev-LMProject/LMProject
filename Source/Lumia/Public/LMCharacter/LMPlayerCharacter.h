@@ -242,11 +242,7 @@ private:
     // 현재 적용 중인 최종 조건. 지금은 기본값으로 동작한다.
     UPROPERTY(Transient, VisibleInstanceOnly, Category = "LM|Movement")
     FLMFreeMovementPolicy MovementPolicy;
-
-    // 몸 회전과 독립된 카메라 연결. 기존 컴포넌트 이름을 유지한다.
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
-        meta = (AllowPrivateAccess = "true"))
-    TObjectPtr<USpringArmComponent> CameraBoom;
+    
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
         meta = (AllowPrivateAccess = "true"))
