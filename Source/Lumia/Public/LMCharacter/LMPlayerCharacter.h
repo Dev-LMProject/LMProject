@@ -206,13 +206,8 @@ private:
 		meta=(AllowPrivateAccess="true"))
 	TObjectPtr<ULMInteractorComponent> InteractorComponent;
 
-	/** 카메라 거리와 카메라의 벽 충돌을 처리한다. */
-	UPROPERTY(
-		VisibleAnywhere,
-		BlueprintReadOnly,
-		Category = "Camera",
-		meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<USpringArmComponent> CameraBoom;
+    /** 준비 완료·유효 시간·허용 조건을 확인해 점프 명령을 한 번 발행한다. */
+    void TryBufferedJump();
 
     /** 현재 조건과 속도 배율을 합쳐 자유 이동의 회전·최고 속도를 적용한다. */
     void RefreshMovementSettings();
