@@ -7,6 +7,7 @@
 #include "InputCoreTypes.h"
 #include "LMCamera/LMPlayerCameraManager.h"
 #include "LMUI/LMInteractionHUDWidget.h"
+#include "LMUI/LMUserHUDWidget.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -18,12 +19,15 @@ void ALMPlayerController::BeginPlay()
 	Super::BeginPlay();
 	if (IsLocalPlayerController())
 	{
-		InteractionHUD = CreateWidget<ULMInteractionHUDWidget>(
-			this, ULMInteractionHUDWidget::StaticClass());
-		if (InteractionHUD)
+		UserHUD = CreateWidget<ULMUserHUDWidget>(this, ULMUserHUDWidget::StaticClass());
+		if (UserHUD)
 		{
-			InteractionHUD->SetInteractionActionTags(InteractionActionTags);
-			InteractionHUD->AddToPlayerScreen();
+			InteractionHUD = UserHUD->GetInteractionHUD();
+			if (InteractionHUD)
+			{
+				InteractionHUD->SetInteractionActionTags(InteractionActionTags);
+			}
+			UserHUD->AddToPlayerScreen();
 		}
 	}
 }
@@ -79,11 +83,12 @@ void ALMPlayerController::SetupInputComponent()
 void ALMPlayerController::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
-	if (InteractionHUD)
+	if (UserHUD)
 	{
-		InteractionHUD->RemoveFromParent();
-		InteractionHUD = nullptr;
+		UserHUD->RemoveFromParent();
+		UserHUD = nullptr;
 	}
+	InteractionHUD = nullptr;
 
 	if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
 	{

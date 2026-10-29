@@ -1,8 +1,6 @@
 #include "LMUI/LMInteractionHUDWidget.h"
 
 #include "Blueprint/WidgetTree.h"
-#include "Components/Overlay.h"
-#include "Components/OverlaySlot.h"
 #include "Components/ScrollBox.h"
 #include "Components/ScrollBoxSlot.h"
 #include "Components/SizeBox.h"
@@ -15,11 +13,8 @@
 ULMInteractionHUDWidget::ULMInteractionHUDWidget(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
 {
-    static ConstructorHelpers::FClassFinder<UUserWidget> HUDLayoutAsset(
-        TEXT("/Game/UI/WBP_UserHUD"));
     static ConstructorHelpers::FClassFinder<UUserWidget> ListLayoutAsset(
         TEXT("/Game/UI/WBP_InteractionList"));
-    HUDLayoutClass = HUDLayoutAsset.Class;
     ListLayoutClass = ListLayoutAsset.Class;
 }
 
@@ -27,39 +22,32 @@ void ULMInteractionHUDWidget::NativeOnInitialized()
 {
     Super::NativeOnInitialized();
 
-    if (!ensureMsgf(HUDLayoutClass && ListLayoutClass,
-        TEXT("Interaction HUD requires WBP_UserHUD and WBP_InteractionList.")))
+    if (!ensureMsgf(ListLayoutClass, TEXT("Interaction HUD requires WBP_InteractionList.")))
     {
         return;
     }
 
-    UUserWidget* HUDLayout = CreateWidget<UUserWidget>(this, HUDLayoutClass);
     ListLayout = CreateWidget<UUserWidget>(this, ListLayoutClass);
-    if (!IsValid(HUDLayout) || !IsValid(ListLayout))
+    if (!IsValid(ListLayout))
     {
         return;
     }
 
-    UOverlay* HUDRoot = Cast<UOverlay>(HUDLayout->GetRootWidget());
     ListSizeBox = Cast<USizeBox>(ListLayout->GetRootWidget());
     TargetList = Cast<UScrollBox>(ListLayout->GetWidgetFromName(TEXT("ScrollBox_101")));
-    if (!ensureMsgf(HUDRoot && ListSizeBox && TargetList,
-        TEXT("Interaction HUD expects an Overlay root and a SizeBox containing ScrollBox_101.")))
+    if (!ensureMsgf(ListSizeBox && TargetList,
+        TEXT("Interaction HUD expects a SizeBox containing ScrollBox_101.")))
     {
         return;
     }
 
     // 레이아웃은 기존 BP를 사용하고, 입력은 게임 컨트롤러가 받는다.
-    WidgetTree->RootWidget = HUDLayout;
+    WidgetTree->RootWidget = ListLayout;
     SetVisibility(ESlateVisibility::HitTestInvisible);
     ListSizeBox->SetWidthOverride(340.0f);
     TargetList->SetScrollBarVisibility(ESlateVisibility::Collapsed);
     TargetList->SetConsumeMouseWheel(EConsumeMouseWheel::Never);
 
-    UOverlaySlot* ListSlot = HUDRoot->AddChildToOverlay(ListLayout);
-    ListSlot->SetHorizontalAlignment(HAlign_Right);
-    ListSlot->SetVerticalAlignment(VAlign_Center);
-    ListSlot->SetPadding(FMargin(0.0f, 0.0f, 40.0f, 0.0f));
     ListLayout->SetVisibility(ESlateVisibility::Collapsed);
 }
 

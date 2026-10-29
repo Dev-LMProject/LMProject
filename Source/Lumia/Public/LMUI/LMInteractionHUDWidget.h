@@ -11,7 +11,7 @@ class UScrollBox;
 class USizeBox;
 class UTextBlock;
 
-/** 기존 HUD 레이아웃에 감지 목록을 표시하고 사용자가 고른 액터를 보관한다. */
+/** 자신의 상호작용 목록을 표시하고 사용자가 고른 액터를 보관한다. */
 UCLASS()
 class LUMIA_API ULMInteractionHUDWidget : public UUserWidget
 {
@@ -34,7 +34,7 @@ public:
     AActor* GetSelectedActor() const;
 
 protected:
-    /** 기존 두 위젯의 디자인을 런타임에 조합한다. */
+    /** 자신의 목록 레이아웃만 구성하며 부모 HUD의 구조에는 관여하지 않는다. */
     virtual void NativeOnInitialized() override;
     /** 늦게 만들어진 HUD도 현재 감지 목록을 한 번 받아 시작한다. */
     virtual void NativeConstruct() override;
@@ -54,9 +54,6 @@ private:
 
     /** 선택 이동에는 행을 다시 만들지 않고 강조와 스크롤만 바꾼다. */
     void UpdateSelectionDisplay();
-
-    UPROPERTY()
-    TSubclassOf<UUserWidget> HUDLayoutClass;
 
     UPROPERTY()
     TSubclassOf<UUserWidget> ListLayoutClass;

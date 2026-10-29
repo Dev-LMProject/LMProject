@@ -7,6 +7,7 @@
 
 class UInputMappingContext;
 class ULMInteractionHUDWidget;
+class ULMUserHUDWidget;
 
 /** 로컬 플레이어의 입력 환경과 카메라 매니저를 연결한다. */
 UCLASS()
@@ -25,7 +26,7 @@ public:
 	void SetInteractionActionTags(FGameplayTagContainer InTags);
 
 protected:
-	/** 로컬 플레이어 화면에 감지 목록 HUD를 한 번 생성한다. */
+	/** 로컬 플레이어 화면에 부모 UserHUD를 한 번 생성한다. */
 	virtual void BeginPlay() override;
 
 	virtual void SetupInputComponent() override;
@@ -45,6 +46,10 @@ private:
 		BlueprintSetter=SetInteractionActionTags, Category="Interaction", meta=(AllowPrivateAccess="true"))
 	FGameplayTagContainer InteractionActionTags;
 
+	UPROPERTY(Transient)
+	TObjectPtr<ULMUserHUDWidget> UserHUD;
+
+	// 생성과 배치는 UserHUD가 담당하고 컨트롤러는 입력만 전달한다.
 	UPROPERTY(Transient)
 	TObjectPtr<ULMInteractionHUDWidget> InteractionHUD;
 
