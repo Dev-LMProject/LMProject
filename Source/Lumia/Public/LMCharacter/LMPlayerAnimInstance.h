@@ -134,14 +134,19 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "LM|Assets|Start")
     TObjectPtr<UAnimSequence> WalkToRunStart;
 
+    /** 정지 출발과 걷기→달리기에 사용하는 출발 모션의 재생 배율. */
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Tuning|Start",
+        meta = (ClampMin = "0.1", ClampMax = "3.0"))
+    float RunStartPlayRate = 1.5f;
+
     // 모션 1배속의 기준 속도(cm/s). Character의 실제 최고 속도와 구분한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Tuning",
         meta = (ClampMin = "1.0"))
-    float WalkAnimationReferenceSpeed = 104.0f;
+    float WalkAnimationReferenceSpeed = 330.0f;
 
     UPROPERTY(EditDefaultsOnly, Category = "LM|Tuning",
         meta = (ClampMin = "1.0"))
-    float RunAnimationReferenceSpeed = 410.0f;
+    float RunAnimationReferenceSpeed = 550.0f;
 
     // 포즈 사용 시간(초)과 강한 착지의 하강 속도 기준(cm/s).
     UPROPERTY(EditDefaultsOnly, Category = "LM|Tuning",
@@ -186,10 +191,15 @@ private:
     bool bLeftSupport = true;
     bool bWasPreparingJump = false;
     bool bStartActive = false;
+
     // 달리기 요청이 이번 프레임에 시작됐는지 판별한다.
     bool bWasRunRequested = false;
     bool bLandingActive = false;
     bool bLandingWasMoving = false;
 
+    // 출발 클립에서 읽을 시간(초). 재생 배율이 적용된 시간이다.
     float StartAge = 0.0f;
+
+    // AnimBP GroundMovement의 Start -> Move 전환에서 읽은 실제 혼합 시간(초).
+    float StartBlendOutSeconds = 0.0f;
 };

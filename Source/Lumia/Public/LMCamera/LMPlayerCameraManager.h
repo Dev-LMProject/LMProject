@@ -28,6 +28,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|Camera")
 	void RestoreGameplayView();
 
+	/** 이 매니저의 시퀀스 연출이 아직 정리되지 않았는지 반환한다. */
+	bool IsSequenceCameraActive() const;
+
 	/** 단독 재생한 카메라 흔들림의 자연 종료를 처리한다. */
 	virtual void UpdateCamera(float DeltaTime) override;
 

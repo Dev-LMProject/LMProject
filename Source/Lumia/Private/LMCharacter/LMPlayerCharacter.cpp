@@ -7,8 +7,10 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
+#include "LMCamera/LMPlayerCameraManager.h"
 #include "Math/RotationMatrix.h"
 
 /** 몸은 이동 방향, 카메라는 컨트롤러 방향을 사용하도록 기본값을 구성한다. */
@@ -31,7 +33,8 @@ ALMPlayerCharacter::ALMPlayerCharacter()
     Movement->RotationRate = FRotator(0.0f, 720.0f, 0.0f);
 
     Movement->MaxWalkSpeed = WalkSpeed;
-    Movement->MaxAcceleration = 2048.0f;
+    // 최대 가속도
+    Movement->MaxAcceleration = 900.0f;
     Movement->GroundFriction = 8.0f;
 
     // 방향 전환용 마찰과 정지할 때의 감속을 구분한다.
@@ -73,7 +76,7 @@ ALMPlayerCharacter::ALMPlayerCharacter()
     InteractorComponent = CreateDefaultSubobject<ULMInteractorComponent>(TEXT("InteractorComponent"));
 }
 
-/** BP에 저장된 설정을 포함하여 시작 속도와 점프 준비 시간을 확정한다. */
+/** BP에 저장된 설정을 포함하여 이동·점프와 시작 카메라 거리를 확정한다. */
 void ALMPlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
@@ -90,14 +93,25 @@ void ALMPlayerCharacter::BeginPlay()
     AirBaseSpeed = WalkSpeed;
 
     RefreshMovementSettings();
+
+    MinZoomDistance = FMath::Max(MinZoomDistance, 1.0f);
+    MaxZoomDistance = FMath::Max(MaxZoomDistance, MinZoomDistance);
+    ZoomStep = FMath::Max(ZoomStep, 1.0f);
+    ZoomInterpSpeed = FMath::Max(ZoomInterpSpeed, 0.1f);
+
+    // 캐릭터 BP에 지정한 카메라 거리를 시작값으로 사용한다.
+    TargetZoomDistance = FMath::Clamp(
+        CameraBoom->TargetArmLength, MinZoomDistance, MaxZoomDistance);
+    CameraBoom->TargetArmLength = TargetZoomDistance;
 }
 
-/** 준비 시간이나 착지를 기다리고 있는 점프 요청을 검사한다. */
+/** 예약된 점프를 검사하고 게임 카메라의 줌을 갱신한다. */
 void ALMPlayerCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
     TryBufferedJump();
+    UpdateCameraZoom(DeltaSeconds);
 }
 
 /** 입력 실행·해제·취소를 각각 연결하여 입력 상태가 남지 않게 한다. */
@@ -151,13 +165,19 @@ void ALMPlayerCharacter::SetupPlayerInputComponent(
         SprintAction, ETriggerEvent::Started,
         this, &ThisClass::StartSprint);
 
-    Input->BindAction(
-        SprintAction, ETriggerEvent::Completed,
-        this, &ThisClass::StopSprint);
-
+    // Shift를 놓는 Completed에는 달리기를 끄지 않는다. 이동키 해제 시 초기화한다.
     Input->BindAction(
         SprintAction, ETriggerEvent::Canceled,
         this, &ThisClass::StopSprint);
+
+    if (ensureMsgf(
+            CameraZoomAction,
+            TEXT("Assign CameraZoomAction in the player BP.")))
+    {
+        Input->BindAction(
+            CameraZoomAction, ETriggerEvent::Triggered,
+            this, &ThisClass::ZoomCamera);
+    }
 }
 
 /** 현재 제한을 통과한 유효한 이동 입력이 있는지 반환한다. */
@@ -170,10 +190,11 @@ bool ALMPlayerCharacter::HasMoveInput() const
         !MoveAxis.IsNearlyZero(0.01f);
 }
 
-/** Shift 입력 의도와 현재 달리기 허용 조건을 함께 검사한다. */
+/** 유지 중인 달리기 토글과 현재 이동·달리기 허용 조건을 함께 검사한다. */
 bool ALMPlayerCharacter::IsRunRequestedAndAllowed() const
 {
     return UsesFreeMovement() &&
+        MovementPolicy.AllowMove &&
         MovementPolicy.AllowRun &&
         bWantsToRun;
 }
@@ -186,6 +207,7 @@ void ALMPlayerCharacter::Move(const FInputActionValue& Value)
 
     if (!HasMoveInput())
     {
+        StopSprint();
         return;
     }
 
@@ -201,10 +223,11 @@ void ALMPlayerCharacter::Move(const FInputActionValue& Value)
         CameraAxes.GetUnitAxis(EAxis::Y), MoveAxis.X);
 }
 
-/** 이동 입력을 비운다. 실제 속도는 CharacterMovement가 감속시킨다. */
+/** 이동 입력과 달리기 토글을 비운다. 실제 속도는 CharacterMovement가 감속시킨다. */
 void ALMPlayerCharacter::ClearMoveInput()
 {
     MoveAxis = FVector2D::ZeroVector;
+    StopSprint();
 }
 
 /** 허용된 마우스 입력으로 카메라의 컨트롤러 회전을 변경한다. */
@@ -221,6 +244,53 @@ void ALMPlayerCharacter::Look(const FInputActionValue& Value)
 
     AddControllerYawInput(LookAxis.X);
     AddControllerPitchInput(LookAxis.Y);
+}
+
+bool ALMPlayerCharacter::CanUseCameraZoom() const
+{
+    const APlayerController* PlayerController =
+        Cast<APlayerController>(Controller);
+
+    if (!PlayerController ||
+        !PlayerController->IsLocalController() ||
+        !MovementPolicy.AllowLook ||
+        PlayerController->IsLookInputIgnored() ||
+        PlayerController->GetViewTarget() != this)
+    {
+        return false;
+    }
+
+    const ALMPlayerCameraManager* CameraManager =
+        Cast<ALMPlayerCameraManager>(PlayerController->PlayerCameraManager);
+
+    return !CameraManager || !CameraManager->IsSequenceCameraActive();
+}
+
+void ALMPlayerCharacter::ZoomCamera(const FInputActionValue& Value)
+{
+    if (!CanUseCameraZoom())
+    {
+        return;
+    }
+
+    const float WheelInput = Value.Get<float>();
+
+    // 보간 중에도 연속 휠 입력이 빠지지 않도록 목표 거리에 누적한다.
+    TargetZoomDistance = FMath::Clamp(
+        TargetZoomDistance - WheelInput * ZoomStep,
+        MinZoomDistance, MaxZoomDistance);
+}
+
+void ALMPlayerCharacter::UpdateCameraZoom(float DeltaSeconds)
+{
+    if (!CanUseCameraZoom())
+    {
+        return;
+    }
+
+    CameraBoom->TargetArmLength = FMath::FInterpTo(
+        CameraBoom->TargetArmLength, TargetZoomDistance,
+        DeltaSeconds, ZoomInterpSpeed);
 }
 
 /** 기본 점프 요청과 실행이 현재 행동 제한을 통과하는지 검사한다. */
@@ -461,8 +531,8 @@ void ALMPlayerCharacter::Landed(const FHitResult& Hit)
     LandingImpactSpeed =
         FMath::Max(0.0f, -GetVelocity().Z);
 
-    bMovingAtLanding =
-        HasMoveInput() || GetVelocity().Size2D() > 40.0f;
+    // 공중 관성이 남아 있어도 키를 놓았다면 정지 착지 자세를 충분히 보여준다.
+    bMovingAtLanding = HasMoveInput();
 
     LastLandingTime = GetWorld()->GetTimeSeconds();
 
@@ -502,15 +572,24 @@ float ALMPlayerCharacter::GetJumpAnimationElapsed() const
         : 0.0f;
 }
 
-/** 달리기 입력 의도를 켜고 공통 경로에서 이동 설정을 갱신한다. */
+/** Shift를 누를 때마다 달리기를 전환한다. 키 해제로는 달리기를 중단하지 않는다. */
 void ALMPlayerCharacter::StartSprint()
 {
-    bWantsToRun = true;
+    if (!UsesFreeMovement() ||
+        !MovementPolicy.AllowMove ||
+        !MovementPolicy.AllowRun ||
+        !Controller ||
+        IsMoveInputIgnored())
+    {
+        return;
+    }
+
+    bWantsToRun = !bWantsToRun;
 
     RefreshMovementSettings();
 }
 
-/** 달리기 입력 의도를 끄되 이륙 당시 공중 속도 기준은 유지한다. */
+/** 달리기 토글을 해제하되 이륙 당시 공중 속도 기준은 유지한다. */
 void ALMPlayerCharacter::StopSprint()
 {
     bWantsToRun = false;
@@ -564,6 +643,14 @@ void ALMPlayerCharacter::ApplyFreeMovementPolicy(
     MovementPolicy.SpeedMultiplier =
         FMath::Max(0.0f, MovementPolicy.SpeedMultiplier);
 
+    // 피격·연출 등으로 제한된 달리기가 제한 해제 후 저절로 재개되지 않게 한다.
+    if (!UsesFreeMovement() ||
+        !MovementPolicy.AllowMove ||
+        !MovementPolicy.AllowRun)
+    {
+        bWantsToRun = false;
+    }
+
     if (!CanUseBasicJump())
     {
         CancelPendingJump();
@@ -593,8 +680,6 @@ void ALMPlayerCharacter::ApplyFreeMovementPolicy(
 void ALMPlayerCharacter::UnPossessed()
 {
     ClearMoveInput();
-
-    bWantsToRun = false;
 
     CancelPendingJump();
     ConsumeMovementInputVector();

@@ -3,6 +3,7 @@
 #include "LMCharacter/LMPlayerCharacter.h"
 #include "AnimCharacterMovementLibrary.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimStateMachineTypes.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -16,8 +17,7 @@ void ULMPlayerAnimInstance::NativeInitializeAnimation()
 }
 
 /** Pawn 교체·재초기화 시 이전 사건과 포즈 상태를 정리한다. */
-void ULMPlayerAnimInstance::ResetLocomotionState(
-    ALMPlayerCharacter* Character)
+void ULMPlayerAnimInstance::ResetLocomotionState(ALMPlayerCharacter* Character)
 {
     CachedCharacter = Character;
 
@@ -42,11 +42,11 @@ void ULMPlayerAnimInstance::ResetLocomotionState(
     bLandingWasMoving = false;
 
     StartAge = 0.0f;
+    StartBlendOutSeconds = 0.0f;
 }
 
 /** 실제 이동 결과를 읽어 모션 선택과 AnimBP 전환 조건을 갱신한다. */
-void ULMPlayerAnimInstance::NativeUpdateAnimation(
-    float DeltaSeconds)
+void ULMPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
     Super::NativeUpdateAnimation(DeltaSeconds);
 
@@ -145,8 +145,7 @@ void ULMPlayerAnimInstance::NativeUpdateAnimation(
         SeenJumpSerial = Character->GetJumpSerial();
     }
 
-    const float JumpAge =
-        Character->GetJumpAnimationElapsed();
+    const float JumpAge = Character->GetJumpAnimationElapsed();
 
     Locomotion.JumpPoseTime = SelectedJump
         ? FMath::Clamp(
@@ -282,15 +281,35 @@ void ULMPlayerAnimInstance::NativeUpdateAnimation(
         }
     }
 
+    const float StartPlayRate =
+        FMath::Clamp(RunStartPlayRate, 0.1f, 3.0f);
+
     if (StartCandidate)
     {
         SelectedStart = StartCandidate;
         StartAge = 0.0f;
         bStartActive = true;
+
+        // 전환 시간을 AnimBP에서 읽어, 클립 종료 전에 같은 길이만큼 겹쳐 재생한다.
+        StartBlendOutSeconds = 0.0f;
+        if (const FBakedAnimationStateMachine* GroundMachine =
+            GetStateMachineInstanceDesc(TEXT("GroundMovement")))
+        {
+            const int32 TransitionIndex = GroundMachine->FindTransitionIndex(
+                TEXT("Start"), TEXT("Move"));
+
+            if (GroundMachine->Transitions.IsValidIndex(TransitionIndex))
+            {
+                StartBlendOutSeconds = FMath::Max(
+                    GroundMachine->Transitions[TransitionIndex].CrossfadeDuration,
+                    0.0f);
+            }
+        }
     }
     else if (bStartActive)
     {
-        StartAge += Dt;
+        // 달리기로 섞이는 동안에도 출발 자세를 끝까지 진행한다.
+        StartAge += Dt * StartPlayRate;
     }
 
     // 입력 해제·점프·착지·클립 종료 시 출발 표현을 끝낸다.
@@ -302,8 +321,17 @@ void ULMPlayerAnimInstance::NativeUpdateAnimation(
         bStartActive = false;
     }
 
-    Locomotion.Starting = bStartActive;
-    Locomotion.StartPoseTime = StartAge;
+    const float StartLength = SelectedStart
+        ? SelectedStart->GetPlayLength()
+        : 0.0f;
+
+    const float StartTimeRemaining =
+        FMath::Max(StartLength - StartAge, 0.0f) / StartPlayRate;
+
+    // Starting은 Start 상태의 유지 조건이다. false가 되어도 포즈 시계는 계속 흐른다.
+    Locomotion.Starting = bStartActive &&
+        (StartCandidate != nullptr || StartTimeRemaining > StartBlendOutSeconds);
+    Locomotion.StartPoseTime = FMath::Clamp(StartAge, 0.0f, StartLength);
 
     bWasRunRequested = bRunRequested;
 }
@@ -330,9 +358,7 @@ void ULMPlayerAnimInstance::UpdateSupportFoot()
 }
 
 /** 정지 진입 순간에 속도 계열과 좌우 발에 맞는 클립을 선택한다. */
-void ULMPlayerAnimInstance::SelectStop(
-    float Speed,
-    float RunThreshold)
+void ULMPlayerAnimInstance::SelectStop(float Speed, float RunThreshold)
 {
     SelectedStop = Speed >= RunThreshold
         ? (bLeftSupport ? RunStopLeft : RunStopRight)
@@ -340,9 +366,7 @@ void ULMPlayerAnimInstance::SelectStop(
 }
 
 /** 점프 진입 순간에 속도 계열과 좌우 발에 맞는 도약 클립을 선택한다. */
-void ULMPlayerAnimInstance::SelectJump(
-    float Speed,
-    float RunThreshold)
+void ULMPlayerAnimInstance::SelectJump(float Speed, float RunThreshold)
 {
     SelectedJump = Speed >= RunThreshold
         ? (bLeftSupport ? RunJumpLeft : RunJumpRight)
