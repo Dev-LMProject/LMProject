@@ -17,9 +17,10 @@ ALMPlayerController::ALMPlayerController()
 void ALMPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-	if (IsLocalPlayerController())
+	if (IsLocalPlayerController() &&
+		ensureMsgf(UserHUDClass, TEXT("Assign UserHUDClass in the player controller BP.")))
 	{
-		UserHUD = CreateWidget<ULMUserHUDWidget>(this, ULMUserHUDWidget::StaticClass());
+		UserHUD = CreateWidget<ULMUserHUDWidget>(this, UserHUDClass);
 		if (UserHUD)
 		{
 			InteractionHUD = UserHUD->GetInteractionHUD();

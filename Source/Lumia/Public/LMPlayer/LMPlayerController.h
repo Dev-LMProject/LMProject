@@ -36,10 +36,13 @@ private:
 	// HUD에서 선택한 액터의 상호작용을 요청하고 실패 결과를 기록한다.
 	void InteractWithSelectedTarget();
 
+	UPROPERTY(EditDefaultsOnly, Category="UI")
+	TSubclassOf<ULMUserHUDWidget> UserHUDClass;
+
 	UPROPERTY(Transient)
 	TObjectPtr<ULMUserHUDWidget> UserHUD;
 
-	// 생성과 배치는 UserHUD가 담당하고 컨트롤러는 입력만 전달한다.
+	// BP 디자이너에 배치한 자식 HUD에 입력을 전달한다.
 	UPROPERTY(Transient)
 	TObjectPtr<ULMInteractionHUDWidget> InteractionHUD;
 

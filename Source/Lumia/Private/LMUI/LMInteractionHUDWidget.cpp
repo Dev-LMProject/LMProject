@@ -1,51 +1,8 @@
 #include "LMUI/LMInteractionHUDWidget.h"
 
-#include "Blueprint/WidgetTree.h"
-#include "Components/ScrollBox.h"
-#include "Components/ScrollBoxSlot.h"
-#include "Components/TextBlock.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "LMComponent/LMInteractorComponent.h"
-#include "UObject/ConstructorHelpers.h"
-
-ULMInteractionHUDWidget::ULMInteractionHUDWidget(const FObjectInitializer& ObjectInitializer)
-    : Super(ObjectInitializer)
-{
-    static ConstructorHelpers::FClassFinder<UUserWidget> ListLayoutAsset(
-        TEXT("/Game/UI/WBP_InteractionList"));
-    ListLayoutClass = ListLayoutAsset.Class;
-}
-
-void ULMInteractionHUDWidget::NativeOnInitialized()
-{
-    Super::NativeOnInitialized();
-
-    if (!ensureMsgf(ListLayoutClass, TEXT("Interaction HUD requires WBP_InteractionList.")))
-    {
-        return;
-    }
-
-    ListLayout = CreateWidget<UUserWidget>(this, ListLayoutClass);
-    if (!IsValid(ListLayout))
-    {
-        return;
-    }
-
-    TargetList = Cast<UScrollBox>(ListLayout->GetWidgetFromName(TEXT("ScrollBox_101")));
-    if (!ensureMsgf(TargetList, TEXT("Interaction HUD requires ScrollBox_101.")))
-    {
-        return;
-    }
-
-    // 레이아웃은 기존 BP를 사용하고, 입력은 게임 컨트롤러가 받는다.
-    WidgetTree->RootWidget = ListLayout;
-    SetVisibility(ESlateVisibility::HitTestInvisible);
-    TargetList->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-    TargetList->SetConsumeMouseWheel(EConsumeMouseWheel::Never);
-
-    ListLayout->SetVisibility(ESlateVisibility::Collapsed);
-}
 
 void ULMInteractionHUDWidget::NativeConstruct()
 {
@@ -107,6 +64,7 @@ void ULMInteractionHUDWidget::RefreshTargets()
     ObservedInteractions.Reset();
 
     DisplayedTargets.Reset();
+    TArray<AActor*> Targets;
     if (ULMInteractorComponent* CurrentInteractor = Interactor.Get())
     {
         const FGameplayTagContainer ActionTags = CurrentInteractor->GetInteractionActionTags();
@@ -123,6 +81,7 @@ void ULMInteractionHUDWidget::RefreshTargets()
             if (Interaction->MatchesInteractionTags(ActionTags))
             {
                 DisplayedTargets.Add(TWeakObjectPtr<AActor>(Target));
+                Targets.Add(Target);
             }
         }
     }
@@ -132,49 +91,8 @@ void ULMInteractionHUDWidget::RefreshTargets()
         SelectedActor.Reset();
     }
 
-    if (!IsValid(TargetList) || !IsValid(ListLayout))
-    {
-        return;
-    }
-
-    TargetList->ClearChildren();
-    TargetLabels.Reset();
-    ListLayout->SetVisibility(DisplayedTargets.IsEmpty()
-        ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
-    if (DisplayedTargets.IsEmpty())
-    {
-        return;
-    }
-
-    UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>();
-    Title->SetText(NSLOCTEXT("LMInteractionHUD", "Title", "상호작용"));
-    FSlateFontInfo TitleFont = Title->GetFont();
-    TitleFont.Size = 20;
-    Title->SetFont(TitleFont);
-    Title->SetColorAndOpacity(FSlateColor(FLinearColor(FColor::FromHex(TEXT("FFAA4C")))));
-    TargetList->AddChild(Title);
-
-    UTextBlock* Hint = WidgetTree->ConstructWidget<UTextBlock>();
-    Hint->SetText(NSLOCTEXT("LMInteractionHUD", "Controls", "휠 / ↑↓ 선택 · E 상호작용"));
-    FSlateFontInfo HintFont = Hint->GetFont();
-    HintFont.Size = 13;
-    Hint->SetFont(HintFont);
-    Hint->SetColorAndOpacity(FSlateColor(FLinearColor(FColor::FromHex(TEXT("8CD9F3")))));
-    TargetList->AddChild(Hint);
-
-    for (int32 Index = 0; Index < DisplayedTargets.Num(); ++Index)
-    {
-        UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>();
-        FSlateFontInfo LabelFont = Label->GetFont();
-        LabelFont.Size = 18;
-        Label->SetFont(LabelFont);
-        TargetLabels.Add(Label);
-        if (UScrollBoxSlot* RowSlot = Cast<UScrollBoxSlot>(TargetList->AddChild(Label)))
-        {
-            RowSlot->SetPadding(FMargin(8.0f, 4.0f));
-        }
-    }
-    UpdateSelectionDisplay();
+    OnInteractionTargetsChanged(Targets);
+    OnInteractionSelectionChanged(SelectedActor.Get());
 }
 
 void ULMInteractionHUDWidget::MoveSelection(int32 Direction)
@@ -190,26 +108,7 @@ void ULMInteractionHUDWidget::MoveSelection(int32 Direction)
         ? (Step > 0 ? 0 : DisplayedTargets.Num() - 1)
         : (PreviousIndex + Step + DisplayedTargets.Num()) % DisplayedTargets.Num();
     SelectedActor = DisplayedTargets[NextIndex];
-    UpdateSelectionDisplay();
-}
-
-void ULMInteractionHUDWidget::UpdateSelectionDisplay()
-{
-    for (int32 Index = 0; Index < TargetLabels.Num(); ++Index)
-    {
-        AActor* Target = DisplayedTargets[Index].Get();
-        const bool bSelected = Target && Target == SelectedActor.Get();
-        TargetLabels[Index]->SetText(FText::FromString(FString::Printf(
-            TEXT("%s%s"), bSelected ? TEXT("▶ ") : TEXT("   "),
-            Target ? *Target->GetActorNameOrLabel() : TEXT(""))));
-        TargetLabels[Index]->SetColorAndOpacity(FSlateColor(bSelected
-            ? FLinearColor(FColor::FromHex(TEXT("FFAA4C"))) : FLinearColor::White));
-
-        if (bSelected)
-        {
-            TargetList->ScrollWidgetIntoView(TargetLabels[Index], false);
-        }
-    }
+    OnInteractionSelectionChanged(SelectedActor.Get());
 }
 
 AActor* ULMInteractionHUDWidget::GetSelectedActor() const
