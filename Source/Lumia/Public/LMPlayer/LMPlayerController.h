@@ -18,6 +18,12 @@ public:
 	/** 이 컨트롤러가 생성할 전용 카메라 매니저를 지정한다. */
 	ALMPlayerController();
 
+	/** BP의 요청 태그 수정은 Setter를 거쳐 HUD 표시와 실행 조건을 함께 갱신한다. */
+	UFUNCTION(BlueprintGetter, Category="Interaction")
+	FGameplayTagContainer GetInteractionActionTags() const { return InteractionActionTags; }
+	UFUNCTION(BlueprintSetter, Category="Interaction")
+	void SetInteractionActionTags(FGameplayTagContainer InTags);
+
 protected:
 	/** 로컬 플레이어 화면에 감지 목록 HUD를 한 번 생성한다. */
 	virtual void BeginPlay() override;
@@ -35,7 +41,8 @@ private:
 	void InteractWithSelectedTarget();
 
 	/** 타겟의 HasTagContainer가 허용하는 요청 태그를 지정한다. */
-	UPROPERTY(EditDefaultsOnly, Category="Interaction")
+	UPROPERTY(EditDefaultsOnly, BlueprintGetter=GetInteractionActionTags,
+		BlueprintSetter=SetInteractionActionTags, Category="Interaction", meta=(AllowPrivateAccess="true"))
 	FGameplayTagContainer InteractionActionTags;
 
 	UPROPERTY(Transient)

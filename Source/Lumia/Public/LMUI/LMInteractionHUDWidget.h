@@ -24,8 +24,11 @@ public:
     /** 휠과 방향키가 같은 순서로 목록을 순환하게 한다. */
     void MoveSelection(int32 Direction);
 
+    /** HUD 표시와 E키 실행에 사용할 요청 태그를 함께 갱신한다. */
+    void SetInteractionActionTags(FGameplayTagContainer InTags);
+
     /** 선택된 액터만 전달하며 감지 범위 이탈 여부는 Interactor가 다시 확인한다. */
-    FLMInteractionResult TryInteractSelected(FGameplayTagContainer ActionTags);
+    FLMInteractionResult TryInteractSelected();
 
     UFUNCTION(BlueprintPure, Category="Interaction")
     AActor* GetSelectedActor() const;
@@ -45,7 +48,7 @@ private:
     /** 플레이어 교체 시 이전 Interactor의 목록과 선택을 남기지 않는다. */
     void BindInteractor(APawn* Pawn);
 
-    /** 목록 변경 때만 행을 갱신하고 사라진 대상의 선택을 해제한다. */
+    /** 감지 목록·태그 변경 때 행을 갱신하고 숨겨진 대상의 선택을 해제한다. */
     UFUNCTION()
     void RefreshTargets();
 
@@ -71,6 +74,9 @@ private:
     TArray<TObjectPtr<UTextBlock>> TargetLabels;
 
     TWeakObjectPtr<ULMInteractorComponent> Interactor;
+    // 숨겨진 후보의 태그 변경도 받아 재진입 없이 다시 표시한다.
+    TArray<TWeakObjectPtr<ULMInteractionComponent>> ObservedInteractions;
+    FGameplayTagContainer InteractionActionTags;
     TArray<TWeakObjectPtr<AActor>> DisplayedTargets;
     TWeakObjectPtr<AActor> SelectedActor;
 };

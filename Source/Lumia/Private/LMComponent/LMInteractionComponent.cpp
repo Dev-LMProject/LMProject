@@ -202,6 +202,22 @@ void ULMInteractionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
     Super::EndPlay(EndPlayReason);
 }
 
+bool ULMInteractionComponent::MatchesInteractionTags(const FGameplayTagContainer& ActionTags) const
+{
+    return ActionTags.IsValid() && HasTagContainer.HasAll(ActionTags);
+}
+
+void ULMInteractionComponent::SetInteractionTags(FGameplayTagContainer InTags)
+{
+    if (bIsEndingPlay || HasTagContainer == InTags)
+    {
+        return;
+    }
+
+    HasTagContainer = MoveTemp(InTags);
+    InteractionTagsChanged.Broadcast();
+}
+
 //자신이 요청자와 상호작용이 가능한지
 FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* RequestActor,
                                                                   FGameplayTagContainer* ActionTags)
@@ -215,7 +231,7 @@ FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* Reques
 	}
 
 	R.InteractionId = InteractionId;
-	R.bCanInteraction = HasTagContainer.HasAll(*ActionTags);
+	R.bCanInteraction = MatchesInteractionTags(*ActionTags);
 	//유효 태그 검사
 	if (!R.bCanInteraction)
 	{

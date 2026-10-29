@@ -22,6 +22,7 @@ void ALMPlayerController::BeginPlay()
 			this, ULMInteractionHUDWidget::StaticClass());
 		if (InteractionHUD)
 		{
+			InteractionHUD->SetInteractionActionTags(InteractionActionTags);
 			InteractionHUD->AddToPlayerScreen();
 		}
 	}
@@ -114,11 +115,20 @@ void ALMPlayerController::SelectNextInteractionTarget()
 	}
 }
 
+void ALMPlayerController::SetInteractionActionTags(FGameplayTagContainer InTags)
+{
+	InteractionActionTags = MoveTemp(InTags);
+	if (InteractionHUD)
+	{
+		InteractionHUD->SetInteractionActionTags(InteractionActionTags);
+	}
+}
+
 void ALMPlayerController::InteractWithSelectedTarget()
 {
 	if (InteractionHUD)
 	{
-		const FLMInteractionResult Result = InteractionHUD->TryInteractSelected(InteractionActionTags);
+		const FLMInteractionResult Result = InteractionHUD->TryInteractSelected();
 		if (Result.Failure != InteractionFailure::Succsess)
 		{
 			UE_LOG(LogTemp, Verbose, TEXT("Interaction request failed: %d"),

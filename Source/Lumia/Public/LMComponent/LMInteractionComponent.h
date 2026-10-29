@@ -13,6 +13,8 @@ struct FHitResult;
 
 struct FGameplayTag;
 
+DECLARE_MULTICAST_DELEGATE(FLMInteractionTagsChanged);
+
 UENUM(BlueprintType)
 enum class InteractionFailure:uint8 {
 
@@ -48,6 +50,20 @@ public:
     /** 대상의 감지는 이벤트로 처리하고 결과 식별용 GUID는 기존 방식으로 만든다. */
     ULMInteractionComponent();
 
+    /** 숨겨진 후보도 태그가 맞게 바뀌면 HUD가 다시 표시할 수 있게 알린다. */
+    FLMInteractionTagsChanged InteractionTagsChanged;
+
+    /** 표시와 실행이 같은 태그 포함 규칙을 사용한다. 빈 요청 태그는 허용하지 않는다. */
+    bool MatchesInteractionTags(const FGameplayTagContainer& ActionTags) const;
+
+    /** BP에서 컨테이너를 직접 수정해 변경 알림을 우회하지 않도록 복사본을 반환한다. */
+    UFUNCTION(BlueprintGetter, Category="Interaction|GameplayTags")
+    FGameplayTagContainer GetInteractionTags() const { return HasTagContainer; }
+
+    /** 런타임 태그 변경은 이 함수를 통해 HUD에 즉시 반영한다. */
+    UFUNCTION(BlueprintSetter, Category="Interaction|GameplayTags")
+    void SetInteractionTags(FGameplayTagContainer InTags);
+
     /** 실제 동작 직전에 조건을 다시 확인해 오래된 후보 목록만 믿지 않는다. */
     UFUNCTION(BlueprintCallable, Category="Interaction")
     FLMInteractionResult RequestInteraction(
@@ -73,7 +89,8 @@ public:
     void RefreshDetectedInteractor();
 
 protected:
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Interaction|GameplayTags")
+    UPROPERTY(EditAnywhere, BlueprintGetter=GetInteractionTags, BlueprintSetter=SetInteractionTags,
+        Category="Interaction|GameplayTags")
     FGameplayTagContainer HasTagContainer;
 
     /** 후보 표시와 별개로 실행 시점의 Busy·태그 조건을 판단한다. */

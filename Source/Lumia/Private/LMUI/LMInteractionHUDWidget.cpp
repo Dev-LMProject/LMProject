@@ -111,12 +111,32 @@ void ULMInteractionHUDWidget::BindInteractor(APawn* Pawn)
 
 void ULMInteractionHUDWidget::RefreshTargets()
 {
+    for (const TWeakObjectPtr<ULMInteractionComponent>& Observed : ObservedInteractions)
+    {
+        if (ULMInteractionComponent* Interaction = Observed.Get())
+        {
+            Interaction->InteractionTagsChanged.RemoveAll(this);
+        }
+    }
+    ObservedInteractions.Reset();
+
     DisplayedTargets.Reset();
     if (ULMInteractorComponent* CurrentInteractor = Interactor.Get())
     {
         for (AActor* Target : CurrentInteractor->GetInteractionTargets())
         {
-            DisplayedTargets.Add(TWeakObjectPtr<AActor>(Target));
+            ULMInteractionComponent* Interaction = Target->FindComponentByClass<ULMInteractionComponent>();
+            if (!IsValid(Interaction))
+            {
+                continue;
+            }
+
+            ObservedInteractions.Add(TWeakObjectPtr<ULMInteractionComponent>(Interaction));
+            Interaction->InteractionTagsChanged.AddUObject(this, &ThisClass::RefreshTargets);
+            if (Interaction->MatchesInteractionTags(InteractionActionTags))
+            {
+                DisplayedTargets.Add(TWeakObjectPtr<AActor>(Target));
+            }
         }
     }
 
@@ -212,11 +232,20 @@ AActor* ULMInteractionHUDWidget::GetSelectedActor() const
     return SelectedActor.Get();
 }
 
-FLMInteractionResult ULMInteractionHUDWidget::TryInteractSelected(FGameplayTagContainer ActionTags)
+void ULMInteractionHUDWidget::SetInteractionActionTags(FGameplayTagContainer InTags)
+{
+    if (InteractionActionTags != InTags)
+    {
+        InteractionActionTags = MoveTemp(InTags);
+        RefreshTargets();
+    }
+}
+
+FLMInteractionResult ULMInteractionHUDWidget::TryInteractSelected()
 {
     if (ULMInteractorComponent* CurrentInteractor = Interactor.Get())
     {
-        return CurrentInteractor->TryInteract(SelectedActor.Get(), ActionTags);
+        return CurrentInteractor->TryInteract(SelectedActor.Get(), InteractionActionTags);
     }
 
     FLMInteractionResult Result;
