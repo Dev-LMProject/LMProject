@@ -15,7 +15,7 @@ class LUMIA_API ULMInteractionHUDWidget : public UUserWidget
     GENERATED_BODY()
 
 public:
-    // 표시 목록에서 이전 또는 다음 액터를 순환 선택한다.
+    // 표시 목록에서 이전 또는 다음 액터를 선택한다.
     void MoveSelection(int32 Direction);
 
     // 현재 선택 액터를 Interactor에 전달해 상호작용을 요청한다.

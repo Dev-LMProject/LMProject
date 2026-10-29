@@ -106,7 +106,7 @@ void ULMInteractionHUDWidget::MoveSelection(int32 Direction)
     const int32 PreviousIndex = DisplayedTargets.IndexOfByKey(SelectedActor);
     const int32 NextIndex = PreviousIndex == INDEX_NONE
         ? (Step > 0 ? 0 : DisplayedTargets.Num() - 1)
-        : (PreviousIndex + Step + DisplayedTargets.Num()) % DisplayedTargets.Num();
+        : FMath::Clamp(PreviousIndex + Step, 0, DisplayedTargets.Num() - 1);
     SelectedActor = DisplayedTargets[NextIndex];
     OnInteractionSelectionChanged(SelectedActor.Get());
 }
