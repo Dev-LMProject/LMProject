@@ -41,6 +41,7 @@ struct FLMFreeMovementPolicy
     float SpeedMultiplier = 1.0f;
 };
 
+
 /** 입력 요청을 이동 처리와 연결하고, 실제 도약·착지 결과를 애니메이션에 제공한다. */
 UCLASS()
 class LUMIA_API ALMPlayerCharacter : public ALMBaseCharacter
@@ -140,7 +141,8 @@ public:
 
     /** 준비부터 이륙 이후까지 연속된 점프 포즈 경과 시간(초)을 반환한다. */
     float GetJumpAnimationElapsed() const;
-
+	
+	//FORCEINLINE USphereComponent* GetInteractionCollision() const{ return InteractionCollision;}
 protected:
     /** BP 설정을 검증하고 초기 이동 속도를 반영한다. */
     virtual void BeginPlay() override;
@@ -288,4 +290,7 @@ private:
 
     uint32 JumpSerial = 0;
     uint32 LandingSerial = 0;
+	
+
+
 };
