@@ -11,48 +11,50 @@ class UScrollBox;
 class USizeBox;
 class UTextBlock;
 
-/** 자신의 상호작용 목록을 표시하고 사용자가 고른 액터를 보관한다. */
+// 자신의 상호작용 목록을 표시하고 사용자가 고른 액터를 보관한다.
 UCLASS()
 class LUMIA_API ULMInteractionHUDWidget : public UUserWidget
 {
     GENERATED_BODY()
 
 public:
-    /** BP 디자인을 그대로 사용해 애셋의 부모 클래스 변경 없이 동작을 연결한다. */
+    // 상호작용 목록 BP 위젯 클래스를 불러온다.
     ULMInteractionHUDWidget(const FObjectInitializer& ObjectInitializer);
 
-    /** 휠과 방향키가 같은 순서로 목록을 순환하게 한다. */
+    // 표시 목록에서 이전 또는 다음 액터를 순환 선택한다.
     void MoveSelection(int32 Direction);
 
-    /** HUD 표시와 E키 실행에 사용할 요청 태그를 함께 갱신한다. */
+    // 요청 태그를 변경하고 HUD 표시 목록을 갱신한다.
     void SetInteractionActionTags(FGameplayTagContainer InTags);
 
-    /** 선택된 액터만 전달하며 감지 범위 이탈 여부는 Interactor가 다시 확인한다. */
+    // 현재 선택 액터와 요청 태그를 Interactor에 전달해 상호작용을 요청한다.
     FLMInteractionResult TryInteractSelected();
 
+    // 현재 선택된 유효한 액터를 반환한다.
     UFUNCTION(BlueprintPure, Category="Interaction")
     AActor* GetSelectedActor() const;
 
 protected:
-    /** 자신의 목록 레이아웃만 구성하며 부모 HUD의 구조에는 관여하지 않는다. */
+    // 목록 레이아웃을 생성하고 크기·스크롤·초기 표시 상태를 설정한다.
     virtual void NativeOnInitialized() override;
-    /** 늦게 만들어진 HUD도 현재 감지 목록을 한 번 받아 시작한다. */
+    // Pawn 변경 이벤트를 구독하고 현재 Pawn의 Interactor에 연결한다.
     virtual void NativeConstruct() override;
-    /** 제거된 HUD가 목록 변경을 계속 받지 않도록 구독을 해제한다. */
+    // Pawn·목록·태그 변경 구독을 해제하고 표시 목록과 선택을 비운다.
     virtual void NativeDestruct() override;
 
 private:
+    // 소유 Pawn이 변경되면 새 Pawn의 Interactor에 연결한다.
     UFUNCTION()
     void HandlePossessedPawnChanged(APawn* OldPawn, APawn* NewPawn);
 
-    /** 플레이어 교체 시 이전 Interactor의 목록과 선택을 남기지 않는다. */
+    // 이전 목록 구독을 해제하고 새 Interactor를 구독한 뒤 목록을 갱신한다.
     void BindInteractor(APawn* Pawn);
 
-    /** 감지 목록·태그 변경 때 행을 갱신하고 숨겨진 대상의 선택을 해제한다. */
+    // 감지 후보의 태그를 검사해 HUD 행을 갱신하고 숨겨진 대상의 선택을 해제한다.
     UFUNCTION()
     void RefreshTargets();
 
-    /** 선택 이동에는 행을 다시 만들지 않고 강조와 스크롤만 바꾼다. */
+    // 선택한 행의 표시와 색상을 갱신하고 해당 행으로 스크롤한다.
     void UpdateSelectionDisplay();
 
     UPROPERTY()

@@ -47,45 +47,45 @@ class LUMIA_API ULMInteractionComponent : public UActorComponent, public ILMInte
     GENERATED_BODY()
 
 public:
-    /** 대상의 감지는 이벤트로 처리하고 결과 식별용 GUID는 기존 방식으로 만든다. */
+    // Tick을 비활성화하고 상호작용 식별자와 진행 상태를 초기화한다.
     ULMInteractionComponent();
 
-    /** 숨겨진 후보도 태그가 맞게 바뀌면 HUD가 다시 표시할 수 있게 알린다. */
+    // 숨겨진 후보도 태그가 맞게 바뀌면 HUD가 다시 표시할 수 있게 알린다.
     FLMInteractionTagsChanged InteractionTagsChanged;
 
-    /** 표시와 실행이 같은 태그 포함 규칙을 사용한다. 빈 요청 태그는 허용하지 않는다. */
+    // 요청 태그가 비어 있지 않고 대상의 태그에 모두 포함되는지 반환한다.
     bool MatchesInteractionTags(const FGameplayTagContainer& ActionTags) const;
 
-    /** BP에서 컨테이너를 직접 수정해 변경 알림을 우회하지 않도록 복사본을 반환한다. */
+    // 대상이 가진 상호작용 태그의 복사본을 반환한다.
     UFUNCTION(BlueprintGetter, Category="Interaction|GameplayTags")
     FGameplayTagContainer GetInteractionTags() const { return HasTagContainer; }
 
-    /** 런타임 태그 변경은 이 함수를 통해 HUD에 즉시 반영한다. */
+    // 대상의 태그를 변경하고 태그 변경 델리게이트를 발행한다.
     UFUNCTION(BlueprintSetter, Category="Interaction|GameplayTags")
     void SetInteractionTags(FGameplayTagContainer InTags);
 
-    /** 실제 동작 직전에 조건을 다시 확인해 오래된 후보 목록만 믿지 않는다. */
+    // 요청자·태그·인터페이스·진행 상태를 검사하고 Interact를 실행한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
     FLMInteractionResult RequestInteraction(
         AActor* RequestActor, UPARAM(ref) FGameplayTagContainer& ActionTags);
 
-    /** 실행 결과의 식별자를 제공하며 후보 중복 판정에는 사용하지 않는다. */
+    // 상호작용 식별자를 반환한다.
     FORCEINLINE FGuid GetId() const { return InteractionId; }
-    /** 외부 동작이 아직 진행 중인지 조회한다. */
+    // 상호작용 진행 여부를 반환한다.
     FORCEINLINE bool GetIsBusy() const { return bIsBusy; }
 
-    /** 성공한 외부 동작이 끝났을 때 다시 요청을 받을 수 있게 한다. */
+    // 상호작용 진행 상태를 설정한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
     FORCEINLINE void SetIsBusy(const bool bUsedCond) { bIsBusy = bUsedCond; }
 
-    /** BP 소유 센서를 생성하지 않고 연결하며 교체 시 이전 등록을 정리한다. */
+    // BP 감지 콜리전을 연결하고 충돌 설정·겹침 이벤트·현재 감지를 갱신한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
     void SetDetectionCollision(UPrimitiveComponent* InCollision);
 
-    /** 연결하지 않은 다른 콜리전의 접촉을 센서로 오인하지 않게 한다. */
+    // 연결된 유효한 감지 콜리전을 반환한다.
     UPrimitiveComponent* GetDetectionCollision() const;
 
-    // 플레이어의 콜리전이 나중에 연결되는 경우에도 기존 겹침을 다시 확인한다.
+    // 현재 겹친 플레이어를 확인하고 대상 액터의 등록·해제를 갱신한다.
     void RefreshDetectedInteractor();
 
 protected:
@@ -93,17 +93,17 @@ protected:
         Category="Interaction|GameplayTags")
     FGameplayTagContainer HasTagContainer;
 
-    /** 후보 표시와 별개로 실행 시점의 Busy·태그 조건을 판단한다. */
+    // 진행 상태와 태그를 검사해 상호작용 가능 여부를 반환한다.
     FLMInteractionResult EvaluateInteraction(
         AActor* RequestActor, FGameplayTagContainer* ActionTags);
 
-    /** BP 또는 사전 초기화에서 연결한 센서도 같은 경로로 동기화한다. */
+    // 종료 상태를 초기화하고 연결된 감지 콜리전을 설정한다.
     virtual void BeginPlay() override;
-    /** EndOverlap이 없어도 컴포넌트 종료 시 플레이어에게 해제를 알린다. */
+    // 종료 상태를 설정하고 감지 이벤트와 대상 등록을 정리한다.
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
-    /** 콜백을 먼저 끊고 기록을 비워 종료 중 재진입에서도 중복 해제를 피한다. */
+    // 겹침 이벤트를 해제하고 기록된 플레이어의 대상 목록에서 자신을 제거한다.
     void ClearDetection();
 
     FGuid InteractionId;
@@ -116,7 +116,7 @@ private:
     // 싱글 플레이 대상이므로 현재 감지한 플레이어 하나만 기록한다.
     TWeakObjectPtr<ULMInteractorComponent> DetectedInteractor;
 
-    /** 이벤트와 초기 연결이 같은 판정 경로를 사용하게 한다. */
+    // 감지 콜리전의 겹침이 시작되면 플레이어 감지를 갱신한다.
     UFUNCTION()
     void OnDetectionBeginOverlap(
         UPrimitiveComponent* OverlappedComponent,
@@ -126,7 +126,7 @@ private:
         bool bFromSweep,
         const FHitResult& SweepResult);
 
-    /** 일부 Body만 이탈했을 때도 남아 있는 겹침을 기준으로 유지한다. */
+    // 감지 콜리전의 겹침이 끝나면 남은 겹침을 기준으로 감지를 갱신한다.
     UFUNCTION()
     void OnDetectionEndOverlap(
         UPrimitiveComponent* OverlappedComponent,

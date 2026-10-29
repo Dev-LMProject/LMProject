@@ -32,7 +32,7 @@ void ALMPlayerController::BeginPlay()
 	}
 }
 
-/** 로컬 플레이어에게 기본 키 배치를 등록한다. */
+// 로컬 플레이어에게 기본 키 배치를 등록한다.
 void ALMPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -79,7 +79,7 @@ void ALMPlayerController::SetupInputComponent()
 	SetInputMode(FInputModeGameOnly());
 }
 
-/** 플레이 종료 또는 컨트롤러 제거 시 입력 매핑을 정리한다. */
+// 플레이 종료 또는 컨트롤러 제거 시 입력 매핑을 정리한다.
 void ALMPlayerController::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
