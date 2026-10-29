@@ -15,6 +15,17 @@ void ULMInteractorComponent::BeginPlay()
     Super::BeginPlay();
 }
 
+void ULMInteractorComponent::SetInteractionActionTags(FGameplayTagContainer InTags)
+{
+    if (bIsEndingPlay || InteractionActionTags == InTags)
+    {
+        return;
+    }
+
+    InteractionActionTags = MoveTemp(InTags);
+    InteractionActionTagsChanged.Broadcast();
+}
+
 void ULMInteractorComponent::SetInteractionCollision(UPrimitiveComponent* InCollision)
 {
     if (bIsEndingPlay)
@@ -165,8 +176,7 @@ TArray<AActor*> ULMInteractorComponent::GetInteractionTargets() const
 	return Targets;
 }
 
-FLMInteractionResult ULMInteractorComponent::TryInteract(
-    AActor* TargetActor, FGameplayTagContainer ActionTags)
+FLMInteractionResult ULMInteractorComponent::TryInteract(AActor* TargetActor)
 {
     FLMInteractionResult Result;
     Result.Failure = InteractionFailure::CantAccessActor;
@@ -184,6 +194,7 @@ FLMInteractionResult ULMInteractorComponent::TryInteract(
         return Result;
     }
 
+    FGameplayTagContainer ActionTags = InteractionActionTags;
     return Interaction->RequestInteraction(GetOwner(), ActionTags);
 }
 

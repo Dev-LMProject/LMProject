@@ -24,10 +24,7 @@ public:
     // 표시 목록에서 이전 또는 다음 액터를 순환 선택한다.
     void MoveSelection(int32 Direction);
 
-    // 요청 태그를 변경하고 HUD 표시 목록을 갱신한다.
-    void SetInteractionActionTags(FGameplayTagContainer InTags);
-
-    // 현재 선택 액터와 요청 태그를 Interactor에 전달해 상호작용을 요청한다.
+    // 현재 선택 액터를 Interactor에 전달해 상호작용을 요청한다.
     FLMInteractionResult TryInteractSelected();
 
     // 현재 선택된 유효한 액터를 반환한다.
@@ -47,7 +44,7 @@ private:
     UFUNCTION()
     void HandlePossessedPawnChanged(APawn* OldPawn, APawn* NewPawn);
 
-    // 이전 목록 구독을 해제하고 새 Interactor를 구독한 뒤 목록을 갱신한다.
+    // 이전 목록·요청 태그 구독을 해제하고 새 Interactor를 구독한 뒤 목록을 갱신한다.
     void BindInteractor(APawn* Pawn);
 
     // 감지 후보의 태그를 검사해 HUD 행을 갱신하고 숨겨진 대상의 선택을 해제한다.
@@ -75,7 +72,6 @@ private:
     TWeakObjectPtr<ULMInteractorComponent> Interactor;
     // 숨겨진 후보의 태그 변경도 받아 재진입 없이 다시 표시한다.
     TArray<TWeakObjectPtr<ULMInteractionComponent>> ObservedInteractions;
-    FGameplayTagContainer InteractionActionTags;
     TArray<TWeakObjectPtr<AActor>> DisplayedTargets;
     TWeakObjectPtr<AActor> SelectedActor;
 };

@@ -23,10 +23,6 @@ void ALMPlayerController::BeginPlay()
 		if (UserHUD)
 		{
 			InteractionHUD = UserHUD->GetInteractionHUD();
-			if (InteractionHUD)
-			{
-				InteractionHUD->SetInteractionActionTags(InteractionActionTags);
-			}
 			UserHUD->AddToPlayerScreen();
 		}
 	}
@@ -117,15 +113,6 @@ void ALMPlayerController::SelectNextInteractionTarget()
 	if (InteractionHUD)
 	{
 		InteractionHUD->MoveSelection(1);
-	}
-}
-
-void ALMPlayerController::SetInteractionActionTags(FGameplayTagContainer InTags)
-{
-	InteractionActionTags = MoveTemp(InTags);
-	if (InteractionHUD)
-	{
-		InteractionHUD->SetInteractionActionTags(InteractionActionTags);
 	}
 }
 

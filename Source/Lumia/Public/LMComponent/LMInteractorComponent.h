@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "Components/ActorComponent.h"
 #include "LMComponent/LMInteractionComponent.h"
 #include "LMInteractorComponent.generated.h"
@@ -8,6 +9,7 @@
 class UPrimitiveComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMInteractionTargetsChanged);
+DECLARE_MULTICAST_DELEGATE(FLMInteractionActionTagsChanged);
 
 UCLASS(ClassGroup=(Interaction), meta=(BlueprintSpawnableComponent))
 class LUMIA_API ULMInteractorComponent : public UActorComponent
@@ -21,6 +23,17 @@ public:
     // HUD가 목록의 원본을 다시 조회하도록 실제 변경만 알린다.
     UPROPERTY(BlueprintAssignable, Category="Interaction")
     FLMInteractionTargetsChanged InteractionTargetsChanged;
+
+    // 요청 태그 변경을 알리고 HUD가 표시 대상을 다시 판정하게 한다.
+    FLMInteractionActionTagsChanged InteractionActionTagsChanged;
+
+    // 상호작용 요청 태그의 복사본을 반환한다.
+    UFUNCTION(BlueprintGetter, Category="Interaction")
+    FGameplayTagContainer GetInteractionActionTags() const { return InteractionActionTags; }
+
+    // 요청 태그를 변경하고 태그 변경 델리게이트를 발행한다.
+    UFUNCTION(BlueprintSetter, Category="Interaction")
+    void SetInteractionActionTags(FGameplayTagContainer InTags);
 
     // BP의 플레이어 콜리전을 연결하고 충돌 설정과 현재 감지 대상을 갱신한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
@@ -39,9 +52,9 @@ public:
     UFUNCTION(BlueprintPure, Category="Interaction")
     TArray<AActor*> GetInteractionTargets() const;
 
-    // 선택 액터의 유효성과 목록 포함 여부를 검사한 뒤 상호작용을 요청한다.
+    // 선택 액터의 유효성과 목록 포함 여부를 검사하고 보유한 태그로 상호작용을 요청한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
-    FLMInteractionResult TryInteract(AActor* TargetActor, FGameplayTagContainer ActionTags);
+    FLMInteractionResult TryInteract(AActor* TargetActor);
 
 protected:
     // Interactor의 종료 상태를 초기화한다.
@@ -54,6 +67,10 @@ private:
     void ClearInteractionTargets();
 
     TArray<TWeakObjectPtr<AActor>> InteractionTargets;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintGetter=GetInteractionActionTags,
+        BlueprintSetter=SetInteractionActionTags, Category="Interaction", meta=(AllowPrivateAccess="true"))
+    FGameplayTagContainer InteractionActionTags;
 
     UPROPERTY(Transient)
     TObjectPtr<UPrimitiveComponent> InteractionCollision;

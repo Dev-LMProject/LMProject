@@ -85,6 +85,7 @@ void ULMInteractionHUDWidget::BindInteractor(APawn* Pawn)
     {
         PreviousInteractor->InteractionTargetsChanged.RemoveDynamic(
             this, &ThisClass::RefreshTargets);
+        PreviousInteractor->InteractionActionTagsChanged.RemoveAll(this);
     }
 
     Interactor = IsValid(Pawn) ? Pawn->FindComponentByClass<ULMInteractorComponent>() : nullptr;
@@ -93,6 +94,7 @@ void ULMInteractionHUDWidget::BindInteractor(APawn* Pawn)
     {
         CurrentInteractor->InteractionTargetsChanged.AddUniqueDynamic(
             this, &ThisClass::RefreshTargets);
+        CurrentInteractor->InteractionActionTagsChanged.AddUObject(this, &ThisClass::RefreshTargets);
     }
     RefreshTargets();
 }
@@ -111,6 +113,7 @@ void ULMInteractionHUDWidget::RefreshTargets()
     DisplayedTargets.Reset();
     if (ULMInteractorComponent* CurrentInteractor = Interactor.Get())
     {
+        const FGameplayTagContainer ActionTags = CurrentInteractor->GetInteractionActionTags();
         for (AActor* Target : CurrentInteractor->GetInteractionTargets())
         {
             ULMInteractionComponent* Interaction = Target->FindComponentByClass<ULMInteractionComponent>();
@@ -121,7 +124,7 @@ void ULMInteractionHUDWidget::RefreshTargets()
 
             ObservedInteractions.Add(TWeakObjectPtr<ULMInteractionComponent>(Interaction));
             Interaction->InteractionTagsChanged.AddUObject(this, &ThisClass::RefreshTargets);
-            if (Interaction->MatchesInteractionTags(InteractionActionTags))
+            if (Interaction->MatchesInteractionTags(ActionTags))
             {
                 DisplayedTargets.Add(TWeakObjectPtr<AActor>(Target));
             }
@@ -220,20 +223,11 @@ AActor* ULMInteractionHUDWidget::GetSelectedActor() const
     return SelectedActor.Get();
 }
 
-void ULMInteractionHUDWidget::SetInteractionActionTags(FGameplayTagContainer InTags)
-{
-    if (InteractionActionTags != InTags)
-    {
-        InteractionActionTags = MoveTemp(InTags);
-        RefreshTargets();
-    }
-}
-
 FLMInteractionResult ULMInteractionHUDWidget::TryInteractSelected()
 {
     if (ULMInteractorComponent* CurrentInteractor = Interactor.Get())
     {
-        return CurrentInteractor->TryInteract(SelectedActor.Get(), InteractionActionTags);
+        return CurrentInteractor->TryInteract(SelectedActor.Get());
     }
 
     FLMInteractionResult Result;
