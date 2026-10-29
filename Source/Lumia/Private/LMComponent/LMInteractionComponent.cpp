@@ -204,7 +204,7 @@ void ULMInteractionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ULMInteractionComponent::MatchesInteractionTags(const FGameplayTagContainer& ActionTags) const
 {
-    return ActionTags.IsValid() && HasTagContainer.HasAll(ActionTags);
+    return ActionTags.IsValid() && HasTagContainer.HasAny(ActionTags);
 }
 
 void ULMInteractionComponent::SetInteractionTags(FGameplayTagContainer InTags)
