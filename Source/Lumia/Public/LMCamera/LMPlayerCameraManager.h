@@ -8,6 +8,7 @@ class ALevelSequenceActor;
 class UCameraShakeBase;
 class ULevelSequence;
 class ULevelSequencePlayer;
+class ULMPostProcessCameraModifier;
 
 /** 로컬 플레이어의 카메라 연출과 기본 시점 복귀를 관리한다. */
 UCLASS()
@@ -16,6 +17,10 @@ class LUMIA_API ALMPlayerCameraManager : public APlayerCameraManager
 	GENERATED_BODY()
 
 public:
+	ALMPlayerCameraManager();
+
+	ULMPostProcessCameraModifier* GetPostProcessModifier() const;
+
 	/** 기존 연출을 교체한다. Sequence와 ShakeClass 중 사용할 애셋만 전달한다. */
 	UFUNCTION(BlueprintCallable, Category = "LM|Camera")
 	bool PlayCameraEffect(ULevelSequence* Sequence, TSubclassOf<UCameraShakeBase> ShakeClass, float ShakeScale = 1.0f);

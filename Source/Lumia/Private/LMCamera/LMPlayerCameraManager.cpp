@@ -1,4 +1,5 @@
 #include "LMCamera/LMPlayerCameraManager.h"
+#include "LMCamera/LMPostProcessCameraModifier.h"
 
 #include "Camera/CameraShakeBase.h"
 #include "Camera/CameraModifier_CameraShake.h"
@@ -10,6 +11,23 @@
 #include "LevelSequencePlayer.h"
 #include "MovieSceneSequencePlaybackSettings.h"
 #include "TimerManager.h"
+
+ALMPlayerCameraManager::ALMPlayerCameraManager()
+{
+	DefaultModifiers.AddUnique(ULMPostProcessCameraModifier::StaticClass());
+}
+
+ULMPostProcessCameraModifier* ALMPlayerCameraManager::GetPostProcessModifier() const
+{
+	for (UCameraModifier* Modifier : ModifierList)
+	{
+		if (ULMPostProcessCameraModifier* PostProcess = Cast<ULMPostProcessCameraModifier>(Modifier))
+		{
+			return PostProcess;
+		}
+	}
+	return nullptr;
+}
 
 bool ALMPlayerCameraManager::PlayCameraEffect(
 	ULevelSequence* Sequence, TSubclassOf<UCameraShakeBase> ShakeClass, float ShakeScale)

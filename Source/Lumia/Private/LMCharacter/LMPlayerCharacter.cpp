@@ -11,6 +11,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
 #include "LMCamera/LMPlayerCameraManager.h"
+#include "LMComponent/LMScanComponent.h"
 #include "Math/RotationMatrix.h"
 #include "AlphaBlend.h"
 #include "Animation/AnimInstance.h"
@@ -92,6 +93,8 @@ ALMPlayerCharacter::ALMPlayerCharacter()
 
     // BP가 추가한 콜리전을 연결할 목록 관리 컴포넌트를 준비한다.
     InteractorComponent = CreateDefaultSubobject<ULMInteractorComponent>(TEXT("InteractorComponent"));
+    
+    ScanComponent = CreateDefaultSubobject<ULMScanComponent>(TEXT("ScanComponent"));
 }
 
 /** BP에 저장된 설정을 포함하여 이동·점프와 시작 카메라 거리를 확정한다. */
@@ -196,6 +199,15 @@ void ALMPlayerCharacter::SetupPlayerInputComponent(
         Input->BindAction(
             CameraZoomAction, ETriggerEvent::Triggered,
             this, &ThisClass::ZoomCamera);
+    }
+    
+    if (ensureMsgf(ScanAction, TEXT("Assign ScanAction in the player BP.")))
+    {
+        Input->BindAction(
+            ScanAction,
+            ETriggerEvent::Started,
+            this,
+            &ThisClass::RequestScan);
     }
 }
 
@@ -759,9 +771,28 @@ void ALMPlayerCharacter::ApplyFreeMovementPolicy(
     RefreshMovementSettings();
 }
 
+void ALMPlayerCharacter::Restart()
+{
+    Super::Restart();
+
+    if (ScanComponent)
+    {
+        const APlayerController* PlayerController = Cast<APlayerController>(GetController());
+        const ALMPlayerCameraManager* CameraManager = PlayerController && PlayerController->IsLocalController()
+            ? Cast<ALMPlayerCameraManager>(PlayerController->PlayerCameraManager) : nullptr;
+        ScanComponent->InitializeScan(CameraManager ? CameraManager->GetPostProcessModifier() : nullptr);
+    }
+}
+
 /** 조종 해제 시 이동·달리기 의도와 점프 예약을 비운다. */
 void ALMPlayerCharacter::UnPossessed()
 {
+    if (ScanComponent)
+    {
+        ScanComponent->StopScan();
+    }
+
+    ClearMoveInput();
     CancelMoveInput();
 
     CancelPendingJump();
@@ -770,6 +801,13 @@ void ALMPlayerCharacter::UnPossessed()
     Super::UnPossessed();
 
     RefreshMovementSettings();
+}
+void ALMPlayerCharacter::RequestScan()
+{
+    if (ScanComponent)
+    {
+        ScanComponent->StartScan();
+    }
 }
 
 /** 현재 피벗의 재생 인스턴스를 찾는다. */
