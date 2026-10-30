@@ -87,6 +87,7 @@ void ULMPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
     Locomotion.VerticalSpeed = Velocity.Z;
     Locomotion.HasMoveInput = Character->HasMoveInput();
     Locomotion.InAir = M->IsFalling();
+    Locomotion.PivotRecovering = Character->IsPivotRecovering();
 
     Locomotion.PreparingJump =
         bFree && Character->IsPreparingJump();
@@ -217,6 +218,7 @@ void ULMPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
     // 정지 종류를 감속 진입 때 고정해 RunStop이 도중에 WalkStop으로 바뀌지 않게 한다.
     const bool bBraking =
         bFree &&
+        !Character->IsPivoting() &&
         M->IsMovingOnGround() &&
         !Locomotion.HasMoveInput &&
         Locomotion.Moving &&
@@ -257,6 +259,7 @@ void ULMPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
     const bool bCanPlayStart =
         bFree &&
+        !Character->IsPivoting() &&
         M->IsMovingOnGround() &&
         Locomotion.HasMoveInput &&
         bRunRequested &&
