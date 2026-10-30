@@ -23,7 +23,8 @@ public class Lumia : ModuleRules
 			"EnhancedInput",
 			"LevelSequence",
 			"MovieScene",
-			"AnimationLocomotionLibraryRuntime"
+			"AnimationLocomotionLibraryRuntime",
+			"MotionWarping"
 		});
 
 		if (Target.bBuildEditor)
