@@ -106,11 +106,6 @@ void ALMPlayerCharacter::BeginPlay()
     TargetZoomDistance = FMath::Clamp(
         CameraBoom->TargetArmLength, MinZoomDistance, MaxZoomDistance);
     CameraBoom->TargetArmLength = TargetZoomDistance;
-    
-    if (ScanComponent)
-    {
-        ScanComponent->InitializeScan(FollowCamera);
-    }
 }
 
 /** 예약된 점프를 검사하고 게임 카메라의 줌을 갱신한다. */
@@ -691,6 +686,19 @@ void ALMPlayerCharacter::ApplyFreeMovementPolicy(
     }
 
     RefreshMovementSettings();
+}
+
+void ALMPlayerCharacter::Restart()
+{
+    Super::Restart();
+
+    if (ScanComponent)
+    {
+        const APlayerController* PlayerController = Cast<APlayerController>(GetController());
+        const ALMPlayerCameraManager* CameraManager = PlayerController && PlayerController->IsLocalController()
+            ? Cast<ALMPlayerCameraManager>(PlayerController->PlayerCameraManager) : nullptr;
+        ScanComponent->InitializeScan(CameraManager ? CameraManager->GetPostProcessModifier() : nullptr);
+    }
 }
 
 /** 조종 해제 시 이동·달리기 의도와 점프 예약을 비운다. */

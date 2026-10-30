@@ -168,6 +168,9 @@ protected:
         EMovementMode PreviousMode,
         uint8 PreviousCustomMode = 0) override;
 
+    /** 로컬 조종이 준비된 뒤 스캔과 후처리 객체를 연결한다. */
+    virtual void Restart() override;
+
     /** 조종 해제 시 이동·달리기 의도와 점프 예약을 비운다. */
     virtual void UnPossessed() override;
 

@@ -8,9 +8,7 @@
 #include "LMScanComponent.generated.h"
 
 class UMeshComponent;
-class UCameraComponent;
-class UMaterialInterface;
-class UMaterialInstanceDynamic;
+class ULMPostProcessCameraModifier;
 
 //스캔된 객체의 태두리를 따기 위한 메시 정보 구조체
 struct FLMScanMeshState
@@ -37,7 +35,7 @@ public:
 	void StartScan();
 	UFUNCTION(BlueprintCallable,Category="Scan")
 	void StopScan();
-	bool InitializeScan(UCameraComponent* InCamera);
+	bool InitializeScan(ULMPostProcessCameraModifier* InPostProcessModifier);
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	UPROPERTY(EditDefaultsOnly, Category = "Scan", meta = (ClampMin = "1.0", Units = "cm"))
@@ -49,8 +47,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Scan", meta = (ClampMin = "1", ClampMax = "255"))
 	int32 ScanStencilValue = 1;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Scan")
-	TObjectPtr<UMaterialInterface> ScanMaterial;
 private:
 	float ElapsedTime = 0.0f;
 	bool bIsScanning = false;
@@ -61,8 +57,5 @@ private:
 	void HighlightActor(AActor* Target);
 	void RestoreHighlights();
 	
-	UPROPERTY(Transient)
-	TObjectPtr<UMaterialInstanceDynamic> ScanMID;
-
-	TWeakObjectPtr<UCameraComponent> ScanCamera;
+	TWeakObjectPtr<ULMPostProcessCameraModifier> PostProcessModifier;
 };

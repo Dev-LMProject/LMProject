@@ -3,6 +3,7 @@
 
 #include "LMComponent/LMScanComponent.h"
 #include "LMComponent/LMInteractionComponent.h"
+#include "LMCamera/LMPostProcessCameraModifier.h"
 #include "Engine/World.h"
 #include "Engine/OverlapResult.h"
 #include "CollisionQueryParams.h"
@@ -10,10 +11,7 @@
 #include "Components/MeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Camera/CameraComponent.h"
 #include "GameFramework/Pawn.h"
-#include "Materials/Material.h"
-#include "Materials/MaterialInstanceDynamic.h"
 
 // Sets default values for this component's properties
 ULMScanComponent::ULMScanComponent()
@@ -29,7 +27,7 @@ void ULMScanComponent::StartScan()
 {
 	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
 	if (!IsValid(OwnerPawn) || !OwnerPawn->IsLocallyControlled() || !GetWorld() ||
-		!ScanCamera.IsValid() || !IsValid(ScanMID.Get()) ||
+		!PostProcessModifier.IsValid() ||
 		!FMath::IsFinite(ScanRadius) || ScanRadius <= 0.0f ||
 		!FMath::IsFinite(ScanDuration) || ScanDuration <= 0.0f ||
 		ScanStencilValue < 1 || ScanStencilValue > 255)
@@ -38,56 +36,37 @@ void ULMScanComponent::StartScan()
 	}
 
 	StopScan();
-	for (AActor* Target : CollectScanTargets())
+	const TArray<AActor*> Targets = CollectScanTargets();
+	if (!PostProcessModifier->StartScanPostProcess(ScanStencilValue))
+	{
+		return;
+	}
+	for (AActor* Target : Targets)
 	{
 		HighlightActor(Target);
 	}
 
-	ScanMID->SetScalarParameterValue(TEXT("ScanStencilValue"), static_cast<float>(ScanStencilValue));
-	ScanMID->SetScalarParameterValue(TEXT("ScanAlpha"), 1.0f);
-	ScanCamera->AddOrUpdateBlendable(ScanMID.Get(), 1.0f);
 	bIsScanning = true;
 	SetComponentTickEnabled(true);
 }
 
 void ULMScanComponent::StopScan()
 {
+	if (bIsScanning && PostProcessModifier.IsValid())
+	{
+		PostProcessModifier->StopScanPostProcess();
+	}
 	bIsScanning = false;
 	SetComponentTickEnabled(false);
-	if (IsValid(ScanMID.Get()))
-	{
-		ScanMID->SetScalarParameterValue(TEXT("ScanAlpha"), 0.0f);
-		if (ScanCamera.IsValid())
-		{
-			ScanCamera->RemoveBlendable(ScanMID.Get());
-		}
-	}
 	RestoreHighlights();
 	ElapsedTime = 0.0f;
 }
 
-bool ULMScanComponent::InitializeScan(UCameraComponent* InCamera)
+bool ULMScanComponent::InitializeScan(ULMPostProcessCameraModifier* InPostProcessModifier)
 {
 	StopScan();
-	ScanCamera.Reset();
-	ScanMID = nullptr;
-	const UMaterial* Material = IsValid(ScanMaterial.Get()) ? ScanMaterial->GetMaterial() : nullptr;
-	if (!IsValid(InCamera) || !IsValid(Material) || Material->MaterialDomain != MD_PostProcess)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Scan requires a camera and a post-process material or material instance."));
-		return false;
-	}
-	
-	ScanCamera = InCamera;
-	ScanMID = UMaterialInstanceDynamic::Create(ScanMaterial.Get(), this);
-	if (!IsValid(ScanMID.Get()))
-	{
-		return false;
-	}
-
-	ScanMID->SetScalarParameterValue(TEXT("ScanAlpha"), 0.0f);
-	ScanMID->SetScalarParameterValue( TEXT("ScanStencilValue"),static_cast<float>(ScanStencilValue));
-	return true;
+	PostProcessModifier = InPostProcessModifier;
+	return PostProcessModifier.IsValid();
 }
 
 
@@ -111,15 +90,15 @@ void ULMScanComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 
 	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
 	if (!IsValid(OwnerPawn) || !OwnerPawn->IsLocallyControlled() ||
-		!ScanCamera.IsValid() || !IsValid(ScanMID.Get()))
+		!PostProcessModifier.IsValid())
 	{
 		StopScan();
 		return;
 	}
 
 	ElapsedTime += DeltaTime;
-	const float Alpha = FMath::Clamp(1.0f - ElapsedTime / ScanDuration, 0.0f, 1.0f);
-	ScanMID->SetScalarParameterValue(TEXT("ScanAlpha"), Alpha);
+	const float Progress = FMath::Clamp(ElapsedTime / ScanDuration, 0.0f, 1.0f);
+	PostProcessModifier->UpdateScanPostProcess(Progress);
 	if (ElapsedTime >= ScanDuration)
 	{
 		StopScan();
