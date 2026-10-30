@@ -8,8 +8,12 @@ class ULMScanComponent;
 class UCameraComponent;
 class USpringArmComponent;
 class UInputAction;
-class ULMInteractorComponent;
+class UAnimInstance;
 class UAnimMontage;
+class UMotionWarpingComponent;
+
+struct FAnimMontageInstance;
+class ULMInteractorComponent;
 struct FInputActionValue;
 
 /** 자유 이동의 최종 조건. 이후 한 연결 담당이 상태·효과의 제한을 합산해 전달한다. */
@@ -64,6 +68,19 @@ public:
     /** 예약·미처리 점프 명령을 취소한다. 이미 발생한 공중 속도는 제거하지 않는다. */
     UFUNCTION(BlueprintCallable, Category = "LM|Movement")
     void CancelPendingJump();
+
+    /** 피벗 몽타주의 종료 블렌드까지 진행 중인지 반환한다. */
+    bool IsPivoting() const
+    {
+        return PivotInstanceID != INDEX_NONE;
+    }
+
+    /** 피벗의 정지 · 기립 구간을 재생 중인지 반환한다. */
+    bool IsPivotRecovering() const;
+
+    /** 점프 · 피격 · 외부 행동으로 피벗을 중단한다. */
+    UFUNCTION(BlueprintCallable, Category="LM|Movement|Pivot")
+    void CancelPivot();
 
     /** 현재 제한을 통과한 유효한 이동 입력이 있는지 반환한다. */
     bool HasMoveInput() const;
@@ -146,6 +163,9 @@ public:
 protected:
     /** BP 설정을 검증하고 초기 이동 속도와 카메라 거리를 반영한다. */
     virtual void BeginPlay() override;
+
+    /** 캐릭터 종료 시 남은 피벗과 입력 상태를 정리한다. */
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
     /** Enhanced Input 액션을 이동·시점·점프·달리기·줌 함수에 연결한다. */
     virtual void SetupPlayerInputComponent(
@@ -238,28 +258,49 @@ private:
     /** 공중 진입 속도를 기록하여 공중 Shift 변경과 분리한다. */
     void CaptureAirSpeed();
 
-    // 실제 이동의 기준 속도(cm/s). 최종 속도에는 SpeedMultiplier를 적용한다.
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement",
-        meta = (ClampMin = "1.0"))
+    /** 현재 캐릭터가 지상 피벗을 사용할 수 있는지 검사한다. */
+    bool CanUsePivot() const;
+
+    /** 실제 이동과 반대되는 입력이면 피벗을 시작한다. */
+    bool TryStartPivot(const FVector& DesireDirection);
+
+    /** 피벗의 유지 조건과 달리기  입력 유예를 갱신한다. */
+    void UpdatePivot();
+
+    /** Turn 이후의 구간을 현재 입력에 따라 선택한다. */
+    void UpdatePivotExit();
+
+    /** 피벗이 사용한 상태와 회전 목표를 정리한다. */
+    void FinishPivot();
+
+    /** 종료된 재생 인스턴스가 현재 피벗이면 정리한다. */
+    void OnPivotEnded(UAnimMontage* Montage, bool bInterrupted, int32 FinishedInstanceID);
+
+    /** 종료 블렌드 중인 인스턴스까지 포함해 현재 피벗을 찾는다. */
+    FAnimMontageInstance* GetPivotInstance() const;
+
+    /** 입력 취소 시 유예없이 이동 · 달리기 · 피벗을 정리한다. */
+    void CancelMoveInput();
+
+    /** 실제 이동의 기준 속도(cm/s). 최종 속도에는 SpeedMultiplier를 적용한다. */
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement", meta = (ClampMin = "1.0"))
     float WalkSpeed = 330.0f;
 
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement",
-        meta = (ClampMin = "2.0"))
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement", meta = (ClampMin = "2.0"))
     float RunSpeed = 500.0f;
 
     // 제자리·걷기 점프의 지상 준비 시간(초). 이동 중 달리기 점프는 즉시 요청한다.
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Jump",
-        meta = (ClampMin = "0.0", ClampMax = "0.1"))
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Jump", meta = (ClampMin = "0.0", ClampMax = "0.1"))
     float JumpPreparationSeconds = 0.05f;
 
     // 착지 직전 누른 점프 입력을 보관하는 시간(초).
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Jump",
-        meta = (ClampMin = "0.0", ClampMax = "0.3"))
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Jump", meta = (ClampMin = "0.0", ClampMax = "0.3"))
     float JumpBufferSeconds = 0.12f;
 
     // 현재 적용 중인 최종 조건. 지금은 기본값으로 동작한다.
     UPROPERTY(Transient, VisibleInstanceOnly, Category = "LM|Movement")
     FLMFreeMovementPolicy MovementPolicy;
+
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
         meta = (AllowPrivateAccess = "true"))
@@ -307,8 +348,35 @@ private:
     UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
     TObjectPtr<UInputAction> ScanAction;
     
+    // 피벗 중 루트 모션을 목표 방향에 맞춰 보정하는 컴포넌트.
+    UPROPERTY(VisibleAnywhere, Category = "LM|Movement|Pivot")
+    TObjectPtr<UMotionWarpingComponent> PivotMotionWarping;
+
+    // 피벗 동작에 사용할 애니메이션 몽타주.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement|Pivot")
+    TObjectPtr<UAnimMontage> PivotMontage;
+
+    // 피벗을 시작하기 위한 최소 방향 차이. 단위는 도(degree).
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement|Pivot",
+        meta = (ClampMin = "90.0", ClampMax = "180.0"))
+    float PivotMinimumAngle = 150.0f;
+
+    // 피벗 애니메이션의 기준 이동 속도. 단위는 cm/s.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement|Pivot",
+        meta = (ClampMin = "1.0"))
+    float PivotAnimationReferenceSpeed = 650.0f;
+
     // 원시 입력과 실행 중인 점프 요청을 구분한다. 실제 허용 여부는 별도로 검사한다.
     FVector2D MoveAxis = FVector2D::ZeroVector;
+
+    // 피벗 몽타주를 재생하는 애니메이션 인스턴스의 약한 참조.
+    TWeakObjectPtr<UAnimInstance> PivotAnimInstance;
+
+    // 현재 추적하는 피벗 몽타주 인스턴스 ID. INDEX_NONE이면 추적 대상 없음.
+    int32 PivotInstanceID = INDEX_NONE;
+
+    // 달리기 해제 처리의 마감 시각. -1.0은 미설정 상태.
+    double RunReleaseDeadline = -1.0;
 
     // Shift 해제·점프·착지에는 유지하고, 이동 입력을 놓으면 해제하는 달리기 상태다.
     bool bWantsToRun = false;
@@ -333,7 +401,7 @@ private:
 
     uint32 JumpSerial = 0;
     uint32 LandingSerial = 0;
-	
+
 
 
 };

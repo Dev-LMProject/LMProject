@@ -71,6 +71,9 @@ struct FLMPlayerLocomotionFrame
 
     UPROPERTY(BlueprintReadOnly)
     bool HeavyLanding = false;
+
+    UPROPERTY(BlueprintReadOnly)
+    bool PivotRecovering = false;
 };
 
 /** 실제 이동 결과를 모션 선택과 AnimBP 전환 조건으로 변환한다. */
