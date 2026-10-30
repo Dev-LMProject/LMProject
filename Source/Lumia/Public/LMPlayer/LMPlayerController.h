@@ -4,6 +4,8 @@
 #include "GameFramework/PlayerController.h"
 #include "LMPlayerController.generated.h"
 
+class UInputAction;
+class ULMScanComponent;
 class UInputMappingContext;
 class ULMInteractionHUDWidget;
 class ULMUserHUDWidget;
@@ -17,7 +19,7 @@ class LUMIA_API ALMPlayerController : public APlayerController
 public:
 	// 플레이어 카메라 매니저 클래스를 지정한다.
 	ALMPlayerController();
-
+	
 protected:
 	// UserHUD를 생성하고 화면에 등록한다.
 	virtual void BeginPlay() override;
@@ -35,7 +37,7 @@ private:
 	void SelectNextInteractionTarget();
 	// HUD에서 선택한 액터의 상호작용을 요청하고 실패 결과를 기록한다.
 	void InteractWithSelectedTarget();
-
+	
 	UPROPERTY(EditDefaultsOnly, Category="UI")
 	TSubclassOf<ULMUserHUDWidget> UserHUDClass;
 
