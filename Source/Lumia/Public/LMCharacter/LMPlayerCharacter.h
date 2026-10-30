@@ -4,6 +4,7 @@
 #include "LMCharacter/LMBaseCharacter.h"
 #include "LMPlayerCharacter.generated.h"
 
+class ULMScanComponent;
 class UCameraComponent;
 class USpringArmComponent;
 class UInputAction;
@@ -142,7 +143,6 @@ public:
     /** 준비부터 이륙 이후까지 연속된 점프 포즈 경과 시간(초)을 반환한다. */
     float GetJumpAnimationElapsed() const;
 	
-	//FORCEINLINE USphereComponent* GetInteractionCollision() const{ return InteractionCollision;}
 protected:
     /** BP 설정을 검증하고 초기 이동 속도와 카메라 거리를 반영한다. */
     virtual void BeginPlay() override;
@@ -210,11 +210,17 @@ private:
 
     /** 준비 완료·유효 시간·허용 조건을 확인해 점프 명령을 한 번 발행한다. */
     void TryBufferedJump();
+    
 	// BP에서 만든 콜리전을 이 컴포넌트의 SetInteractionCollision으로 연결한다.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Interaction",
-		meta=(AllowPrivateAccess="true"))
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Interaction", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<ULMInteractorComponent> InteractorComponent;
-
+    
+    //ScanComponent 연결
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LM|Scan", meta=(AllowPrivateAccess="true"))
+    TObjectPtr<ULMScanComponent> ScanComponent;
+    
+    void RequestScan();
+    
 	/** 카메라 거리와 카메라의 벽 충돌을 처리한다. */
 	UPROPERTY(
 		VisibleAnywhere,
@@ -251,7 +257,6 @@ private:
     // 현재 적용 중인 최종 조건. 지금은 기본값으로 동작한다.
     UPROPERTY(Transient, VisibleInstanceOnly, Category = "LM|Movement")
     FLMFreeMovementPolicy MovementPolicy;
-    
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
         meta = (AllowPrivateAccess = "true"))
@@ -281,21 +286,24 @@ private:
     float TargetZoomDistance = 350.0f;
 
     // 캐릭터 BP의 Class Defaults에서 입력 에셋을 지정한다.
-    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
     TObjectPtr<UInputAction> MoveAction;
 
-    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
     TObjectPtr<UInputAction> LookAction;
 
-    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
     TObjectPtr<UInputAction> JumpAction;
 
-    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
     TObjectPtr<UInputAction> SprintAction;
 
-    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
     TObjectPtr<UInputAction> CameraZoomAction;
 
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
+    TObjectPtr<UInputAction> ScanAction;
+    
     // 원시 입력과 실행 중인 점프 요청을 구분한다. 실제 허용 여부는 별도로 검사한다.
     FVector2D MoveAxis = FVector2D::ZeroVector;
 

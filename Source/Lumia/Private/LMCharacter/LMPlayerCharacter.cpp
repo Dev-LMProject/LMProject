@@ -11,6 +11,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
 #include "LMCamera/LMPlayerCameraManager.h"
+#include "LMComponent/LMScanComponent.h"
 #include "Math/RotationMatrix.h"
 
 /** 몸은 이동 방향, 카메라는 컨트롤러 방향을 사용하도록 기본값을 구성한다. */
@@ -74,6 +75,8 @@ ALMPlayerCharacter::ALMPlayerCharacter()
 
     // BP가 추가한 콜리전을 연결할 목록 관리 컴포넌트를 준비한다.
     InteractorComponent = CreateDefaultSubobject<ULMInteractorComponent>(TEXT("InteractorComponent"));
+    
+    ScanComponent = CreateDefaultSubobject<ULMScanComponent>(TEXT("ScanComponent"));
 }
 
 /** BP에 저장된 설정을 포함하여 이동·점프와 시작 카메라 거리를 확정한다. */
@@ -103,6 +106,11 @@ void ALMPlayerCharacter::BeginPlay()
     TargetZoomDistance = FMath::Clamp(
         CameraBoom->TargetArmLength, MinZoomDistance, MaxZoomDistance);
     CameraBoom->TargetArmLength = TargetZoomDistance;
+    
+    if (ScanComponent)
+    {
+        ScanComponent->InitializeScan(FollowCamera);
+    }
 }
 
 /** 예약된 점프를 검사하고 게임 카메라의 줌을 갱신한다. */
@@ -177,6 +185,15 @@ void ALMPlayerCharacter::SetupPlayerInputComponent(
         Input->BindAction(
             CameraZoomAction, ETriggerEvent::Triggered,
             this, &ThisClass::ZoomCamera);
+    }
+    
+    if (ensureMsgf(ScanAction, TEXT("Assign ScanAction in the player BP.")))
+    {
+        Input->BindAction(
+            ScanAction,
+            ETriggerEvent::Started,
+            this,
+            &ThisClass::RequestScan);
     }
 }
 
@@ -679,6 +696,11 @@ void ALMPlayerCharacter::ApplyFreeMovementPolicy(
 /** 조종 해제 시 이동·달리기 의도와 점프 예약을 비운다. */
 void ALMPlayerCharacter::UnPossessed()
 {
+    if (ScanComponent)
+    {
+        ScanComponent->StopScan();
+    }
+
     ClearMoveInput();
 
     CancelPendingJump();
@@ -687,4 +709,11 @@ void ALMPlayerCharacter::UnPossessed()
     Super::UnPossessed();
 
     RefreshMovementSettings();
+}
+void ALMPlayerCharacter::RequestScan()
+{
+    if (ScanComponent)
+    {
+        ScanComponent->StartScan();
+    }
 }
