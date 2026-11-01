@@ -27,6 +27,9 @@ namespace LMPivot
     const FName Facing(TEXT("LM_PivotFacing"));
 
     constexpr double RunReleaseGrace = 0.10;
+
+    // 회전 뒤 달려 나가는 방향에서 45도 이상 벗어나면 새 입력에 제어를 넘긴다.
+    constexpr float RunContinuationDot = 0.70710678f;
 }
 
 /** 몸은 이동 방향, 카메라는 컨트롤러 방향을 사용하도록 기본값을 구성한다. */
@@ -110,6 +113,10 @@ void ALMPlayerCharacter::BeginPlay()
 
     JumpBufferSeconds = FMath::Clamp(
         JumpBufferSeconds, 0.0f, 0.3f);
+
+    PivotInputReleaseGrace = FMath::Clamp(PivotInputReleaseGrace, 0.0f, 0.2f);
+    PivotBlendOutSeconds = FMath::Clamp(PivotBlendOutSeconds, 0.0f, 0.3f);
+    PivotRunBlendOutSeconds = FMath::Clamp(PivotRunBlendOutSeconds, 0.05f, 0.3f);
 
     AirBaseSpeed = WalkSpeed;
 
@@ -230,6 +237,21 @@ bool ALMPlayerCharacter::IsRunRequestedAndAllowed() const
         bWantsToRun;
 }
 
+/** 현재 방향키를 카메라의 수평 방향으로 변환한다. */
+FVector ALMPlayerCharacter::GetMoveDirection() const
+{
+    if (!Controller)
+    {
+        return FVector::ZeroVector;
+    }
+
+    const FRotationMatrix CameraAxes(
+        FRotator(0.0f, Controller->GetControlRotation().Yaw, 0.0f));
+
+    return (CameraAxes.GetUnitAxis(EAxis::X) * MoveAxis.Y +
+            CameraAxes.GetUnitAxis(EAxis::Y) * MoveAxis.X).GetSafeNormal2D();
+}
+
 /** 카메라의 수평 방향을 기준으로 이동 입력을 전달한다. */
 void ALMPlayerCharacter::Move(const FInputActionValue& Value)
 {
@@ -257,23 +279,17 @@ void ALMPlayerCharacter::Move(const FInputActionValue& Value)
 
     RunReleaseDeadline = -1.0;
 
-    const FRotator YawRotation(
-        0.0f, Controller->GetControlRotation().Yaw, 0.0f);
-
-    const FRotationMatrix CameraAxes(YawRotation);
-
-    const FVector DesiredDirection =
-        (CameraAxes.GetUnitAxis(EAxis::X) * MoveAxis.Y +
-         CameraAxes.GetUnitAxis(EAxis::Y) * MoveAxis.X)
-        .GetSafeNormal2D();
+    const FVector DesiredDirection = GetMoveDirection();
 
     if (IsPivoting())
     {
         UpdatePivotExit();
-        return;
+        if (IsPivoting())
+        {
+            return;
+        }
     }
-
-    if (TryStartPivot(DesiredDirection))
+    else if (TryStartPivot(DesiredDirection))
     {
         return;
     }
@@ -287,25 +303,21 @@ void ALMPlayerCharacter::ClearMoveInput()
     MoveAxis = FVector2D::ZeroVector;
     ConsumeMovementInputVector();
 
-    if (IsPivoting())
-    {
-        UpdatePivotExit();
-        return;
-    }
-
-    if (bWantsToRun && GetWorld())
+    if ((bWantsToRun || IsPivoting()) && GetWorld())
     {
         if (RunReleaseDeadline < 0.0)
         {
             RunReleaseDeadline =
                 GetWorld()->GetTimeSeconds() +
-                LMPivot::RunReleaseGrace;
+                (IsPivoting() ? PivotInputReleaseGrace : LMPivot::RunReleaseGrace);
         }
     }
     else
     {
         StopSprint();
     }
+
+    UpdatePivotExit();
 }
 
 /** 허용된 마우스 입력으로 카메라의 컨트롤러 회전을 변경한다. */
@@ -949,6 +961,13 @@ bool ALMPlayerCharacter::TryStartPivot(const FVector& DesireDirection)
 
     Anim->Montage_SetEndDelegate(EndDelegate, PivotMontage);
 
+    FOnMontageBlendingOutStarted BlendOutDelegate;
+    BlendOutDelegate.BindUObject(
+        this,
+        &ThisClass::OnPivotBlendingOut,
+        PivotInstanceID);
+    Anim->Montage_SetBlendingOutDelegate(BlendOutDelegate, PivotMontage);
+
     Instance->SetNextSectionName(LMPivot::Run, NAME_None);
     Instance->SetNextSectionName(LMPivot::Stop, NAME_None);
 
@@ -957,38 +976,82 @@ bool ALMPlayerCharacter::TryStartPivot(const FVector& DesireDirection)
     return true;
 }
 
-/** Turn이 끝나기 전까지 입력에 맞춰 다음 구간을 갱신한다. */
+/** 회전과 재가속을 이어 재생하고, Run 끝 또는 새 입력에서 일반 이동에 연결한다. */
 void ALMPlayerCharacter::UpdatePivotExit()
 {
     FAnimMontageInstance* Instance = GetPivotInstance();
 
     if (!Instance ||
-        !Instance->IsActive() ||
-        Instance->GetCurrentSection() != LMPivot::Turn)
+        !Instance->IsActive())
     {
         return;
     }
 
-    const bool bContinueRunning =
-        HasMoveInput() && IsRunRequestedAndAllowed();
+    const bool bHasInput = HasMoveInput();
+    const bool bChangingMoveKey =
+        RunReleaseDeadline >= 0.0 && GetWorld() &&
+        GetWorld()->GetTimeSeconds() < RunReleaseDeadline;
 
-    Instance->SetNextSectionName(
-        LMPivot::Turn,
-        bContinueRunning ? LMPivot::Run : LMPivot::Stop);
+    const FName Section = Instance->GetCurrentSection();
+    if (Section == LMPivot::Turn)
+    {
+        // Shift를 다시 눌러 걷기로 바꾼 경우에도 이동 입력은 이어간다.
+        Instance->SetNextSectionName(
+            LMPivot::Turn,
+            (bHasInput || bChangingMoveKey) ? LMPivot::Run : LMPivot::Stop);
+        return;
+    }
+
+    if (Section == LMPivot::Run)
+    {
+        // 같은 방향을 유지하면 Run의 밀어내기·재가속 동작을 보존한다.
+        // 입력을 놓거나 새 방향/걷기를 요청하면 남은 Run을 기다리지 않는다.
+        const bool bChangeDirection = bHasInput &&
+            FVector::DotProduct(GetMoveDirection(), GetActorForwardVector()) <
+                LMPivot::RunContinuationDot;
+
+        if ((!bHasInput && !bChangingMoveKey) ||
+            (bHasInput && (!IsRunRequestedAndAllowed() || bChangeDirection)))
+        {
+            BlendOutPivot(PivotBlendOutSeconds);
+            return;
+        }
+
+        float RunStart = 0.0f;
+        float RunEnd = 0.0f;
+        Instance->Montage->GetSectionStartAndEndTime(
+            Instance->Montage->GetSectionIndex(LMPivot::Run), RunStart, RunEnd);
+
+        const float PlayRate = FMath::Max(
+            Instance->GetPlayRate() * Instance->Montage->RateScale,
+            KINDA_SMALL_NUMBER);
+        const float SecondsRemaining =
+            FMath::Max(RunEnd - Instance->GetPosition(), 0.0f) / PlayRate;
+
+        if (SecondsRemaining <= PivotRunBlendOutSeconds)
+        {
+            BlendOutPivot(PivotRunBlendOutSeconds);
+        }
+    }
+    else if (Section == LMPivot::Stop && bHasInput)
+    {
+        // 정지 모션 중 재입력에도 즉시 이동을 재개한다.
+        BlendOutPivot(PivotBlendOutSeconds);
+    }
 }
 
 /** 피벗 유지 조건과 방향키 교체 중의 짧은 입력 공백을 처리한다. */
 void ALMPlayerCharacter::UpdatePivot()
 {
+    if (RunReleaseDeadline >= 0.0 &&
+        GetWorld() &&
+        GetWorld()->GetTimeSeconds() >= RunReleaseDeadline)
+    {
+        StopSprint();
+    }
+
     if (!IsPivoting())
     {
-        if (RunReleaseDeadline >= 0.0 &&
-            GetWorld() &&
-            GetWorld()->GetTimeSeconds() >= RunReleaseDeadline)
-        {
-            StopSprint();
-        }
-
         return;
     }
 
@@ -1003,21 +1066,57 @@ void ALMPlayerCharacter::UpdatePivot()
     UpdatePivotExit();
 }
 
+/** 포즈는 블렌드 아웃하되, 멈춘 몽타주의 루트 모션과 이동 잠금은 함께 해제한다. */
+void ALMPlayerCharacter::BlendOutPivot(float BlendSeconds)
+{
+    if (!IsPivoting())
+    {
+        return;
+    }
+
+    FAnimMontageInstance* Instance = GetPivotInstance();
+    const int32 StoppingInstanceID = PivotInstanceID;
+    if (Instance)
+    {
+        Instance->Stop(
+            FAlphaBlend(Instance->Montage->BlendOut, FMath::Max(BlendSeconds, 0.0f)),
+            true);
+    }
+
+    // 종료 콜백이 지연되는 프레임에도 같은 입력 처리에서 이동을 이어간다.
+    if (PivotInstanceID == StoppingInstanceID)
+    {
+        FinishPivot();
+    }
+}
+
 /** 피벗 상태를 해제하고 현재 이동 정책을 다시 적용한다. */
 void ALMPlayerCharacter::FinishPivot()
 {
     PivotInstanceID = INDEX_NONE;
     PivotAnimInstance.Reset();
-    RunReleaseDeadline = -1.0;
 
     PivotMotionWarping->RemoveWarpTarget(LMPivot::Facing);
 
-    if (!HasMoveInput())
+    if (!HasMoveInput() &&
+        (RunReleaseDeadline < 0.0 || !GetWorld() ||
+         GetWorld()->GetTimeSeconds() >= RunReleaseDeadline))
     {
         bWantsToRun = false;
+        RunReleaseDeadline = -1.0;
     }
 
     RefreshMovementSettings();
+}
+
+/** 엔진이 루트 모션 몽타주를 해제하면 종료 포즈가 남아 있어도 이동은 재개한다. */
+void ALMPlayerCharacter::OnPivotBlendingOut(
+    UAnimMontage* Montage, bool bInterrupted, int32 FinishedInstanceID)
+{
+    if (FinishedInstanceID == PivotInstanceID)
+    {
+        FinishPivot();
+    }
 }
 
 /**  현재 피벗의 종료 알림만 처리한다. */
@@ -1032,20 +1131,7 @@ void ALMPlayerCharacter::OnPivotEnded(UAnimMontage* Montage, bool bInterrupted, 
 /** 현재 피벗만 중단하고 다른 몽타주는 건드리지 않는다. */
 void ALMPlayerCharacter::CancelPivot()
 {
-    if (!IsPivoting())
-    {
-        return;
-    }
-
-    FAnimMontageInstance* Instance = GetPivotInstance();
-
-    // Stop의 종료 알림이 다시 정리하지 않도록 먼저 상태를 해제한다.
-    FinishPivot();
-
-    if (Instance)
-    {
-        Instance->Stop(FAlphaBlend(0.0f), true);
-    }
+    BlendOutPivot(PivotBlendOutSeconds);
 }
 
 /** 강제 입력 취소에서는 달리기 유예와 피벗을 즉시 정리한다. */
@@ -1061,6 +1147,7 @@ void ALMPlayerCharacter::CancelMoveInput()
 void ALMPlayerCharacter::EndPlay(
     const EEndPlayReason::Type EndPlayReason)
 {
+    BlendOutPivot(0.0f);
     CancelMoveInput();
     CancelPendingJump();
 

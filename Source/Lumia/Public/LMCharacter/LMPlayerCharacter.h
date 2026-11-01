@@ -69,7 +69,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LM|Movement")
     void CancelPendingJump();
 
-    /** 피벗 몽타주의 종료 블렌드까지 진행 중인지 반환한다. */
+    /** 피벗이 이동을 제어 중인지 반환한다. 종료 블렌드가 시작되면 해제한다. */
     bool IsPivoting() const
     {
         return PivotInstanceID != INDEX_NONE;
@@ -261,17 +261,26 @@ private:
     /** 현재 캐릭터가 지상 피벗을 사용할 수 있는지 검사한다. */
     bool CanUsePivot() const;
 
+    /** 현재 방향키를 카메라 기준의 수평 이동 방향으로 변환한다. */
+    FVector GetMoveDirection() const;
+
     /** 실제 이동과 반대되는 입력이면 피벗을 시작한다. */
     bool TryStartPivot(const FVector& DesireDirection);
 
     /** 피벗의 유지 조건과 달리기  입력 유예를 갱신한다. */
     void UpdatePivot();
 
-    /** Turn 이후의 구간을 현재 입력에 따라 선택한다. */
+    /** 회전 후 가속 모션을 이어 재생하고, 입력 변경 또는 Run 끝에서 이동을 재개한다. */
     void UpdatePivotExit();
+
+    /** 현재 피벗만 블렌드 아웃하고 일반 이동에 제어를 돌려준다. */
+    void BlendOutPivot(float BlendSeconds);
 
     /** 피벗이 사용한 상태와 회전 목표를 정리한다. */
     void FinishPivot();
+
+    /** 루트 모션이 해제되는 시점에 이동 잠금도 해제한다. */
+    void OnPivotBlendingOut(UAnimMontage* Montage, bool bInterrupted, int32 FinishedInstanceID);
 
     /** 종료된 재생 인스턴스가 현재 피벗이면 정리한다. */
     void OnPivotEnded(UAnimMontage* Montage, bool bInterrupted, int32 FinishedInstanceID);
@@ -365,6 +374,21 @@ private:
     UPROPERTY(EditDefaultsOnly, Category = "LM|Movement|Pivot",
         meta = (ClampMin = "1.0"))
     float PivotAnimationReferenceSpeed = 650.0f;
+
+    // 방향키를 교체할 때의 짧은 입력 공백을 정지 요청과 구분한다.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement|Pivot",
+        meta = (ClampMin = "0.0", ClampMax = "0.2", Units = "s"))
+    float PivotInputReleaseGrace = 0.08f;
+
+    // 방향 변경·입력 해제·일반 취소 시 포즈를 섞는 시간.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement|Pivot",
+        meta = (ClampMin = "0.0", ClampMax = "0.3", Units = "s"))
+    float PivotBlendOutSeconds = 0.12f;
+
+    // Run의 마지막 구간을 일반 달리기와 겹쳐 재생하는 시간.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Movement|Pivot",
+        meta = (ClampMin = "0.05", ClampMax = "0.3", Units = "s"))
+    float PivotRunBlendOutSeconds = 0.18f;
 
     // 원시 입력과 실행 중인 점프 요청을 구분한다. 실제 허용 여부는 별도로 검사한다.
     FVector2D MoveAxis = FVector2D::ZeroVector;
