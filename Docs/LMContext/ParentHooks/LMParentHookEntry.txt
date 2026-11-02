@@ -1,0 +1,3 @@
+$ProgressPreference = 'SilentlyContinue'
+$s = Join-Path (Get-Location).Path 'Dev/.codex/hooks/LMInvokePlanning.ps1'
+if (Test-Path -LiteralPath $s -PathType Leaf) { & $s -FromParent }

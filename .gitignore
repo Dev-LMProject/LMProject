@@ -1,4 +1,4 @@
-# Lumia code repository. Perforce owns all project data outside this allowlist.
+# Lumia code and shared Codex tools. Perforce owns other project data.
 /*
 !/.gitignore
 !/.gitattributes
@@ -12,6 +12,22 @@
 !/Plugins/**/Source/
 !/Plugins/**/Source/**
 
+
+# LMContext: version only the shared skill, hooks and guide; no personal config.
+!/.agents/
+/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/planning-with-files/
+!/.codex/
+/.codex/*
+!/.codex/hooks.json
+!/.codex/hooks/
+!/Docs/
+/Docs/*
+!/Docs/LMContext/
+/.agents/**/__pycache__/
+/.codex/**/__pycache__/
 # Generated or private files must not enter Git, even below a source directory.
 **/Intermediate/
 **/Binaries/

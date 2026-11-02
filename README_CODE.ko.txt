@@ -15,7 +15,8 @@ PR 반영 테스트: daewoong/git-workflow에서 dev로 문서 변경 전달
 - 새 코드, 에셋, 맵은 이 Blank 기준에서 작업합니다.
 
 소유권
-- Git: Source/**, Plugins/**/Source/**, 이 안내, .gitignore, .gitattributes.
+- Git: Source/**, Plugins/**/Source/**, 이 안내, .gitignore, .gitattributes,
+  .agents/skills/planning-with-files/**, .codex/hooks.json, .codex/hooks/**, Docs/LMContext/**.
 - Perforce: Lumia.uproject, Config, Content, SourceArt, 플러그인 설명/콘텐츠,
   배포용 Binaries, .vsconfig, Build/EditorBuild.json, 팀 가이드.
 - 같은 파일을 양쪽 저장소에서 직접 편집하고 제출하지 않습니다.
@@ -110,3 +111,5 @@ PR 반영 테스트: daewoong/git-workflow에서 dev로 문서 변경 전달
    스크롤바 표시·폰트·색상·패딩·정렬은 BP에서 직접 정합니다.
 
 빌드·UHT·BP 컴파일·PIE·게임 테스트는 사용자가 수행합니다. 이 연결 전에는 기존 BP만으로 새 HUD가 동작하지 않습니다.
+
+Codex 컨텍스트 보존 도구: 같은 Git의 Docs/LMContext/README.ko.md를 참고합니다.
