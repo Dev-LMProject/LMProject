@@ -21,7 +21,7 @@ struct FLMScanMeshState
 	ERendererStencilMask WriteMask =
 		ERendererStencilMask::ERSM_Default;
 };
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=(Scan), meta=(BlueprintSpawnableComponent))
 class LUMIA_API ULMScanComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -30,9 +30,10 @@ public:
 	// Sets default values for this component's properties
 	ULMScanComponent();
 	// Called every frame
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	UFUNCTION(BlueprintCallable,Category="Scan")
-	void StartScan();
+	bool StartScan();
+	UFUNCTION(BlueprintCallable, Category = "Scan")
+	bool UpdateScanIntensity(float Alpha);
 	UFUNCTION(BlueprintCallable,Category="Scan")
 	void StopScan();
 	bool InitializeScan(ULMPostProcessCameraModifier* InPostProcessModifier);
@@ -41,14 +42,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Scan", meta = (ClampMin = "1.0", Units = "cm"))
 	float ScanRadius = 2000.0f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Scan", meta = (ClampMin = "0.01", Units = "s"))
-	float ScanDuration = 3.0f;
-	
 	UPROPERTY(EditDefaultsOnly, Category = "Scan", meta = (ClampMin = "1", ClampMax = "255"))
 	int32 ScanStencilValue = 1;
 
 private:
-	float ElapsedTime = 0.0f;
 	bool bIsScanning = false;
 
 	TArray<AActor*> CollectScanTargets() const;

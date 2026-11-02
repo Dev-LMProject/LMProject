@@ -50,14 +50,14 @@ bool ULMPostProcessCameraModifier::StartScanPostProcess(int32 StencilValue)
 	return true;
 }
 
-void ULMPostProcessCameraModifier::UpdateScanPostProcess(float Progress)
+void ULMPostProcessCameraModifier::UpdateScanPostProcess(float ScanAlpha)
 {
-	if (!bScanPostProcessActive || !IsValid(ScanMID.Get()) || !FMath::IsFinite(Progress))
+	if (!bScanPostProcessActive || !IsValid(ScanMID.Get()) || !FMath::IsFinite(ScanAlpha))
 	{
 		return;
 	}
 
-	ScanMID->SetScalarParameterValue(TEXT("ScanAlpha"), 1.0f - FMath::Clamp(Progress, 0.0f, 1.0f));
+	ScanMID->SetScalarParameterValue(TEXT("ScanAlpha"), FMath::Clamp(ScanAlpha, 0.0f, 1.0f));
 }
 
 void ULMPostProcessCameraModifier::StopScanPostProcess()
