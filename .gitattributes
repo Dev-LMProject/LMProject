@@ -15,3 +15,4 @@
 /.codex/hooks/** text eol=lf
 /.codex/hooks/*.cmd text eol=crlf
 /Docs/LMContext/** text eol=lf
+/AGENTS.md text eol=lf

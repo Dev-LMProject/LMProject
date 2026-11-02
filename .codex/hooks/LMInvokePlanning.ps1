@@ -85,7 +85,7 @@ try {
     if (-not $env:PLAN_ID) {
         if ($eventName -in @('SessionStart', 'UserPromptSubmit')) {
             $hint = if ($bindingRelative) { "Bind this conversation by writing ONLY its chosen PLAN_ID to $bindingRelative (relative to the project root)." } else { 'Set PLAN_ID in the environment before starting the Codex host.' }
-            Emit-Context $eventName "[LMContext] No task is bound; no plan has been selected or injected. Read Docs/LMContext/README.ko.md and .agents/skills/planning-with-files/SKILL.md. Reuse the task explicitly requested by the user, or initialize a new named plan. $hint Do not choose another person's plan. Then read that task's task_plan.md, findings.md and progress.md. Project root: $root"
+            Emit-Context $eventName "[LMContext] No task is bound; no plan has been selected or injected. Read Docs/LMContext/README.ko.md and .agents/skills/planning-with-files/SKILL.md. Reuse the task explicitly requested by the user, or initialize a new named plan. All .planning records are private local working memory: never add them to Git or Perforce. Read Docs/LMContext/SHARING.ko.md; share only reviewed team summaries in Docs/LMContext/Team/. $hint Do not choose another person's plan. Then read that task's task_plan.md, findings.md and progress.md. Project root: $root"
         }
         exit 0
     }
@@ -110,7 +110,7 @@ try {
         if (-not $output) { throw 'The planning hook returned no context. Check Git for Windows and task/session selection.' }
         $result = ($output -join "`n") | ConvertFrom-Json
         if (-not $result.hookSpecificOutput.additionalContext) { throw 'The planning hook returned no additionalContext.' }
-        $result.hookSpecificOutput.additionalContext += "`n[LMContext] Selected task: .planning/$($env:PLAN_ID)/. Read all three files before continuing; injected excerpts are partial. Update next action and verification evidence during work, not only before compact."
+        $result.hookSpecificOutput.additionalContext += "`n[LMContext] Selected task: .planning/$($env:PLAN_ID)/. Read all three files before continuing; injected excerpts are partial. Update next action and verification evidence during work, not only before compact. Keep .planning as private local working memory, excluded from Git and Perforce. Read Docs/LMContext/SHARING.ko.md and any relevant reviewed handoff in Docs/LMContext/Team/. Promote only necessary team rules, decisions and handoffs; never copy raw personal notes, transcripts or machine-specific state."
         if ($bindingRelative) { $result.hookSpecificOutput.additionalContext += "`nLocal conversation binding: $bindingRelative (never share)." }
         $result | ConvertTo-Json -Depth 10 -Compress
     } elseif ($output) { $output }

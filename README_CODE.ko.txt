@@ -15,10 +15,11 @@ PR 반영 테스트: daewoong/git-workflow에서 dev로 문서 변경 전달
 - 새 코드, 에셋, 맵은 이 Blank 기준에서 작업합니다.
 
 소유권
-- Git: Source/**, Plugins/**/Source/**, 이 안내, .gitignore, .gitattributes,
+- Git: Source/**, Plugins/**/Source/**, AGENTS.md, 이 안내, .gitignore, .gitattributes,
   .agents/skills/planning-with-files/**, .codex/hooks.json, .codex/hooks/**, Docs/LMContext/**.
 - Perforce: Lumia.uproject, Config, Content, SourceArt, 플러그인 설명/콘텐츠,
-  배포용 Binaries, .vsconfig, Build/EditorBuild.json, 팀 가이드.
+  배포용 Binaries, .vsconfig, Build/EditorBuild.json, Markdown이 아닌 팀 가이드와 .p4ignore.
+- 모든 Markdown은 P4에서 제외합니다. 개인 .planning/Saved 기록은 Git에서도 제외하고 팀 공통 내용만 Docs/LMContext/Team에 검토하여 공유합니다.
 - 같은 파일을 양쪽 저장소에서 직접 편집하고 제출하지 않습니다.
 - 블루프린트(.uasset)와 맵(.umap)은 Perforce에서 관리합니다.
 

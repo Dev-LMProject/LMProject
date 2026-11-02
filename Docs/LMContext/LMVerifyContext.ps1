@@ -90,10 +90,12 @@ foreach ($source in @('startup','resume','compact','fork')) {
     $context = [string]$result.hookSpecificOutput.additionalContext
     Check ($context.Contains('NEXT-task-a') -and $context.Contains('PROGRESS-task-a') -and $context.Contains('findings.md')) "SessionStart $source restores selected plan/progress and requests full findings"
 }
+Check ($context.Contains('private local working memory') -and $context.Contains('Docs/LMContext/Team/')) 'Bound recovery distinguishes private records from reviewed team knowledge'
 $contextB = (Run-Hook -Event UserPromptSubmit -Session 'qa-b' | ConvertFrom-Json).hookSpecificOutput.additionalContext
 Check ($contextB.Contains('NEXT-task-b') -and -not $contextB.Contains('NEXT-task-a')) 'Concurrent conversation uses its own task'
 $unbound = Run-Hook -Event SessionStart -Session 'qa-unbound'
 Check ($unbound.Contains('No task is bound') -and -not $unbound.Contains('NEXT-task')) 'Unbound conversation never guesses a task'
+Check ($unbound.Contains('private local working memory') -and $unbound.Contains('never add them to Git or Perforce')) 'Unbound task creation defaults to private records'
 $invalid = Run-Hook -Event SessionStart -Pin '../task-a'
 Check ($invalid.Contains('Recovery unavailable') -and -not $invalid.Contains('NEXT-task')) 'Traversal selector is refused without fallback'
 Check ([string]::IsNullOrEmpty((Run-Hook -Event SessionStart -Disabled $true))) 'PLANNING_DISABLED produces no hook context'

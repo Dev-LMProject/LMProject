@@ -30,3 +30,13 @@ P4 변경 목록 111에서 도구·안내 add 58개만 `revert -k`로 해제했�
 - 이 체크아웃에서 Windows 훅 모의 검사 20개를 다시 통과했다.
 - Git ignore가 요청한 도구 경로는 허용하고 개인 config, 다른 개인 스킬, 기존 P4 PDF, Saved, 실제 과제 기록은 제외함을 확인했다.
 - 사용자 작업 브랜치로 자동 병합하지 않았다. 실제 `/hooks` 신뢰 및 `/compact` 종단 테스트는 여전히 미실행이다.
+## Markdown 소유권 정책 검증 (2026-11-02)
+
+- 기존 Dev Git의 별도 codex/markdown-ownership 브랜치에서만 공유 문서·최소 훅 지침을 변경했다. 사용자 작업 브랜치에 병합하지 않았다.
+- 원본 스킬 해시를 보존하고 Windows 모의 검사 22개를 통과했다. 선택된/미선택 대화 모두 개인 기록과 팀 요약 경로를 구분하며 자동 복사·stage를 하지 않는다.
+- 개인 경로 9개가 Git에서 제외되고 팀 지침·요약·공식 템플릿 4개는 허용됨을 확인했다. Source 아래 개인 계획과 Team 아래 잘못 놓은 개인 폴더도 제외한다.
+- Dev 및 상위 AGENTS의 기존 규칙은 LMContext 관리 블록 밖에서 그대로 보존했다.
+- 실제 프로젝트의 Dev/Main/DataAsset 3곳에서 md/MD/Md/mD 12개 조합의 ignores·add -n·reconcile -n -a를 확인했다. 중첩 경로 4개와 기존 에셋 허용 대조 3개도 통과했다.
+- P4 2026.1의 add -n 출력은 후보의 opened 문구 뒤에 ignored file can't be added를 함께 표시했다. 최초 검사의 과도한 판정을 고쳐 거부 메시지와 전후 open 등록 동일성을 함께 검증했다. 실제 add나 우회 옵션은 실행하지 않았다.
+- 기존 tracked Markdown은 ignore만으로 추적 종료되지 않는다. 로컬 백업과 파일 해시·depot 기존 리비전을 보존한 뒤 미제출 delete -k 상태로 준비한다. submit/push/강제 삭제/서버 설정 변경은 하지 않는다.
+- 실제 Codex /hooks 신뢰와 /compact, Notion 재접속 저장 검증은 미실행/차단 상태를 유지한다.

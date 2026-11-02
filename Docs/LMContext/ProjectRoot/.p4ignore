@@ -1,0 +1,7 @@
+# LMProject folder only; no global P4IGNORE or server settings.
+# Keep this local root policy file; workspace .p4ignore files are managed separately.
+/.p4ignore
+*.md
+*.MD
+*.Md
+*.mD

@@ -59,3 +59,13 @@
 *.fbx
 *.blend
 *.psd
+
+# Reviewed team rules are shared; generated working memory stays local everywhere.
+!/AGENTS.md
+**/.planning/
+**/.lmcontext-local/
+**/Saved/LMContext/
+/task_plan.md
+/findings.md
+/progress.md
+/MEMORY.md
