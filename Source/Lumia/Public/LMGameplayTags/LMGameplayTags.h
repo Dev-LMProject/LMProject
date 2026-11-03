@@ -41,4 +41,8 @@ namespace LMGameplayTags
 	/** 애니메이션이 콤보 입력 가능 구간을 알리는 사건. */
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Combat_Combo_Open);
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Combat_Combo_Close);
+
+	//Scan GA 용 쿨타임 태그
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Scan);
+	
 }

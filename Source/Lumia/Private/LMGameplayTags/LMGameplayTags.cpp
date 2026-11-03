@@ -24,4 +24,7 @@ namespace LMGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_Combo_Open, "Event.Combat.Combo.Open", "콤보 입력 구간 시작");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_Combo_Close, "Event.Combat.Combo.Close", "콤보 입력 구간 종료");
+
+	UE_DEFINE_GAMEPLAY_TAG(Cooldown_Scan, "LM.Cooldown.Scan");
+	
 }

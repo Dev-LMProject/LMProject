@@ -18,10 +18,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "LM|PostProcess|Scan")
 	bool StartScanPostProcess(int32 StencilValue);
-
-	/** 스캔 컴포넌트가 계산한 진행도(0~1)를 표시 강도로 변환한다. */
+	
+	/** 전달받은 표시 강도(0~1)를 스캔 머티리얼에 적용한다. */
 	UFUNCTION(BlueprintCallable, Category = "LM|PostProcess|Scan")
-	void UpdateScanPostProcess(float Progress);
+	void UpdateScanPostProcess(float ScanAlpha);
 
 	UFUNCTION(BlueprintCallable, Category = "LM|PostProcess|Scan")
 	void StopScanPostProcess();
