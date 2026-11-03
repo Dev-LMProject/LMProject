@@ -16,3 +16,6 @@
 /.codex/hooks/*.cmd text eol=crlf
 /Docs/LMContext/** text eol=lf
 /AGENTS.md text eol=lf
+
+/Readme.md text eol=lf
+/THIRD_PARTY_NOTICES.md text eol=lf

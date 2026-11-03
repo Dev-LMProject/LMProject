@@ -129,3 +129,7 @@ P4 ignore는 신규 add/reconcile에 적용되며 기존 tracked Markdown에는 
 - [Codex 공식 훅](https://learn.chatgpt.com/docs/hooks)
 
 로컬 수정은 `.codex/skills`를 기대하던 세 공식 셸 파일이 `.agents/skills` 원본을 참조하도록 경로를 연결한 것, 훅 등록 경로/시간 제한, Windows 연결기다. 명령의 `EncodedCommand`는 Windows 경로 인용 오류를 피하기 위한 UTF-16LE 인코딩이며, 평문 원본은 `.codex/hooks/LMHookEntry.txt`에 함께 둔다. 실행 정책이나 신뢰를 우회하는 옵션은 없다.
+
+## 오픈소스 고지
+
+포함된 외부 소스는 planning-with-files v3.27.0(MIT)이다. [프로젝트 Readme](../../Readme.md)의 구성 목록, [저작권·변경 고지와 라이선스 전문](../../THIRD_PARTY_NOTICES.md), [파일별 출처·해시 목록](third-party-inventory.json)을 함께 보관한다. 실행 전제와 프로젝트 작성물은 포함된 외부 소스와 구분하며 게임 코드 전체에 라이선스를 부여하지 않는다.
