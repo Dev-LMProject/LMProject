@@ -18,6 +18,10 @@
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "MotionWarpingComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "LMAbilitySystem/LMAbilitySystemComponent.h"
+#include "LMPlayer/LMPlayerState.h"
+#include "LMGameplayTags/LMGameplayTags.h"
 
 namespace LMPivot
 {
@@ -620,23 +624,38 @@ void ALMPlayerCharacter::OnMovementModeChanged(
     RefreshMovementSettings();
 }
 
-/** 접지 직전 속도와 이동 상태를 기록하여 AnimInstance에 전달한다. */
+/** 접지 직전 상태를 기록하고 실제 착지 사건을 GAS에 전달한다. */
 void ALMPlayerCharacter::Landed(const FHitResult& Hit)
 {
     bFreeMovementAtLanding = UsesFreeMovement();
 
-    LandingImpactSpeed =
-        FMath::Max(0.0f, -GetVelocity().Z);
+    // 부모의 착지 처리 전에 아래 방향 속도를 기록한다.
+    LandingImpactSpeed = FMath::Max(0.0f, -GetVelocity().Z);
 
-    // 공중 관성이 남아 있어도 키를 놓았다면 정지 착지 자세를 충분히 보여준다.
+    // 공중 관성과 별개로 현재 이동 입력 여부를 착지 애니메이션에 전달한다.
     bMovingAtLanding = HasMoveInput();
 
     LastLandingTime = GetWorld()->GetTimeSeconds();
 
     ++LandingSerial;
 
-    // 착지 몽타주를 강제 재생하지 않고 AnimBP가 착지 표현을 선택한다.
+    // 기존 엔진의 착지 처리를 먼저 수행한다.
     Super::Landed(Hit);
+
+    // 문자열 검색 대신 C++에 등록된 착지 태그를 사용한다.
+    const FGameplayTag LandedTag = LMGameplayTags::Event_Movement_Landed;
+
+    if (LandedTag.IsValid() && GetAbilitySystemComponent())
+    {
+        FGameplayEventData Payload;
+        Payload.EventTag = LandedTag;
+        Payload.Instigator = this;
+        Payload.Target = this;
+        Payload.EventMagnitude = LandingImpactSpeed;
+
+        // 낙하 공격 GA가 실제 착지 시점에 마무리 구간으로 전환할 수 있게 알린다.
+        UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, LandedTag, Payload);
+    }
 }
 
 /** 지상에서 유효한 점프 준비가 진행 중인지 반환한다. */
@@ -735,25 +754,29 @@ void ALMPlayerCharacter::RefreshMovementSettings()
     }
 }
 
-/** 최종 이동 조건을 적용하고 금지된 입력·점프 예약을 정리한다. */
-void ALMPlayerCharacter::ApplyFreeMovementPolicy(
-    const FLMFreeMovementPolicy& NewPolicy)
+/** 기본 이동 정책을 저장하고 현재 GAS 상태의 제한을 함께 반영한다. */
+void ALMPlayerCharacter::ApplyFreeMovementPolicy(const FLMFreeMovementPolicy& NewPolicy)
+{
+    BaseMovementPolicy = NewPolicy;
+
+    RefreshMovementPolicyFromAbilities();
+}
+
+/** 최종 이동 정책을 적용하고 허용되지 않는 이동 요청을 정리한다. */
+void ALMPlayerCharacter::ApplyResolvedMovementPolicy(const FLMFreeMovementPolicy& NewPolicy)
 {
     const bool bWasExternal = MovementPolicy.ExternalMovement;
 
     MovementPolicy = NewPolicy;
-    MovementPolicy.SpeedMultiplier =
-        FMath::Max(0.0f, MovementPolicy.SpeedMultiplier);
+    MovementPolicy.SpeedMultiplier = FMath::Max(0.0f, MovementPolicy.SpeedMultiplier);
 
     if (IsPivoting() && !CanUsePivot())
     {
         CancelPivot();
     }
 
-    // 피격·연출 등으로 제한된 달리기가 제한 해제 후 저절로 재개되지 않게 한다.
-    if (!UsesFreeMovement() ||
-        !MovementPolicy.AllowMove ||
-        !MovementPolicy.AllowRun)
+    // 제한이 해제되었을 때 이전 달리기 토글이 저절로 재개되지 않게 한다.
+    if (!UsesFreeMovement() || !MovementPolicy.AllowMove || !MovementPolicy.AllowRun)
     {
         bWantsToRun = false;
     }
@@ -773,9 +796,8 @@ void ALMPlayerCharacter::ApplyFreeMovementPolicy(
         bCurrentFallFromJump = false;
     }
 
-    if (bWasExternal &&
-        UsesFreeMovement() &&
-        GetCharacterMovement()->IsFalling())
+    // 외부 행동이 공중에서 끝나면 현재 속도를 자유 이동의 기준으로 사용한다.
+    if (bWasExternal && UsesFreeMovement() && GetCharacterMovement()->IsFalling())
     {
         CaptureAirSpeed();
     }
@@ -796,9 +818,11 @@ void ALMPlayerCharacter::Restart()
     }
 }
 
-/** 조종 해제 시 이동·달리기 의도와 점프 예약을 비운다. */
+/** 조종 해제 시 GAS 연결과 스캔·이동·점프 요청을 정리한다. */
 void ALMPlayerCharacter::UnPossessed()
 {
+    DisconnectAbilitySystem();
+
     if (ScanComponent)
     {
         ScanComponent->StopScan();
@@ -814,6 +838,7 @@ void ALMPlayerCharacter::UnPossessed()
 
     RefreshMovementSettings();
 }
+
 void ALMPlayerCharacter::RequestScan()
 {
     if (ScanComponent)
@@ -1143,13 +1168,124 @@ void ALMPlayerCharacter::CancelMoveInput()
     CancelPivot();
 }
 
-/** 캐릭터 종료 시 입력과 예약 동작을 정리한다. */
-void ALMPlayerCharacter::EndPlay(
-    const EEndPlayReason::Type EndPlayReason)
+/** 캐릭터 종료 시 GAS 연결과 남아 있는 이동·점프 처리를 정리한다. */
+void ALMPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    DisconnectAbilitySystem();
+
     BlendOutPivot(0.0f);
     CancelMoveInput();
     CancelPendingJump();
 
     Super::EndPlay(EndPlayReason);
+}
+
+/** 초기화 과정에서 연결해 둔 플레이어의 ASC를 반환한다. */
+UAbilitySystemComponent* ALMPlayerCharacter::GetAbilitySystemComponent() const
+{
+    return CachedAbilitySystem.Get();
+}
+
+/** 조종 관계와 PlayerState가 준비된 뒤 ASC를 연결한다. */
+void ALMPlayerCharacter::PossessedBy(AController* NewController)
+{
+    // 부모 구현에서 Controller와 PlayerState를 설정한다.
+    Super::PossessedBy(NewController);
+
+    InitializeAbilitySystem();
+}
+
+/** PlayerState의 ASC를 연결하고 태그 변경 알림을 한 번만 등록한다. */
+void ALMPlayerCharacter::InitializeAbilitySystem()
+{
+    ALMPlayerState* State = GetPlayerState<ALMPlayerState>();
+    ULMAbilitySystemComponent* ASC = State ? Cast<ULMAbilitySystemComponent>(State->GetAbilitySystemComponent()) : nullptr;
+
+    if (!ASC)
+    {
+        DisconnectAbilitySystem();
+        return;
+    }
+
+    if (CachedAbilitySystem.Get() != ASC)
+    {
+        DisconnectAbilitySystem();
+        CachedAbilitySystem = ASC;
+    }
+
+    if (!AbilityTagChangedHandle.IsValid())
+    {
+        AbilityTagChangedHandle = ASC->RegisterGenericGameplayTagEvent().AddUObject(this, &ThisClass::HandleAbilityTagChanged);
+    }
+
+    State->InitializeAbilitySystem(this);
+
+    RefreshMovementPolicyFromAbilities();
+}
+
+/** 캐릭터의 GAS 연결 해제 시 입력·능력 실행·태그 알림을 정리한다. */
+void ALMPlayerCharacter::DisconnectAbilitySystem()
+{
+    if (ULMAbilitySystemComponent* ASC = CachedAbilitySystem.Get())
+    {
+        // 이 캐릭터가 등록한 태그 변경 알림을 해제한다.
+        ASC->RegisterGenericGameplayTagEvent().Remove(AbilityTagChangedHandle);
+
+        // ASC가 이미 다른 캐릭터에 연결됐다면 그 캐릭터의 능력은 건드리지 않는다.
+        if (ASC->GetAvatarActor() == this)
+        {
+            ASC->ClearAbilityInput();
+
+            // 종료 처리가 현재 캐릭터를 사용할 수 있도록 능력을 먼저 취소한다.
+            ASC->CancelAbilities();
+            ASC->SetAvatarActor(nullptr);
+        }
+    }
+
+    AbilityTagChangedHandle.Reset();
+    CachedAbilitySystem.Reset();
+
+    RefreshMovementPolicyFromAbilities();
+}
+
+/** 상태 태그가 추가되거나 완전히 제거되면 이동 제한을 다시 계산한다. */
+void ALMPlayerCharacter::HandleAbilityTagChanged(FGameplayTag Tag, int32 NewCount)
+{
+    // 다른 제한이 남아 있을 수 있으므로 현재 상태 전체를 다시 확인한다.
+    RefreshMovementPolicyFromAbilities();
+}
+
+/** 기본 이동 정책에 현재 GAS 상태의 제한을 합산한다. */
+void ALMPlayerCharacter::RefreshMovementPolicyFromAbilities()
+{
+    const ULMAbilitySystemComponent* ASC = CachedAbilitySystem.Get();
+
+    // 능력이나 루트 모션이 이동을 담당하고 있는지 확인한다.
+    const bool bExternalMovement =
+        ASC && ASC->HasMatchingGameplayTag(LMGameplayTags::State_Movement_External);
+
+    // 이동을 막는 상태가 하나라도 남아 있으면 일반 이동을 제한한다.
+    const bool bMovementBlocked =
+        ASC &&
+        (
+            ASC->HasMatchingGameplayTag(LMGameplayTags::State_Movement_Blocked) ||
+            ASC->HasMatchingGameplayTag(LMGameplayTags::State_Dead) ||
+            ASC->HasMatchingGameplayTag(LMGameplayTags::State_Stunned)
+        );
+
+    // 일시적인 제한이 기본 정책에 누적되지 않도록 매번 기본값에서 계산한다.
+    FLMFreeMovementPolicy Resolved = BaseMovementPolicy;
+
+    Resolved.ExternalMovement = Resolved.ExternalMovement || bExternalMovement;
+
+    if (bMovementBlocked || Resolved.ExternalMovement)
+    {
+        Resolved.AllowMove = false;
+        Resolved.AllowJump = false;
+        Resolved.AllowRun = false;
+        Resolved.FaceMovement = false;
+    }
+
+    // 카메라 조작 허용 여부는 기본 정책의 AllowLook을 유지한다.
+    ApplyResolvedMovementPolicy(Resolved);
 }

@@ -8,6 +8,9 @@
 #include "LMCamera/LMPlayerCameraManager.h"
 #include "LMUI/LMInteractionHUDWidget.h"
 #include "LMUI/LMUserHUDWidget.h"
+#include "EnhancedInputComponent.h"
+#include "LMAbilitySystem/LMAbilitySystemComponent.h"
+#include "LMPlayer/LMPlayerState.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -39,7 +42,9 @@ void ALMPlayerController::SetupInputComponent()
 	{
 		return;
 	}
-
+	
+	BindAbilityInputs();
+	
 	// 컨트롤러에서 소비해 캐릭터 BP의 임시 E 입력과 중복 실행되지 않게 한다.
 	InputComponent->BindKey(EKeys::Up, IE_Pressed,
 		this, &ThisClass::SelectPreviousInteractionTarget).bConsumeInput = true;
@@ -80,11 +85,14 @@ void ALMPlayerController::SetupInputComponent()
 void ALMPlayerController::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
+	CancelAbilityInput();
+	
 	if (UserHUD)
 	{
 		UserHUD->RemoveFromParent();
 		UserHUD = nullptr;
 	}
+	
 	InteractionHUD = nullptr;
 
 	if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
@@ -128,4 +136,92 @@ void ALMPlayerController::InteractWithSelectedTarget()
 				static_cast<int32>(Result.Failure));
 		}
 	}
+}
+
+/** 현재 PlayerState가 소유한 프로젝트 ASC를 반환한다. */
+ULMAbilitySystemComponent* ALMPlayerController::GetLMAbilitySystemComponent() const
+{
+	const ALMPlayerState* State = GetPlayerState<ALMPlayerState>();
+
+	return State
+		? Cast<ULMAbilitySystemComponent>(State->GetAbilitySystemComponent())
+		: nullptr;
+}
+
+/** 에디터에서 지정한 Input Action들을 공통 능력 입력 함수에 연결한다. */
+void ALMPlayerController::BindAbilityInputs()
+{
+	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(InputComponent);
+
+	if (!ensureMsgf(EnhancedInput, TEXT("LMPlayerController requires EnhancedInputComponent.")))
+	{
+		return;
+	}
+
+	for (const FLMAbilityInputBinding& Binding : AbilityInputs)
+	{
+		if (!Binding.InputAction || !Binding.InputTag.IsValid())
+		{
+			continue;
+		}
+
+		EnhancedInput->BindAction(Binding.InputAction, ETriggerEvent::Started, this, &ThisClass::OnAbilityInputPressed, Binding.InputTag);
+		EnhancedInput->BindAction(Binding.InputAction, ETriggerEvent::Completed, this, &ThisClass::OnAbilityInputReleased, Binding.InputTag);
+		EnhancedInput->BindAction(Binding.InputAction, ETriggerEvent::Canceled, this, &ThisClass::OnAbilityInputCanceled, Binding.InputTag);
+	}
+}
+
+/** 입력 시작을 해당 입력 태그와 함께 ASC에 전달한다. */
+void ALMPlayerController::OnAbilityInputPressed(FGameplayTag InputTag)
+{
+	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
+	{
+		ASC->AbilityInputTagPressed(InputTag);
+	}
+}
+
+/** 정상적인 입력 해제를 ASC에 전달한다. */
+void ALMPlayerController::OnAbilityInputReleased(FGameplayTag InputTag)
+{
+	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
+	{
+		ASC->AbilityInputTagReleased(InputTag);
+	}
+}
+
+/** 중단된 입력을 정상 해제와 구분하여 ASC에 전달한다. */
+void ALMPlayerController::OnAbilityInputCanceled(FGameplayTag InputTag)
+{
+	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
+	{
+		ASC->AbilityInputTagCanceled(InputTag);
+	}
+}
+
+/** 이번 프레임에 수집된 능력 입력 ASC에서 처리한다. */
+void ALMPlayerController::PostProcessInput(const float DeltaTime, const bool bGamePaused)
+{
+	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
+	{
+		ASC->ProcessAbilityInput(bGamePaused);
+	}
+
+	Super::PostProcessInput(DeltaTime, bGamePaused);
+}
+
+/** UI 전환 등으로 중단된 능력 입력을 취소한다. */
+void ALMPlayerController::CancelAbilityInput()
+{
+	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
+	{
+		ASC->ClearAbilityInput();
+	}
+}
+
+/** 키 초기화를 정상적인 버튼 해제로 해석하지 않도록 먼저 능력 입력을 취소한다. */
+void ALMPlayerController::FlushPressedKeys()
+{
+	CancelAbilityInput();
+
+	Super::FlushPressedKeys();
 }
