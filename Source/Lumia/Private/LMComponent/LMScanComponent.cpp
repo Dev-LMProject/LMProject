@@ -18,28 +18,28 @@ ULMScanComponent::ULMScanComponent()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
-	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bCanEverTick = false;
 	PrimaryComponentTick.bStartWithTickEnabled=false;
 	// ...
 }
 
-void ULMScanComponent::StartScan()
+bool ULMScanComponent::StartScan()
 {
 	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	
 	if (!IsValid(OwnerPawn) || !OwnerPawn->IsLocallyControlled() || !GetWorld() ||
 		!PostProcessModifier.IsValid() ||
 		!FMath::IsFinite(ScanRadius) || ScanRadius <= 0.0f ||
-		!FMath::IsFinite(ScanDuration) || ScanDuration <= 0.0f ||
 		ScanStencilValue < 1 || ScanStencilValue > 255)
 	{
-		return;
+		return false;
 	}
 
 	StopScan();
 	const TArray<AActor*> Targets = CollectScanTargets();
 	if (!PostProcessModifier->StartScanPostProcess(ScanStencilValue))
 	{
-		return;
+		return false;
 	}
 	for (AActor* Target : Targets)
 	{
@@ -48,6 +48,23 @@ void ULMScanComponent::StartScan()
 
 	bIsScanning = true;
 	SetComponentTickEnabled(true);
+	return true;
+}
+
+bool ULMScanComponent::UpdateScanIntensity(float Alpha)
+{
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!bIsScanning||
+		!IsValid(OwnerPawn) ||
+		!OwnerPawn->IsLocallyControlled() ||
+		!PostProcessModifier.IsValid() ||
+		!FMath::IsFinite(Alpha))
+	{
+		StopScan();
+		return false;
+	}
+	PostProcessModifier->UpdateScanPostProcess(Alpha);
+	return true;
 }
 
 void ULMScanComponent::StopScan()
@@ -57,9 +74,7 @@ void ULMScanComponent::StopScan()
 		PostProcessModifier->StopScanPostProcess();
 	}
 	bIsScanning = false;
-	SetComponentTickEnabled(false);
 	RestoreHighlights();
-	ElapsedTime = 0.0f;
 }
 
 bool ULMScanComponent::InitializeScan(ULMPostProcessCameraModifier* InPostProcessModifier)
@@ -77,33 +92,6 @@ void ULMScanComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 }
 
 
-// Called every frame
-void ULMScanComponent::TickComponent(float DeltaTime, ELevelTick TickType,
-                                     FActorComponentTickFunction* ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	if (!bIsScanning)
-	{
-		return;
-	}
-
-	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (!IsValid(OwnerPawn) || !OwnerPawn->IsLocallyControlled() ||
-		!PostProcessModifier.IsValid())
-	{
-		StopScan();
-		return;
-	}
-
-	ElapsedTime += DeltaTime;
-	const float Progress = FMath::Clamp(ElapsedTime / ScanDuration, 0.0f, 1.0f);
-	PostProcessModifier->UpdateScanPostProcess(Progress);
-	if (ElapsedTime >= ScanDuration)
-	{
-		StopScan();
-	}
-}
 
 TArray<AActor*> ULMScanComponent::CollectScanTargets() const
 {
