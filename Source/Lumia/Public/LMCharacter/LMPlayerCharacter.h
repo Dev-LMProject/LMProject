@@ -11,7 +11,7 @@ class UInputAction;
 class UAnimInstance;
 class UAnimMontage;
 class UMotionWarpingComponent;
-
+class UGameplayAbility;
 struct FAnimMontageInstance;
 class ULMInteractorComponent;
 struct FInputActionValue;
@@ -241,6 +241,10 @@ private:
     //ScanComponent 연결
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LM|Scan", meta=(AllowPrivateAccess="true"))
     TObjectPtr<ULMScanComponent> ScanComponent;
+    
+    // shortcut: 스캔 GA 확인용 임시 설정이며, 정식 GAS 입력 연결 시 제거한다.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Scan|Temporary")
+    TSubclassOf<UGameplayAbility> TempScanAbilityClass;
     
     void RequestScan();
     

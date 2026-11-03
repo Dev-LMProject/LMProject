@@ -19,6 +19,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "MotionWarpingComponent.h"
 
+
 namespace LMPivot
 {
     const FName Turn(TEXT("Turn"));
@@ -814,12 +815,38 @@ void ALMPlayerCharacter::UnPossessed()
 
     RefreshMovementSettings();
 }
+//shortcut:스캔 GA 확인용 임시 추가
+#include "Abilities/GameplayAbility.h"
+#include "AbilitySystemComponent.h"
+#include "GameplayAbilitySpec.h"
+#include "LMPlayer/LMPlayerState.h"
 void ALMPlayerCharacter::RequestScan()
 {
+    /*
     if (ScanComponent)
     {
         ScanComponent->StartScan();
     }
+    */
+    ALMPlayerState* LMPlayerState = GetPlayerState<ALMPlayerState>();
+    UAbilitySystemComponent* ASC = LMPlayerState ? LMPlayerState->GetAbilitySystemComponent() : nullptr;
+
+    if (!ASC)
+    {
+        return;
+    }
+
+    if (ASC->GetOwnerActor() != LMPlayerState || ASC->GetAvatarActor() != this)
+    {
+        ASC->InitAbilityActorInfo(LMPlayerState, this);
+    }
+
+    if (!ASC->FindAbilitySpecFromClass(TempScanAbilityClass))
+    {
+        ASC->GiveAbility(FGameplayAbilitySpec(TempScanAbilityClass, 1));
+    }
+
+    ASC->TryActivateAbilityByClass(TempScanAbilityClass);
 }
 
 /** 현재 피벗의 재생 인스턴스를 찾는다. */
