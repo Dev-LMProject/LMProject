@@ -211,15 +211,6 @@ void ALMPlayerCharacter::SetupPlayerInputComponent(
             CameraZoomAction, ETriggerEvent::Triggered,
             this, &ThisClass::ZoomCamera);
     }
-    
-    if (ensureMsgf(ScanAction, TEXT("Assign ScanAction in the player BP.")))
-    {
-        Input->BindAction(
-            ScanAction,
-            ETriggerEvent::Started,
-            this,
-            &ThisClass::RequestScan);
-    }
 }
 
 /** 현재 제한을 통과한 유효한 이동 입력이 있는지 반환한다. */
@@ -837,14 +828,6 @@ void ALMPlayerCharacter::UnPossessed()
     Super::UnPossessed();
 
     RefreshMovementSettings();
-}
-
-void ALMPlayerCharacter::RequestScan()
-{
-    if (ScanComponent)
-    {
-        ScanComponent->StartScan();
-    }
 }
 
 /** 현재 피벗의 재생 인스턴스를 찾는다. */
