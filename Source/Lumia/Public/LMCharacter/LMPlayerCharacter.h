@@ -250,8 +250,7 @@ private:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LM|Scan", meta=(AllowPrivateAccess="true"))
     TObjectPtr<ULMScanComponent> ScanComponent;
     
-    void RequestScan();
-    
+
 	/** 카메라 거리와 카메라의 벽 충돌을 처리한다. */
 	UPROPERTY(
 		VisibleAnywhere,
@@ -361,9 +360,6 @@ private:
 
     UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
     TObjectPtr<UInputAction> CameraZoomAction;
-
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
-    TObjectPtr<UInputAction> ScanAction;
     
     // 피벗 중 루트 모션을 목표 방향에 맞춰 보정하는 컴포넌트.
     UPROPERTY(VisibleAnywhere, Category = "LM|Movement|Pivot")
