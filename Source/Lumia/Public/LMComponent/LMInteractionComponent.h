@@ -16,7 +16,7 @@ struct FGameplayTag;
 DECLARE_MULTICAST_DELEGATE(FLMInteractionTagsChanged);
 
 UENUM(BlueprintType)
-enum class InteractionFailure:uint8 {
+enum class EInteractionFailure:uint8 {
 
 	Succsess=0,
 	NotHasAllRequireTags,
@@ -35,7 +35,7 @@ struct FLMInteractionResult
 	UPROPERTY(BlueprintReadOnly, Category = "Interaction")
 	bool bCanInteraction=false;
 	UPROPERTY(BlueprintReadOnly, Category = "Interaction")
-	InteractionFailure Failure=InteractionFailure::Succsess;
+	EInteractionFailure Failure=EInteractionFailure::Succsess;
 	UPROPERTY(BlueprintReadOnly, Category = "Interaction")
 	FGameplayTagContainer HasTags;
 	UPROPERTY(BlueprintReadOnly, Category = "Interaction")

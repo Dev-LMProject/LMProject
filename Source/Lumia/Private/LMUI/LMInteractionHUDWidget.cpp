@@ -124,6 +124,6 @@ FLMInteractionResult ULMInteractionHUDWidget::TryInteractSelected()
     }
 
     FLMInteractionResult Result;
-    Result.Failure = InteractionFailure::CantAccessActor;
+    Result.Failure = EInteractionFailure::CantAccessActor;
     return Result;
 }

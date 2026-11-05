@@ -179,7 +179,7 @@ TArray<AActor*> ULMInteractorComponent::GetInteractionTargets() const
 FLMInteractionResult ULMInteractorComponent::TryInteract(AActor* TargetActor)
 {
     FLMInteractionResult Result;
-    Result.Failure = InteractionFailure::CantAccessActor;
+    Result.Failure = EInteractionFailure::CantAccessActor;
 
     if (bIsEndingPlay || !IsValid(GetOwner()) || !IsValid(TargetActor) ||
         !InteractionTargets.Contains(TWeakObjectPtr<AActor>(TargetActor)))

@@ -227,7 +227,7 @@ FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* Reques
 	//자신이 이미 상호작용중
 	if (bIsBusy)
 	{
-		R.Failure = InteractionFailure::IsBusy;
+		R.Failure = EInteractionFailure::IsBusy;
 		return R;
 	}
 
@@ -236,7 +236,7 @@ FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* Reques
 	//유효 태그 검사
 	if (!R.bCanInteraction)
 	{
-		R.Failure = InteractionFailure::NotHasAllRequireTags;
+		R.Failure = EInteractionFailure::NotHasAllRequireTags;
 		return R;
 	}
 
@@ -252,20 +252,20 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
 
 	if (!IsValid(TargetActor) || !IsValid(RequestActor))
 	{
-		R.Failure = InteractionFailure::CantAccessActor;
+		R.Failure = EInteractionFailure::CantAccessActor;
 		return R;
 	}
 
 	if (!ActionTags.IsValid())
 	{
-		R.Failure = InteractionFailure::InvalidActionTags;
+		R.Failure = EInteractionFailure::InvalidActionTags;
 		return R;
 	}
 
 	if (!TargetActor->GetClass()->ImplementsInterface(
 		ULMInteractable::StaticClass()))
 	{
-		R.Failure = InteractionFailure::NotHasInterface;
+		R.Failure = EInteractionFailure::NotHasInterface;
 		return R;
 	}
 
@@ -304,7 +304,7 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
 	if (!bStarted)
 	{
 		bIsBusy = false;
-		R.Failure = InteractionFailure::ExecutionFailed;
+		R.Failure = EInteractionFailure::ExecutionFailed;
 	}
 
 	return R;

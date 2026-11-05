@@ -130,7 +130,7 @@ void ALMPlayerController::InteractWithSelectedTarget()
 	if (InteractionHUD)
 	{
 		const FLMInteractionResult Result = InteractionHUD->TryInteractSelected();
-		if (Result.Failure != InteractionFailure::Succsess)
+		if (Result.Failure != EInteractionFailure::Succsess)
 		{
 			UE_LOG(LogTemp, Verbose, TEXT("Interaction request failed: %d"),
 				static_cast<int32>(Result.Failure));
