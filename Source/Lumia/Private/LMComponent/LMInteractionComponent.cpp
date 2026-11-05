@@ -278,25 +278,27 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
 	//접근 가능
 
 
- 
-    ULMHackingComponent* HackingComponent = TargetActor->FindComponentByClass<ULMHackingComponent>();
-    const FGameplayTag HackingStateTag = HackingComponent->GetHackingStateTag();
-
-    if (HackingStateTag == LMGameplayTags::State_Hacking_NeedHacking)
+    if (ULMHackingComponent* HackingComponent = TargetActor->FindComponentByClass<ULMHackingComponent>(); IsValid(HackingComponent))
     {
-        const bool bHackingStarted = HackingComponent->TryStartHacking(RequestActor);
-        R.Failure = bHackingStarted ? InteractionFailure::Succsess : InteractionFailure::ExecutionFailed;
+        const FGameplayTag HackingStateTag = HackingComponent->GetHackingStateTag();
 
-        // 시작 실패도 여기서 끝내야 잠긴 대상의 실제 행동으로 넘어가지 않는다.
-        return R;
-    }
+        if (HackingStateTag == LMGameplayTags::State_Hacking_NeedHacking)
+        {
+            const bool bHackingStarted = HackingComponent->TryStartHacking(RequestActor);
+            R.Failure = bHackingStarted ? EInteractionFailure::Succsess : EInteractionFailure::ExecutionFailed;
 
-    if (HackingStateTag != LMGameplayTags::State_Hacking_HackedComplete)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("%s: Unsupported HackingStateTag '%s'."), *GetNameSafe(TargetActor), *HackingStateTag.ToString());
-        R.Failure = InteractionFailure::ExecutionFailed;
-        return R;
+            // 시작 실패도 여기서 끝내야 잠긴 대상의 실제 행동으로 넘어가지 않는다.
+            return R;
+        }
+
+        if (HackingStateTag != LMGameplayTags::State_Hacking_HackedComplete)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("%s: Unsupported HackingStateTag '%s'."), *GetNameSafe(TargetActor), *HackingStateTag.ToString());
+            R.Failure = EInteractionFailure::ExecutionFailed;
+            return R;
+        }
     }
+    
     
 	bIsBusy = true;
 	const bool bStarted = ILMInteractable::Execute_Interact(TargetActor, RequestActor);
