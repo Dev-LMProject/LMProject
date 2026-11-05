@@ -209,6 +209,9 @@ private:
     /** 입력 크기를 제한하고 카메라의 수평 축으로 이동을 요청한다. */
     void Move(const FInputActionValue& Value);
 
+    /** 이동 입력이 허용된 상황에서 현재 행동의 회복 취소를 요청한다. */
+    void RequestRecoveryCancel();
+
     /** 이동키 해제·취소 시 이동축을 비우고 달리기 토글을 해제한다. */
     void ClearMoveInput();
 

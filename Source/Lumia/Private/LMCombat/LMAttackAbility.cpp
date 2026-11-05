@@ -2,6 +2,7 @@
 
 #include "Abilities/GameplayAbilityTypes.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
+#include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimMontage.h"
 #include "GameFramework/Character.h"
@@ -124,7 +125,7 @@ void ULMAttackAbility::HandleAttackMontageAborted()
 	}
 }
 
-/** 종료 경로와 관계없이 이 공격이 변경한 루트 모션 배율을 정리한다. */
+/** 정상 종료와 취소 모두에서 회복 상태와 루트 모션 배율을 정리한다. */
 void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	if (!IsEndAbilityValid(Handle, ActorInfo))
@@ -138,9 +139,11 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 		return;
 	}
 
+	SetAttackRecovery(false);
+
 	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 
-	// 다른 능력이 이미 재생을 이어받았다면 그 능력의 배율은 변경하지 않는다.
+	// 다른 능력이 이미 몽타주를 이어받았다면 그 능력의 배율은 변경하지 않는다.
 	if (ASC && ASC->GetAnimatingAbility() == this)
 	{
 		if (ACharacter* Character = GetAttackCharacter())
@@ -150,4 +153,94 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+/** 회복 관련 사건을 먼저 구독하고 기존 BP의 ActivateAbility 실행을 이어 준다. */
+void ULMAttackAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+{
+    SetAttackRecovery(false);
+
+    UAbilityTask_WaitGameplayEvent* RecoveryTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, LMGameplayTags::Event_Combat_Recovery_Begin, nullptr, false, true);
+    UAbilityTask_WaitGameplayEvent* CancelTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, LMGameplayTags::Event_Action_CancelRecovery, nullptr, false, true);
+
+    if (!ensure(RecoveryTask && CancelTask))
+    {
+        EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+        return;
+    }
+
+    RecoveryTask->EventReceived.AddDynamic(this, &ThisClass::HandleRecoveryBegin);
+    CancelTask->EventReceived.AddDynamic(this, &ThisClass::HandleRecoveryCancel);
+
+    RecoveryTask->ReadyForActivation();
+    CancelTask->ReadyForActivation();
+
+    // BP에서 몽타주를 시작하기 전에 Notify를 받을 준비를 완료한다.
+    Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+}
+
+/** 이 공격이 소유한 회복 상태를 변경하고 공통 상태 태그에 반영한다. */
+void ULMAttackAbility::SetAttackRecovery(bool bNewRecovery)
+{
+    if (bInAttackRecovery == bNewRecovery)
+    {
+        return;
+    }
+
+    if (bNewRecovery && (!IsActive() || bIsAbilityEnding))
+    {
+        return;
+    }
+
+    UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+
+    if (!ASC)
+    {
+        bInAttackRecovery = false;
+        return;
+    }
+
+    // 태그 변경 알림이 발생하기 전에 이 능력의 내부 상태를 먼저 맞춘다.
+    bInAttackRecovery = bNewRecovery;
+
+    if (bNewRecovery)
+    {
+        ASC->AddLooseGameplayTag(LMGameplayTags::State_Action_Recovery);
+    }
+    else
+    {
+        ASC->RemoveLooseGameplayTag(LMGameplayTags::State_Action_Recovery);
+    }
+}
+
+/** 현재 공격의 마무리 동작을 취소할 수 있는지 반환한다. */
+bool ULMAttackAbility::IsInAttackRecovery() const
+{
+    return bInAttackRecovery;
+}
+
+/** 현재 이 능력이 재생하는 몽타주의 회복 시작 알림만 받아들인다. */
+void ULMAttackAbility::HandleRecoveryBegin(FGameplayEventData Payload)
+{
+    if (!IsActive() || bIsAbilityEnding)
+    {
+        return;
+    }
+
+    UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+    UAnimMontage* Montage = GetCurrentMontage();
+
+    if (ASC && ASC->GetAnimatingAbility() == this && Montage && Payload.OptionalObject.Get() == Montage)
+    {
+        SetAttackRecovery(true);
+    }
+}
+
+/** 공격 본동작은 유지하고 회복 구간에서만 표준 GAS 취소 경로를 실행한다. */
+void ULMAttackAbility::HandleRecoveryCancel(FGameplayEventData Payload)
+{
+    if (IsActive() && !bIsAbilityEnding && bInAttackRecovery)
+    {
+        K2_CancelAbility();
+    }
 }
