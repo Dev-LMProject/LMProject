@@ -259,6 +259,11 @@ void ALMPlayerCharacter::Move(const FInputActionValue& Value)
         return;
     }
 
+    // 취소 과정에서 입력 상태가 정리되어도 이번 프레임의 이동 의도를 유지한다.
+    const FVector2D RequestedAxis = MoveAxis;
+    RequestRecoveryCancel();
+    MoveAxis = RequestedAxis;
+
     if (!HasMoveInput())
     {
         CancelMoveInput();
@@ -290,6 +295,37 @@ void ALMPlayerCharacter::Move(const FInputActionValue& Value)
     }
 
     AddMovementInput(DesiredDirection, MoveAxis.Size());
+}
+
+/** 현재 행동이 회복 중일 때 이동 입력에 의한 취소를 요청한다. */
+void ALMPlayerCharacter::RequestRecoveryCancel()
+{
+    ULMAbilitySystemComponent* ASC = CachedAbilitySystem.Get();
+
+    if (!ASC || !Controller || IsMoveInputIgnored())
+    {
+        return;
+    }
+
+    if (ASC->HasMatchingGameplayTag(LMGameplayTags::State_Input_Blocked) ||
+        ASC->HasMatchingGameplayTag(LMGameplayTags::State_Movement_Blocked) ||
+        ASC->HasMatchingGameplayTag(LMGameplayTags::State_Dead) ||
+        ASC->HasMatchingGameplayTag(LMGameplayTags::State_Stunned))
+    {
+        return;
+    }
+
+    if (!ASC->HasMatchingGameplayTag(LMGameplayTags::State_Action_Recovery))
+    {
+        return;
+    }
+
+    FGameplayEventData Payload;
+    Payload.EventTag = LMGameplayTags::Event_Action_CancelRecovery;
+    Payload.Instigator = this;
+    Payload.Target = this;
+
+    UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, LMGameplayTags::Event_Action_CancelRecovery, Payload);
 }
 
 /** 이동은 즉시 해제하고, 달리기 의도만 방향키 교체 시간 동안 보존한다. */
@@ -397,6 +433,8 @@ bool ALMPlayerCharacter::CanJumpInternal_Implementation() const
 /** 지상 준비 또는 착지 직전 입력 버퍼에 사용할 점프 요청을 기록한다. */
 void ALMPlayerCharacter::RequestJump()
 {
+    RequestRecoveryCancel();
+
     if (!CanUseBasicJump() || bJumpIssued || !GetWorld())
     {
         return;

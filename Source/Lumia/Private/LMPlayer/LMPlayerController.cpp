@@ -11,6 +11,7 @@
 #include "EnhancedInputComponent.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMPlayer/LMPlayerState.h"
+#include "LMPlayer/LMInputConfig.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -148,7 +149,7 @@ ULMAbilitySystemComponent* ALMPlayerController::GetLMAbilitySystemComponent() co
 		: nullptr;
 }
 
-/** 에디터에서 지정한 Input Action들을 공통 능력 입력 함수에 연결한다. */
+/** 설정 애셋의 각 입력을 시작·해제·취소 처리 함수에 연결한다. */
 void ALMPlayerController::BindAbilityInputs()
 {
 	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(InputComponent);
@@ -158,13 +159,19 @@ void ALMPlayerController::BindAbilityInputs()
 		return;
 	}
 
-	for (const FLMAbilityInputBinding& Binding : AbilityInputs)
+	if (!ensureMsgf(InputConfig, TEXT("Assign InputConfig in the PlayerController Blueprint.")))
+	{
+		return;
+	}
+
+	for (const FLMAbilityInputBinding& Binding : InputConfig->AbilityInputs)
 	{
 		if (!Binding.InputAction || !Binding.InputTag.IsValid())
 		{
 			continue;
 		}
 
+		// 정상 해제와 입력 취소를 구분하여 홀드 판정이 잘못 확정되지 않게 한다.
 		EnhancedInput->BindAction(Binding.InputAction, ETriggerEvent::Started, this, &ThisClass::OnAbilityInputPressed, Binding.InputTag);
 		EnhancedInput->BindAction(Binding.InputAction, ETriggerEvent::Completed, this, &ThisClass::OnAbilityInputReleased, Binding.InputTag);
 		EnhancedInput->BindAction(Binding.InputAction, ETriggerEvent::Canceled, this, &ThisClass::OnAbilityInputCanceled, Binding.InputTag);
