@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "Components/ActorComponent.h"
 #include "Hacking/LMHackingCell.h"
 #include "Hacking/LMHackingDefinition.h"
@@ -39,9 +40,10 @@ public:
 
 	// 요청자·진입 조건·태그·설정을 검사하고 세션과 UI 진입을 시작한다.
 	// true는 해킹 완료가 아니라 시작 요청이 수락되었다는 뜻이다.
-	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	bool TryStartHacking(AActor* InInteractor);
-
+	// 대상이 가진 상호작용 태그의 복사본을 반환한다.
+	UFUNCTION(BlueprintGetter, Category="LM|Hacking")
+	FGameplayTag GetHackingStateTag() const { return HackingStateTag; }
 	// Playing 상태에서 클릭 한 번을 처리한다.
 	// 입력 검사 → 전파 큐 실행 → 횟수 증가 → 성공/실패 판정 → UI 알림.
 	// 실제 변경을 처리했으면 true. 동일 값과 잘못된 입력은 false.
@@ -91,6 +93,7 @@ public:
 	FLMHackingCompleted OnHackingCompleted;
 
 protected:
+	virtual void BeginPlay() override;
 	// 소유 액터 종료 시 미확정 세션과 자신이 확보한 자원을 정리한다.
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -149,4 +152,7 @@ private:
 
 	// 종료 처리 중 중복 정리와 새 요청을 막는다.
 	bool bIsCleaningUp = false;
+	
+	UPROPERTY(EditAnywhere, BlueprintGetter = GetHackingStateTag, Category = "LM|Hacking", meta = (AllowPrivateAccess = "true", Categories = "LM.State.Hacking"))
+	FGameplayTag HackingStateTag;
 };

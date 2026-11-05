@@ -2,17 +2,42 @@
 
 
 #include "LMComponent/LMHackingComponent.h"
-
+#include "LMGameplayTags/LMGameplayTags.h"
 
 ULMHackingComponent::ULMHackingComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
+	
+	HackingStateTag = LMGameplayTags::State_Hacking_NeedHacking;
 }
+
+void ULMHackingComponent::BeginPlay()
+{
+	// BP BeginPlay에서도 설정된 태그에 맞는 진행 단계를 읽도록 먼저 초기화한다.
+	Phase = HackingStateTag == LMGameplayTags::State_Hacking_HackedComplete ? ELMHackingPhase::Completed : ELMHackingPhase::Idle;
+
+	if (HackingStateTag != LMGameplayTags::State_Hacking_NeedHacking && HackingStateTag != LMGameplayTags::State_Hacking_HackedComplete)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: Unsupported HackingStateTag '%s'."), *GetPathName(), *HackingStateTag.ToString());
+	}
+	//super에서 BP의 Beginplay 실행 우려가 있으므로 먼저 Phase 설정 후 Super 호출
+	Super::BeginPlay();
+	
+}
+
+void ULMHackingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	Super::EndPlay(EndPlayReason);
+}
+
 
 bool ULMHackingComponent::TryStartHacking(AActor* InInteractor)
 {
+	// shortcut: 세션과 UI 연결 전에는 시작을 거절하며, 해당 개발 단계에서 실제 시작 처리로 교체한다.
 	return false;
+	
+	
 }
 
 bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
@@ -67,6 +92,18 @@ bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 
 void ULMHackingComponent::RetryPuzzle()
 {
+	// 실패한 퍼즐의 활성 세션에서만 재시도를 받는다.
+	//TODO:추후에 초기화 버튼으로 재구현
+	if (Phase != ELMHackingPhase::Failed || bIsCleaningUp || !IsCurrentSessionValid())
+	{
+		return;
+	}
+
+	ResetPuzzle();
+	Phase = ELMHackingPhase::Playing;
+
+	// HUD가 초기 숫자, 회복된 횟수, Playing 상태를 한 번에 읽도록 마지막에 알린다.
+	OnPuzzleChanged.Broadcast();
 }
 
 void ULMHackingComponent::CancelHacking()
@@ -90,10 +127,6 @@ TArray<uint8> ULMHackingComponent::GetCellValues() const
 	return Values;
 }
 
-void ULMHackingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	Super::EndPlay(EndPlayReason);
-}
 
 bool ULMHackingComponent::BuildCells()
 {
@@ -152,6 +185,12 @@ bool ULMHackingComponent::BuildCells()
 
 void ULMHackingComponent::ResetPuzzle()
 {
+	// 각 셀을 제자리에서 복원해 이미 연결한 이웃 포인터를 유지한다.
+	for (FLMHackingCell& Cell : Cells)
+	{
+		Cell.ResetValue();
+	}
+	UsedMoves = 0;
 }
 
 bool ULMHackingComponent::IsSolved() const

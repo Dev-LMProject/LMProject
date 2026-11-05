@@ -52,4 +52,12 @@ namespace LMGameplayTags
 	//Scan GA 용 쿨타임 태그
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Scan);
 	
+	//해킹용 State 태그
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Hacking_NeedHacking);
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Hacking_HackedComplete);
+	
+	//인터렉션 액터 구별 태그
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Interaction_Actor_Hacking);
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Interaction_Actor_ActiveTarget);
+	
 }

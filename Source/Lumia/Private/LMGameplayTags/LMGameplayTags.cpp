@@ -26,5 +26,11 @@ namespace LMGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_Combo_Close, "LM.Event.Combat.Combo.Close", "콤보 입력 구간 종료");
 
 	UE_DEFINE_GAMEPLAY_TAG(Cooldown_Scan, "LM.Cooldown.Scan");
+	UE_DEFINE_GAMEPLAY_TAG(State_Hacking_NeedHacking, "LM.State.Hacking.NeedHacking");
+	UE_DEFINE_GAMEPLAY_TAG(State_Hacking_HackedComplete, "LM.State.Hacking.HackedComplete");
+	
+	UE_DEFINE_GAMEPLAY_TAG(Interaction_Actor_Hacking,"LM.Interaction.Actor.Hacking");
+	UE_DEFINE_GAMEPLAY_TAG(Interaction_Actor_ActiveTarget,"LM.Interaction.Actor.ActiveTarget");
+	
 	
 }
