@@ -26,12 +26,8 @@ struct LUMIA_API FLMAbilitySetEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|GAS", meta = (ClampMin = "1"))
 	int32 AbilityLevel = 1;
 	
-	/**
-	 * ASC가 입력과 이 능력을 연결할 때 사용할 태그.
-	 * 부여 구현에서 AbilitySpec에 기록하고, ASC의 입력 처리에서 비교한다.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="LM|GAS",
-		meta=(Categories = "InputTag"))
+	/** 이 능력을 활성화할 입력 태그. 직접 입력으로 실행하지 않는 능력은 비워 둔다. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|GAS", meta = (Categories = "LM.InputTag"))
 	FGameplayTag InputTag;
 };
 

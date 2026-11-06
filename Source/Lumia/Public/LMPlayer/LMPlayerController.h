@@ -6,27 +6,12 @@
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMPlayerController.generated.h"
 
-class UInputAction;
+class ULMInputConfig;
 class ULMScanComponent;
 class UInputMappingContext;
 class ULMInteractionHUDWidget;
 class ULMUserHUDWidget;
 class ULMAbilitySystemComponent;
-
-/** 에디터에서 Input Action과 능력 입력 태그를 연결한다. */
-USTRUCT(BlueprintType)
-struct FLMAbilityInputBinding
-{
-	GENERATED_BODY()
-	
-	/** 눌림·해제 이벤트를 받을 입력 액션. 실제 키는 Input Mapping Context에서 지정한다. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="LM|Input")
-	TObjectPtr<UInputAction> InputAction = nullptr;
-	
-	/** ASC에 전달할 입력 태그. AbilitySet에서 해당 능력에 지정한 InputTag와 일치시킨다. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Input", meta = (Categories = "InputTag"))
-	FGameplayTag InputTag;
-};
 
 // 로컬 플레이어의 입력 환경과 카메라 매니저를 연결한다.
 UCLASS()
@@ -83,7 +68,7 @@ private:
 	/** 현재 PlayerState가 소유한 프로젝트 ASC를 반환한다. */
 	ULMAbilitySystemComponent* GetLMAbilitySystemComponent() const;
 	
-	/** 에디터에서 지정한 Input Action들을 공통 능력 입력 함수에 연결한다. */
+	/** InputConfig의 연결 목록을 읽어 공통 능력 입력 함수를 바인딩한다. */
 	void BindAbilityInputs();
 	
 	/** 입력 시작을 해당 입력 태그와 함께 ASC에 전달한다. */
@@ -95,7 +80,7 @@ private:
 	/** 중단된 입력을 정상 해제와 구분하여 ASC에 전달한다. */
 	void OnAbilityInputCanceled(FGameplayTag InputTag);
 	
-	/** 입력 액션과 GAS 입력 태그의 연결 목록. Controller BP의 Class Defaults에서 설정한다. */
+	/** 이 Controller가 사용할 능력 입력 연결 설정. */
 	UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
-	TArray<FLMAbilityInputBinding> AbilityInputs;
+	TObjectPtr<ULMInputConfig> InputConfig = nullptr;
 };
