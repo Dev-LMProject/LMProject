@@ -21,8 +21,8 @@ public:
     /** GAS 인터페이스를 통해 플레이어의 ASC를 반환한다. */
     virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
-    /** ASC를 플레이어 캐릭터에 연결하고 기본 능력을 준비한다. */
-    void InitializeAbilitySystem(AActor* PlayerCharacter);
+    /** 캐릭터의 ASC 연결이 준비된 뒤 기본 능력 묶음을 최초 한 번 등록한다. */
+    void EnsureStartupAbilitiesGranted();
 
 protected:
     /** PlayerState의 플레이가 종료될 때 입력과 능력 실행을 정리한다. */
@@ -37,9 +37,6 @@ protected:
     TArray<TObjectPtr<ULMAbilitySet>> StartupAbilitySets;
 
 private:
-    /** 기본 능력 묶음을 중복 없이 최초 한 번 등록한다. */
-    void EnsureStartupAbilitiesGranted();
-
     /** AbilitySet이 실제로 부여한 능력들의 핸들 기록. */
     UPROPERTY(Transient)
     FLMAbilitySetGrantedHandles StartupGrantedAbilities;
