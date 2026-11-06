@@ -161,9 +161,14 @@ void ULMAbilitySystemComponent::ProcessAbilityInput(bool bGamePaused)
     }
 }
 
-/** 대기 중이거나 처리 중인 능력 입력을 정상 해제 대신 취소로 정리한다. */
-void ULMAbilitySystemComponent::ClearAbilityInput()
+/** 남은 능력 입력을 취소하고, 지정한 Avatar가 바뀌면 후속 취소를 중단한다. */
+void ULMAbilitySystemComponent::ClearAbilityInput(const AActor* ExpectedAvatar)
 {
+	if (ExpectedAvatar && GetAvatarActor() != ExpectedAvatar)
+	{
+		return;
+	}
+
 	TSet<FGameplayAbilitySpecHandle> HandlesToCancel = HeldInputs;
 
 	for (const FLMAbilityInputEvent& Event : PendingInputs)
@@ -187,6 +192,12 @@ void ULMAbilitySystemComponent::ClearAbilityInput()
 
 	for (const FGameplayAbilitySpecHandle Handle : HandlesToCancel)
 	{
+		// 앞선 취소 콜백에서 새 몸체가 연결됐다면 그 입력과 실행은 보존한다.
+		if (ExpectedAvatar && GetAvatarActor() != ExpectedAvatar)
+		{
+			break;
+		}
+
 		if (FGameplayAbilitySpec* Spec = FindAbilitySpecFromHandle(Handle))
 		{
 			Spec->InputPressed = false;

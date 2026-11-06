@@ -1,8 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AbilitySystemInterface.h"
-#include "GameplayTagContainer.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "LMPlayerCharacter.generated.h"
 
@@ -13,7 +11,6 @@ class UInputAction;
 class UAnimInstance;
 class UAnimMontage;
 class UMotionWarpingComponent;
-class ULMAbilitySystemComponent;
 
 struct FAnimMontageInstance;
 class ULMInteractorComponent;
@@ -52,7 +49,7 @@ struct FLMFreeMovementPolicy
 
 /** 입력 요청을 이동 처리와 연결하고, 실제 도약·착지 결과를 애니메이션에 제공한다. */
 UCLASS()
-class LUMIA_API ALMPlayerCharacter : public ALMBaseCharacter, public IAbilitySystemInterface
+class LUMIA_API ALMPlayerCharacter : public ALMBaseCharacter
 {
     GENERATED_BODY()
 
@@ -162,9 +159,6 @@ public:
     /** 준비부터 이륙 이후까지 연속된 점프 포즈 경과 시간(초)을 반환한다. */
     float GetJumpAnimationElapsed() const;
     
-    /** 초기화 과정에서 연결해 둔 플레이어의 ASC를 반환한다. */
-    virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
-    
     /** Controller가 캐릭터를 조종하기 시작하면 ASC를 연결한다. */
     virtual void PossessedBy(AController* NewController) override;
 	
@@ -174,6 +168,12 @@ protected:
 
     /** 캐릭터 종료 시 남은 피벗과 입력 상태를 정리한다. */
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+    /** Base의 ActorInfo 연결이 끝난 뒤 PlayerState의 기본 능력 부여를 요청한다. */
+    virtual void OnAbilitySystemReady() override;
+
+    /** 공통 GAS 상태 알림을 플레이어 전용 이동 정책에 반영한다. */
+    virtual void OnAbilitySystemTagsChanged() override;
 
     /** Enhanced Input 액션을 이동·시점·점프·달리기·줌 함수에 연결한다. */
     virtual void SetupPlayerInputComponent(
@@ -433,26 +433,11 @@ private:
     uint32 JumpSerial = 0;
     uint32 LandingSerial = 0;
     
-    /** PlayerState의 ASC를 연결하고 태그 변경 알림을 한 번만 등록한다. */
-    void InitializeAbilitySystem();
-    
-    /** 이전 Avatar의 능력 실행과 태그 알림 연결을 정리한다. */
-    void DisconnectAbilitySystem();
-
-    /** 상태 태그가 추가되거나 완전히 제거되면 이동 제한을 다시 계산한다. */
-    void HandleAbilityTagChanged(FGameplayTag Tag, int32 NewCount);
-
     /** 기본 이동 정책에 현재 GAS 상태의 제한을 합산한다. */
     void RefreshMovementPolicyFromAbilities();
 
     /** 합산된 최종 정책을 적용하고 허용되지 않는 이동 요청을 정리한다. */
     void ApplyResolvedMovementPolicy(const FLMFreeMovementPolicy& NewPolicy);
-
-    /** 연결한 ASC를 약한 참조로 보관한다. ASC의 수명을 연장하지 않는다. */
-    TWeakObjectPtr<ULMAbilitySystemComponent> CachedAbilitySystem;
-
-    /** 등록한 태그 변경 콜백을 캐릭터 종료 시 해제하기 위한 식별자. */
-    FDelegateHandle AbilityTagChangedHandle;
 
     /** GAS 제한을 합산하기 전의 기본 이동 정책. */
     FLMFreeMovementPolicy BaseMovementPolicy;

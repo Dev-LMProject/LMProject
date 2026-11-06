@@ -44,8 +44,8 @@ public:
 	/** 이번 프레임에 수집한 입력을 순서대로 처리한다. */
 	void ProcessAbilityInput(bool bGamePaused);
 	
-	/** 남은 입력과 다른 입력을 기다리는 능력을 취소한다. */
-	void ClearAbilityInput();
+	/** 남은 입력을 비운다. ExpectedAvatar가 있으면 해당 몸체의 연결이 유지되는 동안만 취소한다. */
+	void ClearAbilityInput(const AActor* ExpectedAvatar = nullptr);
 	
 protected:
 	/** 실행 중인 능력의 WaitInputPress Task에 누름을 전달한다. */
