@@ -71,6 +71,8 @@
 /MEMORY.md
 
 # User-requested HackingSystem planning records for this branch.
+# Keep these rules and planning updates in separate documentation commits.
+# Do not integrate those commits into other branches; select code commits only.
 !/.planning/
 /.planning/*
 !/.planning/2026-11-06-lm-hacking-session-design/
