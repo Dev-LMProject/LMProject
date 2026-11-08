@@ -91,7 +91,8 @@ public:
 	// 완료 처리 뒤 액터별 소리·VFX 등을 연결한다.
 	UPROPERTY(BlueprintAssignable, Category = "LM|Hacking")
 	FLMHackingCompleted OnHackingCompleted;
-
+	
+	//입력 체크
 protected:
 	virtual void BeginPlay() override;
 	// 소유 액터 종료 시 미확정 세션과 자신이 확보한 자원을 정리한다.

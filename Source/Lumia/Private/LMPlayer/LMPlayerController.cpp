@@ -46,7 +46,7 @@ void ALMPlayerController::SetupInputComponent()
 	
 	BindAbilityInputs();
 	
-	// 컨트롤러에서 소비해 캐릭터 BP의 임시 E 입력과 중복 실행되지 않게 한다.
+	// 휠·방향키는 HUD의 선택만 이동하고, E 요청은 GAS 입력 경로에서 처리한다.
 	InputComponent->BindKey(EKeys::Up, IE_Pressed,
 		this, &ThisClass::SelectPreviousInteractionTarget).bConsumeInput = true;
 	InputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed,
@@ -55,8 +55,6 @@ void ALMPlayerController::SetupInputComponent()
 		this, &ThisClass::SelectNextInteractionTarget).bConsumeInput = true;
 	InputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed,
 		this, &ThisClass::SelectNextInteractionTarget).bConsumeInput = true;
-	InputComponent->BindKey(EKeys::E, IE_Pressed,
-		this, &ThisClass::InteractWithSelectedTarget).bConsumeInput = true;
 	
 	ULocalPlayer* LocalPlayer = GetLocalPlayer();
 	if (!LocalPlayer)
@@ -126,17 +124,10 @@ void ALMPlayerController::SelectNextInteractionTarget()
 	}
 }
 
-void ALMPlayerController::InteractWithSelectedTarget()
+// 입력 GA가 위젯 구성에 의존하지 않고 현재 선택 결과를 조회하도록 연결한다.
+AActor* ALMPlayerController::GetSelectedInteractionActor() const
 {
-	if (InteractionHUD)
-	{
-		const FLMInteractionResult Result = InteractionHUD->TryInteractSelected();
-		if (Result.Failure != EInteractionFailure::Succsess)
-		{
-			UE_LOG(LogTemp, Verbose, TEXT("Interaction request failed: %d"),
-				static_cast<int32>(Result.Failure));
-		}
-	}
+	return IsValid(InteractionHUD) ? InteractionHUD->GetSelectedActor() : nullptr;
 }
 
 /** 현재 PlayerState가 소유한 프로젝트 ASC를 반환한다. */

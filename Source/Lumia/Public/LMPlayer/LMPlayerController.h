@@ -29,6 +29,9 @@ public:
 	
 	/** 포커스 상실 등으로 키 상태가 초기화 되기 전에 능력 입력을 취소한다. */
 	virtual void FlushPressedKeys() override;
+
+	/** 상호작용 HUD의 선택 액터를 반환한다. HUD가 없거나 선택이 무효하면 nullptr. */
+	AActor* GetSelectedInteractionActor() const;
 	
 protected:
 	// UserHUD를 생성하고 화면에 등록한다.
@@ -48,8 +51,6 @@ private:
 	void SelectPreviousInteractionTarget();
 	// HUD의 선택을 다음 상호작용 액터로 이동한다.
 	void SelectNextInteractionTarget();
-	// HUD에서 선택한 액터의 상호작용을 요청하고 실패 결과를 기록한다.
-	void InteractWithSelectedTarget();
 	
 	UPROPERTY(EditDefaultsOnly, Category="UI")
 	TSubclassOf<ULMUserHUDWidget> UserHUDClass;
