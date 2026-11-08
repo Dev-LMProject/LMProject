@@ -11,6 +11,7 @@ class ULMScanComponent;
 class UInputMappingContext;
 class ULMInteractionHUDWidget;
 class ULMUserHUDWidget;
+class ULMHackingWidget;
 class ULMAbilitySystemComponent;
 
 // 로컬 플레이어의 입력 환경과 카메라 매니저를 연결한다.
@@ -33,6 +34,8 @@ public:
 	/** 상호작용 HUD의 선택 액터를 반환한다. HUD가 없거나 선택이 무효하면 nullptr. */
 	AActor* GetSelectedInteractionActor() const;
 	
+	// 해킹 컴포넌트가 생성할 화면의 BP 클래스를 반환한다.
+	TSubclassOf<ULMHackingWidget> GetHackingWidgetClass() const { return HackingWidgetClass; }
 protected:
 	// UserHUD를 생성하고 화면에 등록한다.
 	virtual void BeginPlay() override;
@@ -52,9 +55,13 @@ private:
 	// HUD의 선택을 다음 상호작용 액터로 이동한다.
 	void SelectNextInteractionTarget();
 	
-	UPROPERTY(EditDefaultsOnly, Category="UI")
+	UPROPERTY(EditDefaultsOnly, Category="LM|UI")
 	TSubclassOf<ULMUserHUDWidget> UserHUDClass;
-
+	
+	// 로컬 플레이어가 사용할 해킹 화면의 기본 클래스.
+	UPROPERTY(EditDefaultsOnly, Category = "LM|UI|Hacking")
+	TSubclassOf<ULMHackingWidget> HackingWidgetClass;
+	
 	UPROPERTY(Transient)
 	TObjectPtr<ULMUserHUDWidget> UserHUD;
 

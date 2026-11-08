@@ -9,6 +9,7 @@
 
 class AActor;
 class ALMPlayerController;
+class ULMHackingWidget;
 
 // 퍼즐 계산 결과와 해킹 완료 확인을 구분하는 진행 단계.
 UENUM(BlueprintType)
@@ -58,12 +59,12 @@ public:
 	// 진행·실패 화면을 취소하고 보드 초기화와 세션 정리를 요청한다.
 	// 성공 화면의 사용자 닫기·ESC는 ConfirmHacking으로 연결한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
-	void CancelHacking();
+	void CancelHacking(ULMHackingWidget* SourceWidget);
 
 	// AwaitingConfirmation에서 완료를 확정한다.
 	// 태그 전환·세션 복원 후 외부 보상을 한 번 전달한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
-	void ConfirmHacking();
+	void ConfirmHacking(ULMHackingWidget* SourceWidget);
 
 	// UI가 보드 크기와 목표 등을 읽도록 설정 복사본을 반환한다.
 	UFUNCTION(BlueprintPure, Category = "LM|Hacking")
@@ -114,9 +115,8 @@ private:
 
 	// 요청자·컨트롤러가 유효하고 자신이 현재 활성 세션인지 검사한다.
 	bool IsCurrentSessionValid() const;
-
-	// 자신이 확보한 Busy와 컨트롤러 세션만 해제한다.
-	// 중복 호출과 정리 중 재진입을 막고 UI·입력·월드 복원을 연결한다.
+	
+	// 이 세션이 확보한 화면·입력·일시정지·태그를 정리한다.
 	void ReleaseSession();
 
 	// 액터별 퍼즐 원본 설정. 진행 중에는 변경하지 않는다.
@@ -145,7 +145,7 @@ private:
 	// 현재 해킹을 요청한 액터. 수명을 강제로 유지하지 않는다.
 	TWeakObjectPtr<AActor> CurrentInteractor;
 
-	// 활성 해킹 UI·일시정지·입력 복원을 담당하는 컨트롤러.
+	// 세션을 시작한 원래 컨트롤러. 입력 복원 대상을 확인할 때 사용한다.
 	TWeakObjectPtr<ALMPlayerController> SessionController;
 
 	// 종료 처리 중 중복 정리와 새 요청을 막는다.

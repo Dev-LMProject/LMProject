@@ -120,12 +120,14 @@ void ULMHackingComponent::RetryPuzzle()
 	OnPuzzleChanged.Broadcast();
 }
 
-void ULMHackingComponent::CancelHacking()
+void ULMHackingComponent::CancelHacking(ULMHackingWidget* SourceWidget)//SourceWidget=>어느 화면이 이 요청을 보냈는가
 {
+	// shortcut: 세션 정리 구현 전에는 요청을 처리하지 않으며, 다음 세션 연결 단계에서 구현한다.
 }
 
-void ULMHackingComponent::ConfirmHacking()
+void ULMHackingComponent::ConfirmHacking(ULMHackingWidget* SourceWidget)
 {
+	// shortcut: 성공 확정 구현 전에는 해금하지 않으며, 퍼즐 완료 연결 단계에서 구현한다.
 }
 
 TArray<uint8> ULMHackingComponent::GetCellValues() const
