@@ -60,7 +60,7 @@
 *.blend
 *.psd
 
-# Reviewed team rules are shared; generated working memory stays local everywhere.
+# Reviewed team rules are shared; working memory stays local unless allowed below.
 !/AGENTS.md
 **/.planning/
 **/.lmcontext-local/
@@ -69,6 +69,14 @@
 /findings.md
 /progress.md
 /MEMORY.md
+
+# User-requested HackingSystem planning records for this branch.
+!/.planning/
+/.planning/*
+!/.planning/2026-11-06-lm-hacking-session-design/
+/.planning/2026-11-06-lm-hacking-session-design/*
+!/.planning/2026-11-06-lm-hacking-session-design/*.md
+
 # Context tooling overview and redistribution notices.
 !/Readme.md
 !/THIRD_PARTY_NOTICES.md
