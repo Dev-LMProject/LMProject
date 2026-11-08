@@ -9,7 +9,6 @@
 
 class AActor;
 class ALMPlayerController;
-class ULMInteractionComponent;
 
 // 퍼즐 계산 결과와 해킹 완료 확인을 구분하는 진행 단계.
 UENUM(BlueprintType)
@@ -40,7 +39,9 @@ public:
 
 	// 요청자·진입 조건·태그·설정을 검사하고 세션과 UI 진입을 시작한다.
 	// true는 해킹 완료가 아니라 시작 요청이 수락되었다는 뜻이다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	bool TryStartHacking(AActor* InInteractor);
+	
 	// 대상이 가진 상호작용 태그의 복사본을 반환한다.
 	UFUNCTION(BlueprintGetter, Category="LM|Hacking")
 	FGameplayTag GetHackingStateTag() const { return HackingStateTag; }
@@ -92,6 +93,8 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "LM|Hacking")
 	FLMHackingCompleted OnHackingCompleted;
 	
+	UFUNCTION(BlueprintPure, Category = "LM|Hacking")
+	bool IsInteractionReserved() const;
 	//입력 체크
 protected:
 	virtual void BeginPlay() override;
@@ -144,12 +147,6 @@ private:
 
 	// 활성 해킹 UI·일시정지·입력 복원을 담당하는 컨트롤러.
 	TWeakObjectPtr<ALMPlayerController> SessionController;
-
-	// 소유 액터의 기존 상호작용 컴포넌트. 태그와 Busy의 원본이다.
-	TWeakObjectPtr<ULMInteractionComponent> InteractionComponent;
-
-	// 이번 세션이 확보한 Busy만 해제하기 위한 소유 여부.
-	bool bOwnsBusy = false;
 
 	// 종료 처리 중 중복 정리와 새 요청을 막는다.
 	bool bIsCleaningUp = false;

@@ -5,3 +5,12 @@
 
 
 // Add default functionality here for any ILMInteractable functions that are not pure virtual.
+bool ILMInteractable::IsInteractionBusy_Implementation() const
+{
+	return false;
+}
+
+ELMInteractionRequestHandling ILMInteractable::HandleInteractionRequest_Implementation(AActor* RequestActor)
+{
+	return ELMInteractionRequestHandling::PassThrough;
+}

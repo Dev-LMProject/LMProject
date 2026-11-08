@@ -66,13 +66,12 @@ public:
 
     // 요청자·태그·인터페이스·진행 상태를 검사하고 Interact를 실행한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
-    FLMInteractionResult RequestInteraction(
-        AActor* RequestActor, UPARAM(ref) FGameplayTagContainer& ActionTags);
+	FLMInteractionResult RequestInteraction(AActor* RequestActor, UPARAM(ref) FGameplayTagContainer& ActionTags);
 
     // 상호작용 식별자를 반환한다.
     FORCEINLINE FGuid GetId() const { return InteractionId; }
     // 상호작용 진행 여부를 반환한다.
-    FORCEINLINE bool GetIsBusy() const { return bIsBusy; }
+	bool GetIsBusy() const;
 
     // 상호작용 진행 상태를 설정한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
@@ -92,11 +91,8 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintGetter=GetInteractionTags, BlueprintSetter=SetInteractionTags,
         Category="Interaction|GameplayTags")
     FGameplayTagContainer HasTagContainer;
-
-    // 진행 상태와 태그를 검사해 상호작용 가능 여부를 반환한다.
-    FLMInteractionResult EvaluateInteraction(
-        AActor* RequestActor, FGameplayTagContainer* ActionTags);
-
+	// 요청 문맥과 현재 조건을 검사한다. 내부 재검사는 자기 전달 가드만 제외한다.
+	FLMInteractionResult EvaluateInteraction(AActor* RequestActor, const FGameplayTagContainer& ActionTags, bool bIgnoreDispatchGuard = false);
     // 종료 상태를 초기화하고 연결된 감지 콜리전을 설정한다.
     virtual void BeginPlay() override;
     // 종료 상태를 설정하고 감지 이벤트와 대상 등록을 정리한다.
@@ -109,7 +105,8 @@ private:
     FGuid InteractionId;
     bool bIsBusy = false;
     bool bIsEndingPlay = false;
-
+	bool bIsDispatchingRequest = false;
+	
     UPROPERTY(Transient)
     TObjectPtr<UPrimitiveComponent> DetectionCollision;
 

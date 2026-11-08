@@ -12,6 +12,20 @@ ULMHackingComponent::ULMHackingComponent()
 	HackingStateTag = LMGameplayTags::State_Hacking_NeedHacking;
 }
 
+/*
+ Idle과 정상적인 Completed는 예약하지 않는다.
+ 다음 세션 구현에서는 시작 취소의 되돌리기가 끝날 때까지 Starting을 유지하고, 완료 처리에서는 정리와 완료 콜백 전달이 모두 끝날 때까지 보호 상태를 유지해야 한다. 
+ Phase를 Completed로 바꿨다는 이유만으로 콜백 중 예약을 풀면 안 된다. 현재 TryStartHacking/ConfirmHacking/ReleaseSession은 미구현이므로 해당 조회만 추가해 실제 세션 수명까지 완성됐다고 판단하지 않는다.
+ */
+bool ULMHackingComponent::IsInteractionReserved() const
+{
+	return bIsCleaningUp
+	   || Phase == ELMHackingPhase::Starting
+	   || Phase == ELMHackingPhase::Playing
+	   || Phase == ELMHackingPhase::Failed
+	   || Phase == ELMHackingPhase::AwaitingConfirmation;
+}
+
 void ULMHackingComponent::BeginPlay()
 {
 	// BP BeginPlay에서도 설정된 태그에 맞는 진행 단계를 읽도록 먼저 초기화한다.
