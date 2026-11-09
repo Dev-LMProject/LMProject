@@ -3,6 +3,8 @@
 
 #include "LMComponent/LMHackingComponent.h"
 #include "LMGameplayTags/LMGameplayTags.h"
+#include "GameFramework/Pawn.h"
+#include "LMPlayer/LMPlayerController.h"
 
 ULMHackingComponent::ULMHackingComponent()
 {
@@ -25,7 +27,6 @@ bool ULMHackingComponent::IsInteractionReserved() const
 	   || Phase == ELMHackingPhase::Failed
 	   || Phase == ELMHackingPhase::AwaitingConfirmation;
 }
-
 void ULMHackingComponent::BeginPlay()
 {
 	// BP BeginPlay에서도 설정된 태그에 맞는 진행 단계를 읽도록 먼저 초기화한다.
@@ -48,10 +49,61 @@ void ULMHackingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 bool ULMHackingComponent::TryStartHacking(AActor* InInteractor)
 {
-	// shortcut: 세션과 UI 연결 전에는 시작을 거절하며, 해당 개발 단계에서 실제 시작 처리로 교체한다.
-	return false;
-	
-	
+	// 이미 진행 중인 퍼즐에 새 시작 요청이 들어오는 것을 막는다.
+	if (bIsCleaningUp || Phase != ELMHackingPhase::Idle || !IsValid(InInteractor))
+	{
+		return false;
+	}
+
+	// 상호작용 요청자를 조종하는 컨트롤러를 찾는다.
+	APawn* InteractorPawn = Cast<APawn>(InInteractor);
+	ALMPlayerController* RequestController = IsValid(InteractorPawn) ? Cast<ALMPlayerController>(InteractorPawn->GetController()) : nullptr;
+
+	if (!IsValid(RequestController))
+	{
+		return false;
+	}
+
+	// UI가 읽을 셀을 기존 Definition으로 초기화한다.
+	if (!BuildCells())
+	{
+		return false;
+	}
+
+	// 화면 생성 중 실패했을 때 원래 컨트롤러에 정리를 요청하기 위한 참조다.
+	const TWeakObjectPtr<ALMPlayerController> OpeningController(RequestController);
+
+	CurrentInteractor = InInteractor;
+	SessionController = RequestController;
+	Phase = ELMHackingPhase::Starting;
+
+	// 컨트롤러가 화면 생성·일시정지·UIOnly 전환을 수행한다.
+	bool bOpened = RequestController->OpenHackingWidget(this) && IsCurrentSessionValid();
+
+	if (bOpened)
+	{
+		Phase = ELMHackingPhase::Playing;
+		OnPuzzleChanged.Broadcast();
+
+		// 초기 화면 갱신 이후에도 이번 세션이 유지되는지 확인한다.
+		bOpened = IsCurrentSessionValid();
+	}
+
+	if (!bOpened)
+	{
+		// 화면 열기에 실패하면 세션 참조와 화면을 정리한다.
+		CurrentInteractor.Reset();
+		SessionController.Reset();
+
+		if (ALMPlayerController* Controller = OpeningController.Get())
+		{
+			Controller->CloseHackingWidget(this);
+		}
+
+		Phase = ELMHackingPhase::Idle;
+	}
+
+	return bOpened;
 }
 
 bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
@@ -122,7 +174,36 @@ void ULMHackingComponent::RetryPuzzle()
 
 void ULMHackingComponent::CancelHacking(ULMHackingWidget* SourceWidget)//SourceWidget=>어느 화면이 이 요청을 보냈는가
 {
-	// shortcut: 세션 정리 구현 전에는 요청을 처리하지 않으며, 다음 세션 연결 단계에서 구현한다.
+	if (bIsCleaningUp || (Phase != ELMHackingPhase::Starting && Phase != ELMHackingPhase::Playing && Phase != ELMHackingPhase::Failed))
+	{
+		return;
+	}
+
+	ALMPlayerController* Controller = SessionController.Get();
+
+	// 현재 화면에서 보낸 취소 요청인지 확인한다.
+	if (!IsValid(Controller) || !Controller->IsHackingWidgetSource(this, SourceWidget))
+	{
+		return;
+	}
+
+	// 정리와 BP 이벤트 처리 중 중복 요청을 막는다.
+	TGuardValue<bool> CleanupGuard(bIsCleaningUp, true);
+	const bool bWasStarting = Phase == ELMHackingPhase::Starting;
+
+	ReleaseSession();
+
+	// 생성 중 취소는 기존 TryStartHacking의 실패 처리가 마무리한다.
+	if (bWasStarting)
+	{
+		return;
+	}
+
+	ResetPuzzle();
+	Phase = ELMHackingPhase::Idle;
+
+	// 정리를 마친 뒤 액터 BP에 취소 완료를 알린다.
+	OnHackingCanceled.Broadcast();
 }
 
 void ULMHackingComponent::ConfirmHacking(ULMHackingWidget* SourceWidget)
@@ -226,12 +307,39 @@ bool ULMHackingComponent::IsSolved() const
 
 	return true;
 }
-
+//퍼즐을 연 뒤 클릭하거나 재시도할 때 실행되므로, 그동안 대상이 파괴되거나 조종 캐릭터가 바뀌거나 화면이 제거됐는지 확인
 bool ULMHackingComponent::IsCurrentSessionValid() const
 {
-	return false;
+	// 이 컴포넌트가 붙어 있는 해킹 대상 액터.
+	const AActor* TargetActor = GetOwner();
+	// 기존 멤버에 기록된 요청자를 플레이어 Pawn으로 읽는다.
+	const APawn* RequestPawn = Cast<APawn>(CurrentInteractor.Get());
+	// 기존 멤버에 기록된 시작 당시 컨트롤러.
+	const ALMPlayerController* Controller = SessionController.Get();
+
+	if (!IsValid(TargetActor) || !IsValid(RequestPawn) || !IsValid(Controller))
+	{
+		return false;
+	}
+	// UObject가 아직 유효하더라도 액터 파괴가 시작됐으면 입력을 받지 않는다.
+	if (TargetActor->IsActorBeingDestroyed() || RequestPawn->IsActorBeingDestroyed() || Controller->IsActorBeingDestroyed())
+	{
+		return false;
+	}
+	// 조종 대상은 컴포넌트에서 확인하고, 현재 화면의 세션 여부는 컨트롤러에 묻는다.
+	return Controller->GetPawn() == RequestPawn && Controller->IsHackingSessionActive(this);
 }
 
 void ULMHackingComponent::ReleaseSession()
 {
+	// 멤버를 비운 뒤에도 원래 컨트롤러에 닫기를 요청할 수 있게 보관한다.
+	const TWeakObjectPtr<ALMPlayerController> ControllerToClose = SessionController;
+
+	CurrentInteractor.Reset();
+	SessionController.Reset();
+
+	if (ALMPlayerController* Controller = ControllerToClose.Get())
+	{
+		Controller->CloseHackingWidget(this);
+	}
 }

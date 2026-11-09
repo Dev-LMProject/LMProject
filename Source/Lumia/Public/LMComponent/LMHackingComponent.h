@@ -29,6 +29,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMHackingPuzzleChanged);
 // 완료 처리와 외부 보상 전달 뒤 선택 연출을 실행하는 이벤트.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMHackingCompleted);
 
+// 해킹 취소와 화면 정리가 끝났음을 알린다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMHackingCanceled);
+
 UCLASS(ClassGroup = (LM), meta = (BlueprintSpawnableComponent))
 class LUMIA_API ULMHackingComponent : public UActorComponent
 {
@@ -38,8 +41,8 @@ public:
 	// Tick을 사용하지 않도록 기본 설정한다.
 	ULMHackingComponent();
 
-	// 요청자·진입 조건·태그·설정을 검사하고 세션과 UI 진입을 시작한다.
-	// true는 해킹 완료가 아니라 시작 요청이 수락되었다는 뜻이다.
+	// 사전 상호작용 처리에서 NeedHacking으로 분기된 요청의 세션을 시작한다.
+	// true는 퍼즐 성공이 아니라 해킹 화면 진입 성공을 의미한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	bool TryStartHacking(AActor* InInteractor);
 	
@@ -96,7 +99,10 @@ public:
 	
 	UFUNCTION(BlueprintPure, Category = "LM|Hacking")
 	bool IsInteractionReserved() const;
-	//입력 체크
+
+	// 액터 BP가 취소 이후의 처리를 연결한다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|Hacking")
+	FLMHackingCanceled OnHackingCanceled;
 protected:
 	virtual void BeginPlay() override;
 	// 소유 액터 종료 시 미확정 세션과 자신이 확보한 자원을 정리한다.
@@ -116,7 +122,7 @@ private:
 	// 요청자·컨트롤러가 유효하고 자신이 현재 활성 세션인지 검사한다.
 	bool IsCurrentSessionValid() const;
 	
-	// 이 세션이 확보한 화면·입력·일시정지·태그를 정리한다.
+	// 컨트롤러에 화면·입력·일시정지 복원을 요청하고 이 컴포넌트의 세션을 정리한다.
 	void ReleaseSession();
 
 	// 액터별 퍼즐 원본 설정. 진행 중에는 변경하지 않는다.
@@ -153,4 +159,9 @@ private:
 	
 	UPROPERTY(EditAnywhere, BlueprintGetter = GetHackingStateTag, Category = "LM|Hacking", meta = (AllowPrivateAccess = "true", Categories = "LM.State.Hacking"))
 	FGameplayTag HackingStateTag;
+	// 현재 요청자의 실행 중 스캔 능력을 종료하고 시각 효과를 복원한다.
+	bool StopScanForCurrentInteractor();
+
+	// 시작 콜백이 끝나기 전에 새 시작이나 퍼즐 조작이 끼어드는 것을 막는다.
+	bool bIsStartingSession = false;
 };

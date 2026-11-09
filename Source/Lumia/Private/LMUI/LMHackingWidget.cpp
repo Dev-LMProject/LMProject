@@ -12,14 +12,54 @@ ULMHackingWidget::ULMHackingWidget(const FObjectInitializer& ObjectInitializer) 
 	SetIsFocusable(true);
 }
 
+void ULMHackingWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	ULMHackingComponent* Component = HackingComponent.Get();
+	if (!IsValid(Component))
+	{
+		return;
+	}
+
+	Component->OnPuzzleChanged.AddUniqueDynamic(this, &ThisClass::RefreshPuzzle);
+	OnPuzzleInitialized(Component->GetDefinition());
+	RefreshPuzzle();
+}
+
+void ULMHackingWidget::NativeDestruct()
+{
+	ClearSession();
+	Super::NativeDestruct();
+}
+
 void ULMHackingWidget::InitializeForSession(ULMHackingComponent* InHackingComponent)
 {
-	HackingComponent = InHackingComponent;
+    ClearSession();
+    HackingComponent = InHackingComponent;
 }
 
 void ULMHackingWidget::ClearSession()
 {
-	HackingComponent.Reset();
+    if (ULMHackingComponent* Component = HackingComponent.Get())
+    {
+        Component->OnPuzzleChanged.RemoveDynamic(this, &ThisClass::RefreshPuzzle);
+    }
+
+    HackingComponent.Reset();
+}
+
+
+
+void ULMHackingWidget::RefreshPuzzle()
+{
+    ULMHackingComponent* Component = HackingComponent.Get();
+    if (!IsValid(Component))
+    {
+        return;
+    }
+
+    OnPuzzleUpdated(Component->GetCellValues(), Component->GetRemainingMoves());
 }
 
 void ULMHackingWidget::RequestClose()
@@ -62,3 +102,4 @@ FReply ULMHackingWidget::NativeOnPreviewKeyDown(const FGeometry& InGeometry, con
 
 	return Super::NativeOnPreviewKeyDown(InGeometry, InKeyEvent);
 }
+

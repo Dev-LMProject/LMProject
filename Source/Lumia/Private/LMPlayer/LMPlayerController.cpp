@@ -6,12 +6,15 @@
 #include "InputMappingContext.h"
 #include "InputCoreTypes.h"
 #include "LMCamera/LMPlayerCameraManager.h"
+#include "LMComponent/LMHackingComponent.h"
+#include "LMUI/LMHackingWidget.h"
 #include "LMUI/LMInteractionHUDWidget.h"
 #include "LMUI/LMUserHUDWidget.h"
 #include "EnhancedInputComponent.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMPlayer/LMPlayerState.h"
 #include "LMPlayer/LMInputConfig.h"
+#include "UObject/StrongObjectPtr.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -84,6 +87,8 @@ void ALMPlayerController::SetupInputComponent()
 void ALMPlayerController::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
+	bIsEndingPlay = true;
+	ReleaseHackingWidget();
 	CancelAbilityInput();
 	
 	if (UserHUD)
@@ -128,6 +133,209 @@ void ALMPlayerController::SelectNextInteractionTarget()
 AActor* ALMPlayerController::GetSelectedInteractionActor() const
 {
 	return IsValid(InteractionHUD) ? InteractionHUD->GetSelectedActor() : nullptr;
+}
+
+bool ALMPlayerController::IsHackingSessionActive(const ULMHackingComponent* InSession) const
+{
+	// 같은 컨트롤러를 사용하는 다른 해킹 대상의 입력을 현재 화면에 적용하지 않는다.
+	return IsValid(InSession)
+		&& !InSession->IsBeingDestroyed()
+		&& ActiveHackingSession.Get() == InSession
+		&& IsValid(ActiveHackingWidget)
+		&& ActiveHackingWidget->GetOwningPlayer() == this
+		&& ActiveHackingWidget->IsInViewport();
+}
+
+bool ALMPlayerController::IsHackingWidgetSource(const ULMHackingComponent* InSession,
+	const ULMHackingWidget* SourceWidget) const
+{
+	// 현재 세션에 연결된 화면에서 보낸 요청인지 확인한다.
+	return IsValid(InSession)
+		&& IsValid(SourceWidget)
+		&& ActiveHackingSession.Get() == InSession
+		&& ActiveHackingWidget.Get() == SourceWidget;
+}
+
+bool ALMPlayerController::OpenHackingWidget(ULMHackingComponent* InSession)
+{
+	// 화면을 표시할 로컬 컨트롤러이며, 다른 화면 전환 중이 아니어야 한다.
+	if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || bIsChangingHackingWidget)
+	{
+		return false;
+	}
+
+	// 화면에 연결할 컴포넌트와 생성할 위젯 클래스가 필요하다.
+	if (!IsValid(InSession) || InSession->IsBeingDestroyed() || !HackingWidgetClass)
+	{
+		return false;
+	}
+
+	// 이전 화면이나 정리되지 않은 세션을 덮어쓰지 않는다.
+	if (ActiveHackingWidget != nullptr || !ActiveHackingSession.IsExplicitlyNull())
+	{
+		return false;
+	}
+
+	// 함수 실행 중 true로 유지하고, 함수를 벗어나면 이전 값으로 복원한다.
+	TGuardValue<bool> ChangingGuard(bIsChangingHackingWidget, true);
+
+	// 생성 콜백 이후에는 이 약한 참조로 컴포넌트를 다시 확인한다.
+	const TWeakObjectPtr<ULMHackingComponent> RequestedSession(InSession);
+	ActiveHackingSession = RequestedSession;
+
+	// 생성 중 취소되더라도 실패 정리가 끝날 때까지 후보 위젯을 유지한다.
+	TStrongObjectPtr<ULMHackingWidget> NewWidget(CreateWidget<ULMHackingWidget>(this, HackingWidgetClass));
+
+	// 각 콜백 이후에도 이번 요청의 화면과 세션이 유지되는지 확인한다.
+	const auto IsOpeningSessionValid = [this, &RequestedSession, &NewWidget]()
+	{
+		return !bIsEndingPlay
+			&& !IsActorBeingDestroyed()
+			&& ActiveHackingWidget == NewWidget.Get()
+			&& IsHackingSessionActive(RequestedSession.Get());
+	};
+	
+	bool bOpened = false;
+	ULMHackingComponent* Session = RequestedSession.Get();
+
+	if (IsValid(NewWidget.Get()) && IsValid(Session) && !Session->IsBeingDestroyed() && !bIsEndingPlay && !IsActorBeingDestroyed() && ActiveHackingSession.HasSameIndexAndSerialNumber(RequestedSession))
+	{
+		ActiveHackingWidget = NewWidget.Get();
+
+		// 화면에 등록하기 전에 위젯이 사용할 해킹 컴포넌트를 전달한다.
+		NewWidget->InitializeForSession(Session);
+
+		const bool bAddedToScreen = NewWidget->AddToPlayerScreen(10);
+
+		bOpened = bAddedToScreen && IsOpeningSessionValid();
+	}
+
+	if (bOpened)
+	{
+		// 이후 처리에서 취소되더라도 복원할 수 있도록 먼저 저장한다.
+		bMouseCursorBeforeHacking = bShowMouseCursor;
+		bHasHackingInputState = true;
+		bPausedByHacking = false;
+		
+		// 이미 정지된 상태라면 해킹이 새로 일시정지를 요청하지 않는다.
+		if (!IsPaused())
+		{
+			bPausedByHacking = SetPause(true);
+			bOpened = bPausedByHacking && IsPaused();
+		}
+
+		bOpened = bOpened && IsOpeningSessionValid();
+	}
+
+	if (bOpened)
+	{
+		// 기존 오버라이드가 GAS 입력 취소와 눌린 키 초기화를 함께 처리한다.
+		FlushPressedKeys();
+		bOpened = IsOpeningSessionValid();
+	}
+
+	if (bOpened)
+	{
+		bShowMouseCursor = true;
+
+		FInputModeUIOnly InputMode;
+		InputMode.SetWidgetToFocus(NewWidget->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+
+		bOpened = IsOpeningSessionValid();
+	}
+
+	if (!bOpened)
+	{
+		ActiveHackingWidget = nullptr;
+		ActiveHackingSession.Reset();
+
+		// 생성·등록 호출이 끝난 뒤 실패한 화면을 제거한다.
+		if (IsValid(NewWidget.Get()))
+		{
+			NewWidget->ClearSession();
+			NewWidget->RemoveFromParent();
+		}
+
+		// 일시정지나 입력 전환 이후 실패했다면 원래 상태로 돌린다.
+		RestoreHackingInput();
+	}
+
+	return bOpened;
+}
+
+void ALMPlayerController::CloseHackingWidget(ULMHackingComponent* InSession)
+{
+	if (InSession == nullptr)
+	{
+		return;
+	}
+
+	const TWeakObjectPtr<ULMHackingComponent> RequestedSession(InSession);
+
+	// 다른 해킹 대상의 요청으로 현재 화면을 닫지 않는다.
+	if (!ActiveHackingSession.HasSameIndexAndSerialNumber(RequestedSession))
+	{
+		return;
+	}
+
+	ReleaseHackingWidget();
+}
+
+void ALMPlayerController::ReleaseHackingWidget()
+{
+	// 생성 중이라면 이 초기화가 현재 열기의 취소 표시가 된다.
+	ActiveHackingSession.Reset();
+
+	if (bIsChangingHackingWidget)
+	{
+		// Open이 생성·등록 호출을 빠져나온 뒤 화면 제거와 복원을 처리한다.
+		return;
+	}
+
+	TGuardValue<bool> ChangingGuard(bIsChangingHackingWidget, true);
+	TStrongObjectPtr<ULMHackingWidget> ClosingWidget(ActiveHackingWidget.Get());
+
+	ActiveHackingWidget = nullptr;
+
+	if (IsValid(ClosingWidget.Get()))
+	{
+		ClosingWidget->ClearSession();
+		ClosingWidget->RemoveFromParent();
+	}
+
+	RestoreHackingInput();
+}
+
+void ALMPlayerController::RestoreHackingInput()
+{
+	if (!bHasHackingInputState)
+	{
+		return;
+	}
+
+	const bool bReleasePause = bPausedByHacking;
+	const bool bRestoreCursor = bMouseCursorBeforeHacking;
+
+	// 아래 콜백에서 정리가 다시 호출되어도 중복 복원하지 않는다.
+	bHasHackingInputState = false;
+	bPausedByHacking = false;
+
+	FlushPressedKeys();
+	bShowMouseCursor = bRestoreCursor;
+
+	if (GetWorld())
+	{
+		// 현재 프로젝트의 일반 게임 입력 상태로 돌아간다.
+		SetInputMode(FInputModeGameOnly());
+
+		// 해킹 진입에서 새로 정지시켰던 경우에만 해제를 요청한다.
+		if (bReleasePause && IsPaused())
+		{
+			SetPause(false);
+		}
+	}
 }
 
 /** 현재 PlayerState가 소유한 프로젝트 ASC를 반환한다. */
