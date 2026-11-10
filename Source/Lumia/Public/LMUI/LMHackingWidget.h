@@ -21,6 +21,9 @@ public:
 	void ClearSession();
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	void RequestClose();
+	// 클릭한 셀 인덱스와 선택 숫자를 현재 해킹 세션에 전달한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
+	bool RequestMove(int32 CellIndex, uint8 NewValue);
 protected:
 	//자식 버튼에 포커스가 있어도 ESC를 받아 처리
 	virtual FReply NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;

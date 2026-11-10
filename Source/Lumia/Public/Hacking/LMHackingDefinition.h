@@ -16,6 +16,7 @@ struct LUMIA_API FLMHexPuzzleDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Hacking", meta = (ClampMin = "1"))
 	int32 Rows = 1;
 
+	
 	// 보드의 열 수.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Hacking", meta = (ClampMin = "1"))
 	int32 Cols = 1;
@@ -24,7 +25,11 @@ struct LUMIA_API FLMHexPuzzleDefinition
 	// 각 값의 허용 범위는 0~15이며 시작 시 컴포넌트가 검사한다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Hacking")
 	TArray<uint8> InitialValues = { 0 };
-
+	
+	// 플레이어가 선택할 숫자. 배열 순서대로 선택 버튼을 표시한다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Hacking")
+	TArray<uint8> AvailableValues = { 15 };
+	
 	// 모든 셀이 이 숫자가 되면 퍼즐 성공.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Hacking", meta = (ClampMin = "0", ClampMax = "15"))
 	uint8 TargetValue = 15;

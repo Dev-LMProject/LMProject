@@ -113,7 +113,7 @@ bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 		return false;
 	}
 
-	if (!Cells.IsValidIndex(CellIndex) || NewValue > 15 || UsedMoves >= Definition.MaxMoves)
+	if (!Cells.IsValidIndex(CellIndex) || NewValue > 15 || UsedMoves >= Definition.MaxMoves || !Definition.AvailableValues.Contains(NewValue))
 	{
 		return false;
 	}
@@ -234,6 +234,25 @@ bool ULMHackingComponent::BuildCells()
 	if (Definition.Rows<=0||Definition.Cols<=0||Definition.MaxMoves<=0||Definition.TargetValue>15)
 	{
 		return false;
+	}
+	
+	// 선택 목록은 1~16개의 서로 다른 숫자이며 목표값을 포함해야 한다.
+	if (Definition.AvailableValues.IsEmpty() || Definition.AvailableValues.Num() > 16 || !Definition.AvailableValues.Contains(Definition.TargetValue))
+	{
+		return false;
+	}
+
+	bool SeenValues[16] = {};
+
+	for (uint8 Value : Definition.AvailableValues)
+	{
+		// 범위 검사에 통과한 값만 배열 인덱스로 사용한다.
+		if (Value > 15 || SeenValues[Value])
+		{
+			return false;
+		}
+
+		SeenValues[Value] = true;
 	}
 	//오버플로우 방지
 	const int64 CellCount = static_cast<int64>(Definition.Rows)*Definition.Cols;

@@ -87,6 +87,12 @@ void ULMHackingWidget::RequestClose()
 	}
 }
 
+bool ULMHackingWidget::RequestMove(int32 CellIndex, uint8 NewValue)
+{
+	ULMHackingComponent* Component = HackingComponent.Get();
+	return IsValid(Component) && Component->SubmitMove(CellIndex, NewValue);
+}
+
 FReply ULMHackingWidget::NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
 	if (InKeyEvent.GetKey() == EKeys::Escape)
