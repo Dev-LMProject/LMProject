@@ -61,6 +61,17 @@ git apply Docs/LMContext/Team/HackingEditor.uproject.patch
 5. Puzzle Data=None 또는 2×2/초기값3개인 별도 시험 에셋은 경고를 남기고 UI·새 일시정지로 진입하지 않아야 한다.
 6. 실패 후 기존 RetryPuzzle 경로는 이번 세션의 초기 숫자와 횟수를 복원해야 한다.
 
+### 실패 후 재시도
+
+`WBP_LM_HackingPuzzle`의 `BTN_Retry`는 실패 상태에서만 표시한다. 비활성화되는 격자·팔레트 밖의 `VerticalBox_134`에 배치하고, 기본 Visibility는 Collapsed로 둔다.
+
+- `On Clicked (BTN_Retry)` → `RequestRetry` → 기존 컴포넌트의 `RetryPuzzle`.
+- `OnPuzzleUpdated` 공통 진입에서 `Phase == Failed`이면 Visible, 나머지는 Collapsed로 갱신한다.
+- 컴포넌트가 초기 셀 값과 사용 횟수를 복원한 뒤 Playing으로 전환하고 갱신 이벤트를 보낸다. 기존 Playing 비교가 격자·팔레트를 다시 활성화한다.
+- 선택 숫자, 현재 화면, 일시정지와 UIOnly 입력은 유지한다. 위젯 재생성이나 닫기·상호작용 종료를 호출하지 않는다.
+
+사용자는 WBP를 컴파일한 뒤 실패 → 재시도 → 초기 숫자·남은 횟수 복원 → 다시 클릭의 흐름을 확인한다. 재시도 후 버튼 숨김, 선택 색 유지, 반복 재시도, 닫기, 성공 화면에서 버튼 숨김도 확인한다. WBP는 Perforce 소유이므로 Git 코드와 함께 별도로 반영해야 한다.
+
 ### 선택 실행할 자동화 검사
 
 작성된 검사는 좌표 보존 크기 변경과 숫자 파싱을 확인한다. 여기서 실행 완료를 의미하지 않는다.
