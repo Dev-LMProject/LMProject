@@ -1,14 +1,18 @@
 ﻿#include "LMPlayer/LMPlayerState.h"
 
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
+#include "LMCombat/LMCombatAttributeSet.h"
 
-/** PlayerState가 유지되는 동안 사용할 ASC를 생성한다. */
+/** PlayerState가 유지되는 동안 사용할 ASC와 전투 속성을 생성한다. */
 ALMPlayerState::ALMPlayerState()
 {
 	AbilitySystemComponent = CreateDefaultSubobject<ULMAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 
-	// 싱글 전용이므로 ASC의 네트워크 복제를 사용하지 않는다.
+	// 현재 싱글플레이 구성에 맞춰 ASC 복제를 사용하지 않는다.
 	AbilitySystemComponent->SetIsReplicated(false);
+
+	// ASC 소유자의 기본 SubObject로 만들어 기존 자동 등록 경로를 사용한다.
+	CombatAttributes = CreateDefaultSubobject<ULMCombatAttributeSet>(TEXT("CombatAttributes"));
 }
 
 /** 외부 시스템이 GAS 인터페이스로 접근할 수 있도록 ASC를 반환한다. */

@@ -7,6 +7,7 @@
 #include "LMPlayerState.generated.h"
 
 class ULMAbilitySystemComponent;
+class ULMCombatAttributeSet;
 
 /** 플레이어의 ASC를 소유하고 기본 능력 목록을 관리한다. */
 UCLASS()
@@ -15,7 +16,7 @@ class LUMIA_API ALMPlayerState : public APlayerState, public IAbilitySystemInter
     GENERATED_BODY()
 
 public:
-    /** 싱글플레이에서 사용할 ASC를 생성한다. */
+    /** 싱글플레이에서 사용할 ASC와 전투 속성을 생성한다. */
     ALMPlayerState();
 
     /** GAS 인터페이스를 통해 플레이어의 ASC를 반환한다. */
@@ -35,6 +36,10 @@ protected:
     /** 블루프린트에서 지정하는 플레이어의 기본 능력 묶음 목록. */
     UPROPERTY(EditDefaultsOnly, Category = "LM|GAS")
     TArray<TObjectPtr<ULMAbilitySet>> StartupAbilitySets;
+    
+    /** 플레이어 ASC와 함께 유지할 실제 체력과 공통 피해 속성이다. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="LM|Combat")
+    TObjectPtr<ULMCombatAttributeSet> CombatAttributes;
 
 private:
     /** AbilitySet이 실제로 부여한 능력들의 핸들 기록. */

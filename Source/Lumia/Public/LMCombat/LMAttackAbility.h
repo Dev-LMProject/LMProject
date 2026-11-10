@@ -7,6 +7,8 @@
 
 class ACharacter;
 class UAnimMontage;
+class ULMAttackData;
+class ULMAbilityTaskWeaponHitTrace;
 
 /** 공격을 시작할 수 있는 이동 상태를 지정한다. */
 UENUM(BlueprintType)
@@ -56,6 +58,10 @@ protected:
 	/** 이 공격이 현재 취소 가능한 마무리 구간에 있는지 반환한다. */
 	UFUNCTION(BlueprintPure, Category = "LM|Attack")
 	bool IsInAttackRecovery() const;
+	
+	/** 검 판정을 연결할 공격에 지정하는 기본 피해와 판정 설정이다. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")
+	TObjectPtr<ULMAttackData> AttackData;
 
 private:
 	/** 몽타주가 끝까지 재생되면 공격을 정상 종료한다. */
@@ -73,6 +79,13 @@ private:
 	/** 현재 공격이 회복 중일 때만 취소 요청을 받아들인다. */
 	UFUNCTION()
 	void HandleRecoveryCancel(FGameplayEventData Payload);
+	
+	/** 현재 공격 실행에 속한 검 판정 Task다. */
+	UPROPERTY(Transient)
+	TObjectPtr<ULMAbilityTaskWeaponHitTrace> WeaponHitTraceTask;
+	
+	/** 현재 공격의 검 판정을 종료하고 보관 중인 참조를 비운다. */
+	void StopWeaponHitTrace();
 
 	/** 이 능력이 회복 태그를 추가했는지 기록하여 중복 추가·제거를 방지한다. */
 	bool bInAttackRecovery = false;

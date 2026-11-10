@@ -8,6 +8,8 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "LMGameplayTags/LMGameplayTags.h"
+#include "LMCombat/LMAbilityTaskWeaponHitTrace.h"
+#include "LMCombat/LMAttackData.h"
 
 /** 공격 능력의 공통 실행 정책과 상태 태그를 설정한다. */
 ULMAttackAbility::ULMAttackAbility()
@@ -100,9 +102,26 @@ bool ULMAttackAbility::PlayAttackMontage(UAnimMontage* Montage, FName StartSecti
 	Task->OnInterrupted.AddDynamic(this, &ThisClass::HandleAttackMontageAborted);
 	Task->OnCancelled.AddDynamic(this, &ThisClass::HandleAttackMontageAborted);
 
+	// 같은 능력이 다른 몽타주를 시작하면 이전 판정을 먼저 닫는다.
+	StopWeaponHitTrace();
+
 	Task->ReadyForActivation();
 
-	// 재생 시작에 즉시 실패했다면 콜백에서 이미 능력이 종료되었을 수 있다.
+	// 몽타주 재생 ID가 생긴 뒤 이번 실행을 관찰하는 Task를 만든다.
+	if (IsActive() && IsValid(AttackData.Get()))
+	{
+		WeaponHitTraceTask = ULMAbilityTaskWeaponHitTrace::CreateWeaponHitTraceTask(this, Montage, AttackData.Get());
+
+		if (!ensure(IsValid(WeaponHitTraceTask.Get())))
+		{
+			HandleAttackMontageAborted();
+			return false;
+		}
+
+		WeaponHitTraceTask->ReadyForActivation();
+	}
+
+	// 몽타주 시작 실패 시 기존 콜백에서 능력이 종료되었을 수 있다.
 	return IsActive();
 }
 
@@ -138,6 +157,9 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 		Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 		return;
 	}
+
+	// 몽타주 종료와 외부 콜백보다 먼저 판정을 닫아 취소 후 피해가 남지 않게 한다.
+	StopWeaponHitTrace();
 
 	SetAttackRecovery(false);
 
@@ -243,4 +265,16 @@ void ULMAttackAbility::HandleRecoveryCancel(FGameplayEventData Payload)
     {
         K2_CancelAbility();
     }
+}
+
+/** 종료 콜백이 재진입해도 이전 Task를 다시 정리하지 않도록 참조부터 비운다. */
+void ULMAttackAbility::StopWeaponHitTrace()
+{
+	ULMAbilityTaskWeaponHitTrace* TaskToStop = WeaponHitTraceTask.Get();
+	WeaponHitTraceTask = nullptr;
+
+	if (IsValid(TaskToStop))
+	{
+		TaskToStop->EndTask();
+	}
 }
