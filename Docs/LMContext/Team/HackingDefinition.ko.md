@@ -13,7 +13,7 @@ git apply --check Docs/LMContext/Team/HackingEditor.uproject.patch
 git apply Docs/LMContext/Team/HackingEditor.uproject.patch
 ```
 
-`Modules`에 아래 항목이 이미 있으면 중복 적용하지 않는다. 다른 사유로 패치가 실패하면 기존 설정을 보존하고 이 항목만 추가한다.
+`Modules`에 아래 항목이 이미 있으면 중복 적용하지 않는다. 다른 사유로 패치가 실패하면 기존 설정을 보존하고 이 항목만 추가한다. 이 등록이 없으면 DLL을 빌드해도 격자 편집기가 자동으로 시작되지 않는다.
 
 ```json
 {
@@ -25,7 +25,7 @@ git apply Docs/LMContext/Team/HackingEditor.uproject.patch
 
 4. 프로젝트 파일을 갱신하고 `LumiaEditor / Win64 / Development`를 빌드한 뒤 에디터를 실행한다. 빌드·UHT·BP 컴파일·PIE는 사용자가 수행한다.
 5. Content Browser의 **우클릭 → Miscellaneous → Data Asset → LMHackingPuzzleData**로 에셋을 만든다. 이름은 `DA_LM_HackingTest`로 제안한다.
-6. 에셋에서 행·열을 입력하고 **크기 적용**을 누른다. 칸마다 `0~F`를 입력한다. `Available Values`, `Target Value`, `Max Moves`도 작성한다. 기본 숫자 필드에서 F는 15다.
+6. 에셋에서 행·열을 입력하고 **크기 적용**을 누른다. 숫자 배열이 비어 있으면 **격자 생성** 버튼으로 칸을 만든다. 배열 개수를 미리 설정할 필요는 없다. 생성된 격자 칸마다 `0~F`를 입력한다. `Available Values`, `Target Value`, `Max Moves`도 작성한다. 기본 숫자 필드에서 F는 15다.
 7. 기존 액터의 LMHacking 컴포넌트에 남아 있는 **이전 퍼즐 설정**을 참고해 해당 설정을 에셋으로 옮기고 저장한다. 클래스 기본값과 개별 인스턴스 오버라이드를 각각 확인한다.
 8. 해당 컴포넌트의 **Puzzle Data**에 만든 에셋을 지정한다. 공통 설정은 BP 기본값, 다른 설정은 인스턴스에서 지정한다. 에셋/BP/맵 변경은 Perforce에서 관리한다.
 
@@ -37,7 +37,7 @@ git apply Docs/LMContext/Team/HackingEditor.uproject.patch
 - 크기는 버튼을 눌러야 바뀐다. 겹치는 좌표의 값은 보존하고 새 칸은 0으로 채운다. 축소 시 범위 밖 값은 제거되며 Undo로 복구할 수 있다.
 - 한 칸 수정과 크기 변경은 언리얼 속성 시스템의 Undo/Redo·저장을 사용한다. 에셋을 열기만 해서는 변경하지 않는다.
 - 숫자는 한 자리 `0~F`이며 소문자도 허용한다. 빈 값이나 `G`, `10`, `0xF`는 저장하지 않는다.
-- 격자 직접 편집은 축당 64 이하, 총 1024칸 이하에서 제공한다. 이는 Slate 화면 크기 제한이며 런타임 퍼즐 크기 제한이 아니다. 범위 초과·잘못된 배열 길이·다중 선택은 기본 속성 화면을 제공하고 원본을 자동 축소하지 않는다.
+- 격자 직접 편집은 축당 64 이하, 총 1024칸 이하에서 제공한다. 이는 Slate 화면 크기 제한이며 런타임 퍼즐 크기 제한이 아니다. 빈 배열은 격자 생성 화면을 제공한다. 범위 초과·값이 있는 배열의 잘못된 길이·다중 선택은 기본 속성 화면을 제공하고 원본을 자동 축소하지 않는다.
 - `ResultText`, 완료 태그, 상호작용 연결은 기존 액터/컴포넌트에 유지한다. 기존 HUD 이벤트·Cell 전파·재시도 경로를 사용한다.
 
 ## 사용자 검증
@@ -50,6 +50,7 @@ git apply Docs/LMContext/Team/HackingEditor.uproject.patch
 4. 셀 수정도 Undo/Redo하고, 저장·닫기·다시 열기 후 값과 크기를 확인한다.
 5. `F`, `f`, `0`을 입력하고 잘못된 값과 빈 값은 기존 숫자를 덮어쓰지 않는지 확인한다.
 6. 두 에셋 선택, 배열 길이가 잘못된 에셋, 큰 에셋의 기본 편집기 전환에서 원본이 바뀌지 않는지 확인한다.
+7. 행·열이 2×2이고 초기 숫자 배열이 비어 있는 에셋은 **격자 생성**을 누르면 0 네 칸이 나타나야 한다. 각 칸에 값을 입력하고 Undo/Redo·저장·재열기를 확인한다.
 
 ### 게임 적용
 

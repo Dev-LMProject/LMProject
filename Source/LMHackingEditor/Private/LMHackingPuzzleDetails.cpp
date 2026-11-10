@@ -43,10 +43,10 @@ bool FLMHackingPuzzleDetails::CanEdit() const
     return Utilities.IsValid() && Utilities->IsPropertyEditingEnabled() && DefinitionHandle.IsValid() && DefinitionHandle->IsValidHandle() && !DefinitionHandle->IsEditConst();
 }
 
-// 실제 크기가 바뀌는 유효한 입력에만 적용 버튼을 활성화한다.
+// 빈 격자 생성이나 실제 크기 변경이 필요한 유효한 입력에 버튼을 활성화한다.
 bool FLMHackingPuzzleDetails::CanApplySize() const
 {
-    return CanEdit() && FLMHackingPuzzleEditorUtils::IsGridSizeSupported(PendingRows, PendingCols) && (DisplayedSize.X != PendingRows || DisplayedSize.Y != PendingCols);
+    return CanEdit() && FLMHackingPuzzleEditorUtils::IsGridSizeSupported(PendingRows, PendingCols) && (bNeedsGridCreation || DisplayedSize.X != PendingRows || DisplayedSize.Y != PendingCols);
 }
 
 // 다중 선택·잘못된 데이터는 원본을 바꾸지 않고 표준 속성 편집기로 보여준다.
@@ -86,7 +86,9 @@ void FLMHackingPuzzleDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBuild
     const TSharedPtr<IPropertyHandleArray> ValuesArray = ValuesHandle->AsArray();
     ValuesArray->SetOnNumElementsChanged(Refresh);
 
-    if (!FLMHackingPuzzleEditorUtils::HasRectangularValues(Current) || !FLMHackingPuzzleEditorUtils::IsGridSizeSupported(Current.Rows, Current.Cols))
+    // 숫자가 아직 없으면 배열 수동 입력 대신 행·열로 격자를 생성하도록 안내한다.
+    bNeedsGridCreation = Current.InitialValues.IsEmpty();
+    if ((!bNeedsGridCreation && !FLMHackingPuzzleEditorUtils::HasRectangularValues(Current)) || !FLMHackingPuzzleEditorUtils::IsGridSizeSupported(Current.Rows, Current.Cols))
     {
         Category.AddCustomRow(LOCTEXT("GridUnavailable", "격자 편집 범위"))
         .WholeRowContent()[SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("GridFallback", "격자 편집은 축당 1~64, 전체 1024칸 이하이며 숫자 개수가 Rows×Cols와 같아야 합니다. 원본은 유지됩니다. 아래 기본 속성에서 데이터를 확인하세요."))];
@@ -125,11 +127,22 @@ void FLMHackingPuzzleDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBuild
             .OnValueChanged_Lambda([WeakThis](int32 Value) { if (const auto Self = WeakThis.Pin()) { Self->PendingCols = Value; } })
         ]
         + SHorizontalBox::Slot().AutoWidth().Padding(8.f, 0.f, 0.f, 0.f)
-        [SNew(SButton).Text(LOCTEXT("ApplySize", "크기 적용")).IsEnabled(this, &FLMHackingPuzzleDetails::CanApplySize).OnClicked(this, &FLMHackingPuzzleDetails::ApplySize)]
+        [SNew(SButton).Text(bNeedsGridCreation ? LOCTEXT("CreateGrid", "격자 생성") : LOCTEXT("ApplySize", "크기 적용")).IsEnabled(this, &FLMHackingPuzzleDetails::CanApplySize).OnClicked(this, &FLMHackingPuzzleDetails::ApplySize)]
     ];
 
     Category.AddCustomRow(LOCTEXT("GridHelp", "격자 입력 안내")).WholeRowContent()
     [SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("GridInstructions", "각 칸에 0~F를 입력합니다. 행·열은 0부터 시작합니다. 축당 최대 64, 전체 최대 1024칸입니다. 크기를 줄이면 영역 밖 값이 제거되며 Ctrl+Z로 복원할 수 있습니다."))];
+
+    Category.AddCustomRow(LOCTEXT("Error", "입력 오류")).WholeRowContent()
+    [SNew(STextBlock).AutoWrapText(true).Text_Lambda([WeakThis]() { const auto Self = WeakThis.Pin(); return Self.IsValid() ? Self->LastError : FText::GetEmpty(); })];
+
+    // 생성 전에는 배열 원소 핸들이 없으므로 셀 위젯을 만들지 않는다.
+    if (bNeedsGridCreation)
+    {
+        Category.AddCustomRow(LOCTEXT("EmptyGrid", "격자 생성 안내")).WholeRowContent()
+        [SNew(STextBlock).AutoWrapText(true).Text(LOCTEXT("CreateGridInstructions", "행·열을 입력하고 격자 생성을 누르세요. 생성된 각 칸에 숫자를 직접 입력할 수 있습니다."))];
+        return;
+    }
 
     const TSharedRef<SGridPanel> Grid = SNew(SGridPanel);
     for (int32 Col = 0; Col < Current.Cols; ++Col)
@@ -159,8 +172,6 @@ void FLMHackingPuzzleDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBuild
 
     Category.AddCustomRow(LOCTEXT("InitialGrid", "초기 숫자 격자")).WholeRowContent()
     [SNew(SBox).MaxDesiredHeight(450.f)[SNew(SScrollBox) + SScrollBox::Slot()[SNew(SScrollBox).Orientation(Orient_Horizontal) + SScrollBox::Slot()[Grid]]]];
-    Category.AddCustomRow(LOCTEXT("Error", "입력 오류")).WholeRowContent()
-    [SNew(STextBlock).AutoWrapText(true).Text_Lambda([WeakThis]() { const auto Self = WeakThis.Pin(); return Self.IsValid() ? Self->LastError : FText::GetEmpty(); })];
 }
 
 // 크기와 배열을 하나의 구조체 변경으로 기록해 Undo 중 불일치 상태를 만들지 않는다.

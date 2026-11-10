@@ -14,21 +14,26 @@ bool FLMHackingPuzzleEditorUtils::HasRectangularValues(const FLMHexPuzzleDefinit
     return Definition.Rows > 0 && Definition.Cols > 0 && Count < MAX_int32 && Count == Definition.InitialValues.Num();
 }
 
-// 열 수가 달라져도 좌표가 같은 기존 셀의 값을 유지한다.
+// 빈 원본은 새 격자로 만들고 기존 값은 열 수가 달라져도 같은 좌표에 유지한다.
 bool FLMHackingPuzzleEditorUtils::Resize(const FLMHexPuzzleDefinition& Source, int32 Rows, int32 Cols, FLMHexPuzzleDefinition& OutDefinition)
 {
-    if (!IsGridSizeSupported(Rows, Cols) || !HasRectangularValues(Source))
+    if (!IsGridSizeSupported(Rows, Cols) || (!Source.InitialValues.IsEmpty() && !HasRectangularValues(Source)))
     {
         return false;
     }
 
     TArray<uint8> Values;
     Values.Init(0, Rows * Cols);
-    for (int32 Row = 0; Row < FMath::Min(Source.Rows, Rows); ++Row)
+
+    // 새 격자는 0으로 시작하며 비어 있는 원본 배열을 읽지 않는다.
+    if (!Source.InitialValues.IsEmpty())
     {
-        for (int32 Col = 0; Col < FMath::Min(Source.Cols, Cols); ++Col)
+        for (int32 Row = 0; Row < FMath::Min(Source.Rows, Rows); ++Row)
         {
-            Values[Row * Cols + Col] = Source.InitialValues[Row * Source.Cols + Col];
+            for (int32 Col = 0; Col < FMath::Min(Source.Cols, Cols); ++Col)
+            {
+                Values[Row * Cols + Col] = Source.InitialValues[Row * Source.Cols + Col];
+            }
         }
     }
 

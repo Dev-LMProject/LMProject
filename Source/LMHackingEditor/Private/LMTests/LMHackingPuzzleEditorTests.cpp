@@ -6,7 +6,7 @@
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLMHackingGridResizeTest, "Lumia.Hacking.Definition.GridResize", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-// 열 수 변경 시 좌표 보존·새 칸 초기화·실패 시 출력 보존을 검사한다.
+// 빈 격자 생성·열 수 변경 시 좌표 보존·실패 시 출력 보존을 검사한다.
 bool FLMHackingGridResizeTest::RunTest(const FString& Parameters)
 {
     FLMHexPuzzleDefinition Source;
@@ -28,6 +28,17 @@ bool FLMHackingGridResizeTest::RunTest(const FString& Parameters)
     Source.InitialValues.Pop();
     TestFalse(TEXT("Reject malformed source"), FLMHackingPuzzleEditorUtils::Resize(Source, 2, 2, Output));
     TestTrue(TEXT("Failure preserves output"), Output.InitialValues == Previous);
+
+    // 행·열만 지정하고 배열은 비워 둔 에셋에서도 같은 크기의 격자를 생성한다.
+    FLMHexPuzzleDefinition Empty;
+    Empty.Rows = 2;
+    Empty.Cols = 2;
+    Empty.InitialValues.Reset();
+    TestTrue(TEXT("Create grid from empty values at the same size"), FLMHackingPuzzleEditorUtils::Resize(Empty, 2, 2, Output));
+    TestTrue(TEXT("Created grid has four zero cells"), Output.InitialValues == TArray<uint8>({ 0, 0, 0, 0 }));
+    TestTrue(TEXT("Creation result is rectangular"), FLMHackingPuzzleEditorUtils::HasRectangularValues(Output));
+    TestTrue(TEXT("Creation leaves source unchanged"), Empty.InitialValues.IsEmpty());
+
     TestFalse(TEXT("Reject zero dimension"), FLMHackingPuzzleEditorUtils::IsGridSizeSupported(0, 1));
     TestFalse(TEXT("Reject overflowing-sized request"), FLMHackingPuzzleEditorUtils::IsGridSizeSupported(MAX_int32, MAX_int32));
     TestFalse(TEXT("Reject excessive preview"), FLMHackingPuzzleEditorUtils::IsGridSizeSupported(64, 64));

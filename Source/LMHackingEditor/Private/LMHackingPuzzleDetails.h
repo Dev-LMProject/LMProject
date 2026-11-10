@@ -33,7 +33,7 @@ private:
     // 상세 패널과 속성 자체가 수정 가능한 상태인지 검사한다.
     bool CanEdit() const;
 
-    // 입력된 크기가 편집 범위 안이며 현재 크기와 다른지 검사한다.
+    // 입력된 크기가 유효하고 격자 생성이나 크기 변경이 필요한지 검사한다.
     bool CanApplySize() const;
 
     // 구조체 전체를 한 번 설정해 크기와 숫자 배열을 같은 Undo 단위로 저장한다.
@@ -53,5 +53,8 @@ private:
     FIntPoint DisplayedSize = FIntPoint(1, 1);
     int32 PendingRows = 1;
     int32 PendingCols = 1;
+
+    // 숫자 배열이 비어 있으면 같은 크기로도 새 격자를 만들 수 있다.
+    bool bNeedsGridCreation = false;
     FText LastError;
 };
