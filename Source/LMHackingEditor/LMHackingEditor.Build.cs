@@ -6,6 +6,6 @@ public class LMHackingEditor : ModuleRules
     public LMHackingEditor(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-        PrivateDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "Lumia", "Slate", "SlateCore", "PropertyEditor", "UnrealEd" });
+        PrivateDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "Lumia", "Slate", "SlateCore", "PropertyEditor", "UnrealEd" });
     }
 }
