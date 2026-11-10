@@ -1,0 +1,14 @@
+--- a/Lumia.uproject
++++ b/Lumia.uproject
+@@ -11,6 +11,11 @@
+ 			"AdditionalDependencies": [
+ 				"Engine"
+ 			]
++		},
++		{
++			"Name": "LMHackingEditor",
++			"Type": "Editor",
++			"LoadingPhase": "PostEngineInit"
+ 		}
+ 	],
+ 	"Plugins": [

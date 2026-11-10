@@ -2,6 +2,7 @@
 
 
 #include "LMComponent/LMHackingComponent.h"
+#include "Hacking/LMHackingPuzzleData.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "GameFramework/Pawn.h"
 #include "LMPlayer/LMPlayerController.h"
@@ -47,6 +48,7 @@ void ULMHackingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 }
 
 
+// 에셋 설정으로 보드를 구성한 뒤 기존 해킹 화면 세션을 시작한다.
 bool ULMHackingComponent::TryStartHacking(AActor* InInteractor)
 {
 	// 이미 진행 중인 퍼즐에 새 시작 요청이 들어오는 것을 막는다.
@@ -64,9 +66,20 @@ bool ULMHackingComponent::TryStartHacking(AActor* InInteractor)
 		return false;
 	}
 
-	// UI가 읽을 셀을 기존 Definition으로 초기화한다.
+	// 원본을 확인한 뒤 세션 설정만 복사하고, 이전 작성값으로 대체하지 않는다.
+	const ULMHackingPuzzleData* SourceData = PuzzleData.Get();
+	if (!IsValid(SourceData))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: PuzzleData is not assigned or is invalid."), *GetPathName());
+		return false;
+	}
+
+	ActiveDefinition = SourceData->Definition;
+
+	// 기존 검증을 통과해야 화면 생성·일시정지로 진입한다.
 	if (!BuildCells())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: Invalid puzzle Definition in '%s'."), *GetPathName(), *SourceData->GetPathName());
 		return false;
 	}
 
@@ -106,6 +119,7 @@ bool ULMHackingComponent::TryStartHacking(AActor* InInteractor)
 	return bOpened;
 }
 
+// 이번 세션의 규칙으로 클릭을 검증하고 전파·횟수·성공 여부를 갱신한다.
 bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 {
 	if (Phase != ELMHackingPhase::Playing || bIsCleaningUp || !IsCurrentSessionValid())
@@ -113,7 +127,7 @@ bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 		return false;
 	}
 
-	if (!Cells.IsValidIndex(CellIndex) || NewValue > 15 || UsedMoves >= Definition.MaxMoves || !Definition.AvailableValues.Contains(NewValue))
+	if (!Cells.IsValidIndex(CellIndex) || NewValue > 15 || UsedMoves >= ActiveDefinition.MaxMoves || !ActiveDefinition.AvailableValues.Contains(NewValue))
 	{
 		return false;
 	}
@@ -146,7 +160,7 @@ bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 	{
 		Phase = ELMHackingPhase::AwaitingConfirmation;
 	}
-	else if (UsedMoves >= Definition.MaxMoves)
+	else if (UsedMoves >= ActiveDefinition.MaxMoves)
 	{
 		Phase = ELMHackingPhase::Failed;
 	}
@@ -253,26 +267,27 @@ TArray<uint8> ULMHackingComponent::GetCellValues() const
 }
 
 
+// 세션 설정을 검증하고 셀 저장소와 상하좌우 이웃을 구성한다.
 bool ULMHackingComponent::BuildCells()
 {
 	if (Phase!=ELMHackingPhase::Idle&&Phase!=ELMHackingPhase::Starting)
 	{
 		return false;
 	}
-	if (Definition.Rows<=0||Definition.Cols<=0||Definition.MaxMoves<=0||Definition.TargetValue>15)
+	if (ActiveDefinition.Rows<=0||ActiveDefinition.Cols<=0||ActiveDefinition.MaxMoves<=0||ActiveDefinition.TargetValue>15)
 	{
 		return false;
 	}
 	
 	// 선택 목록은 1~16개의 서로 다른 숫자이며 목표값을 포함해야 한다.
-	if (Definition.AvailableValues.IsEmpty() || Definition.AvailableValues.Num() > 16 || !Definition.AvailableValues.Contains(Definition.TargetValue))
+	if (ActiveDefinition.AvailableValues.IsEmpty() || ActiveDefinition.AvailableValues.Num() > 16 || !ActiveDefinition.AvailableValues.Contains(ActiveDefinition.TargetValue))
 	{
 		return false;
 	}
 
 	bool SeenValues[16] = {};
 
-	for (uint8 Value : Definition.AvailableValues)
+	for (uint8 Value : ActiveDefinition.AvailableValues)
 	{
 		// 범위 검사에 통과한 값만 배열 인덱스로 사용한다.
 		if (Value > 15 || SeenValues[Value])
@@ -283,17 +298,17 @@ bool ULMHackingComponent::BuildCells()
 		SeenValues[Value] = true;
 	}
 	//오버플로우 방지
-	const int64 CellCount = static_cast<int64>(Definition.Rows)*Definition.Cols;
-	if (CellCount>=MAX_int32||CellCount!=Definition.InitialValues.Num())
+	const int64 CellCount = static_cast<int64>(ActiveDefinition.Rows)*ActiveDefinition.Cols;
+	if (CellCount>=MAX_int32||CellCount!=ActiveDefinition.InitialValues.Num())
 	{
 		return false;
 	}
 	bool bInitSolved=true;
 	
-	for (uint8 Val:Definition.InitialValues)
+	for (uint8 Val:ActiveDefinition.InitialValues)
 	{
 		if (Val>15)return false;
-		if (Val!=Definition.TargetValue)
+		if (Val!=ActiveDefinition.TargetValue)
 		{
 			bInitSolved=false;
 		}
@@ -305,20 +320,20 @@ bool ULMHackingComponent::BuildCells()
 	
 	for (auto i=0;i<Cells.Num();++i)
 	{
-		const int32 Row = i / Definition.Cols;
-		const int32 Col = i % Definition.Cols;
-		Cells[i].Init(Row,Col,Definition.InitialValues[i]);
+		const int32 Row = i / ActiveDefinition.Cols;
+		const int32 Col = i % ActiveDefinition.Cols;
+		Cells[i].Init(Row,Col,ActiveDefinition.InitialValues[i]);
 	}
 	
 	for (int32 i = 0; i < Cells.Num(); ++i)
 	{
-		const int32 Row = i / Definition.Cols;
-		const int32 Column = i % Definition.Cols;
+		const int32 Row = i / ActiveDefinition.Cols;
+		const int32 Column = i % ActiveDefinition.Cols;
 		//좌측 상단이 0,0
-		FLMHackingCell* Up = Row > 0 ? &Cells[i - Definition.Cols] : nullptr;
-		FLMHackingCell* Down = Row < Definition.Rows - 1 ? &Cells[i + Definition.Cols] : nullptr;
+		FLMHackingCell* Up = Row > 0 ? &Cells[i - ActiveDefinition.Cols] : nullptr;
+		FLMHackingCell* Down = Row < ActiveDefinition.Rows - 1 ? &Cells[i + ActiveDefinition.Cols] : nullptr;
 		FLMHackingCell* Left = Column > 0 ? &Cells[i - 1] : nullptr;
-		FLMHackingCell* Right = Column < Definition.Cols - 1 ? &Cells[i + 1] : nullptr;
+		FLMHackingCell* Right = Column < ActiveDefinition.Cols - 1 ? &Cells[i + 1] : nullptr;
 
 		Cells[i].SetNeighbors(Up, Down, Left, Right);
 	}
@@ -337,6 +352,7 @@ void ULMHackingComponent::ResetPuzzle()
 	UsedMoves = 0;
 }
 
+// 모든 셀이 이번 세션의 목표 숫자에 도달했는지 검사한다.
 bool ULMHackingComponent::IsSolved() const
 {
 	if (Cells.IsEmpty())
@@ -346,7 +362,7 @@ bool ULMHackingComponent::IsSolved() const
 
 	for (const FLMHackingCell& Cell : Cells)
 	{
-		if (Cell.GetCurrentValue() != Definition.TargetValue)
+		if (Cell.GetCurrentValue() != ActiveDefinition.TargetValue)
 		{
 			return false;
 		}

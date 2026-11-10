@@ -10,6 +10,7 @@
 class AActor;
 class ALMPlayerController;
 class ULMHackingWidget;
+class ULMHackingPuzzleData;
 
 // 퍼즐 계산 결과와 해킹 완료 확인을 구분하는 진행 단계.
 UENUM(BlueprintType)
@@ -71,7 +72,7 @@ public:
 
 	// UI가 보드 크기와 목표 등을 읽도록 설정 복사본을 반환한다.
 	UFUNCTION(BlueprintPure, Category = "LM|Hacking")
-	FLMHexPuzzleDefinition GetDefinition() const { return Definition; }
+	FLMHexPuzzleDefinition GetDefinition() const { return ActiveDefinition; }
 
 	// 현재 숫자들을 행 우선 순서로 복사한다. 셀 포인터는 노출하지 않는다.
 	UFUNCTION(BlueprintPure, Category = "LM|Hacking")
@@ -79,7 +80,7 @@ public:
 
 	// 남은 조작 횟수를 반환한다.
 	UFUNCTION(BlueprintPure, Category = "LM|Hacking")
-	int32 GetRemainingMoves() const { return FMath::Max(0, Definition.MaxMoves - UsedMoves); }
+	int32 GetRemainingMoves() const { return FMath::Max(0, ActiveDefinition.MaxMoves - UsedMoves); }
 
 	// UI가 조작 가능 여부와 표시 화면을 결정하도록 현재 단계를 반환한다.
 	UFUNCTION(BlueprintPure, Category = "LM|Hacking")
@@ -125,9 +126,17 @@ private:
 	// 컨트롤러에 화면·입력·일시정지 복원을 요청하고 이 컴포넌트의 세션을 정리한다.
 	void ReleaseSession();
 
-	// 액터별 퍼즐 원본 설정. 진행 중에는 변경하지 않는다.
+	// 이 액터가 사용할 퍼즐 원본이다. 지정하지 않으면 해킹을 시작하지 않는다.
 	UPROPERTY(EditAnywhere, Category = "LM|Hacking")
+	TObjectPtr<ULMHackingPuzzleData> PuzzleData = nullptr;
+
+	// 기존 BP·레벨의 작성값을 잃지 않도록 이름과 직렬화를 보존한다. 게임에서는 사용하지 않는다.
+	UPROPERTY(VisibleAnywhere, Category = "LM|Hacking|Migration", meta = (DisplayName = "이전 퍼즐 설정", ToolTip = "기존 값을 데이터 에셋으로 옮길 때만 참고합니다. 실행에는 Puzzle Data를 사용합니다."))
 	FLMHexPuzzleDefinition Definition;
+
+	// 시작할 때 복사한 설정으로 세션 중 원본 에셋의 변경 영향을 받지 않는다.
+	UPROPERTY(VisibleInstanceOnly, Transient, Category = "LM|Hacking|Runtime")
+	FLMHexPuzzleDefinition ActiveDefinition;
 
 	// R×C 논리 셀의 실제 저장소. 일반 C++ 타입이므로 UPROPERTY를 붙이지 않는다.
 	// 이웃 연결 후에는 배열 재할당·복사·이동을 하지 않는다.
