@@ -59,7 +59,7 @@ void ULMHackingWidget::RefreshPuzzle()
         return;
     }
 
-    OnPuzzleUpdated(Component->GetCellValues(), Component->GetRemainingMoves());
+	OnPuzzleUpdated(Component->GetCellValues(), Component->GetRemainingMoves(), Component->GetPhase(), Component->GetResultText());
 }
 
 void ULMHackingWidget::RequestClose()

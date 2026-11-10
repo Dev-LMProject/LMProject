@@ -208,7 +208,35 @@ void ULMHackingComponent::CancelHacking(ULMHackingWidget* SourceWidget)//SourceW
 
 void ULMHackingComponent::ConfirmHacking(ULMHackingWidget* SourceWidget)
 {
-	// shortcut: 성공 확정 구현 전에는 해금하지 않으며, 퍼즐 완료 연결 단계에서 구현한다.
+	// 성공 화면에서 아직 확정하지 않은 세션만 처리한다.
+	if (bIsCleaningUp || Phase != ELMHackingPhase::AwaitingConfirmation)
+	{
+		return;
+	}
+
+	ALMPlayerController* Controller = SessionController.Get();
+
+	// 현재 세션의 화면에서 보낸 확인 요청인지 검사한다.
+	if (!IsValid(Controller) || !Controller->IsHackingWidgetSource(this, SourceWidget))
+	{
+		return;
+	}
+
+	// 화면 정리와 완료 이벤트 실행 중 중복 요청을 막는다.
+	TGuardValue<bool> CleanupGuard(bIsCleaningUp, true);
+
+	// ReleaseSession이 멤버를 비우므로 원래 요청자를 잠시 보관한다.
+	const TWeakObjectPtr<AActor> CompletedInteractor = CurrentInteractor;
+
+	// 정리 콜백보다 먼저 완료를 확정해 중복 처리를 막는다.
+	HackingStateTag = LMGameplayTags::State_Hacking_HackedComplete;
+	Phase = ELMHackingPhase::Completed;
+
+	// 기존 컨트롤러를 통해 UI 제거와 입력·일시정지 복원을 처리한다.
+	ReleaseSession();
+
+	// 화면 정리가 끝난 뒤 액터 BP에 원래 기능 실행을 맡긴다.
+	OnHackingCompleted.Broadcast(CompletedInteractor.Get());
 }
 
 TArray<uint8> ULMHackingComponent::GetCellValues() const

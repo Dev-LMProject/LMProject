@@ -8,6 +8,7 @@
 #include "LMHackingWidget.generated.h"
 
 class ULMHackingComponent;
+enum class ELMHackingPhase : uint8;
 /**
  * 
  */
@@ -33,8 +34,9 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Hacking")
 	void OnPuzzleInitialized(const FLMHexPuzzleDefinition& Definition);
 
+	// 현재 숫자, 남은 횟수, 진행 단계와 결과 문구를 BP에 전달한다.
 	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Hacking")
-	void OnPuzzleUpdated(const TArray<uint8>& Values, int32 RemainingMoves);
+	void OnPuzzleUpdated(const TArray<uint8>& Values, int32 RemainingMoves, ELMHackingPhase Phase, const FText& ResultText);
 private:
 	TWeakObjectPtr<ULMHackingComponent> HackingComponent;
 	UFUNCTION()

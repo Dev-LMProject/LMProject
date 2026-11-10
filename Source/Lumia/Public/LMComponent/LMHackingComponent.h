@@ -26,8 +26,8 @@ enum class ELMHackingPhase : uint8
 // UI가 최종 보드·횟수·진행 단계를 다시 읽도록 알리는 이벤트.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMHackingPuzzleChanged);
 
-// 완료 처리와 외부 보상 전달 뒤 선택 연출을 실행하는 이벤트.
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMHackingCompleted);
+// 해킹 확정과 화면 정리 후 원래 요청자를 액터 BP에 전달한다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FLMHackingCompleted, AActor*, Interactor);
 
 // 해킹 취소와 화면 정리가 끝났음을 알린다.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMHackingCanceled);
@@ -93,7 +93,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "LM|Hacking")
 	FLMHackingPuzzleChanged OnPuzzleChanged;
 
-	// 완료 처리 뒤 액터별 소리·VFX 등을 연결한다.
+	// 액터 BP가 원래 상호작용 기능을 이어서 실행하도록 알린다.
 	UPROPERTY(BlueprintAssignable, Category = "LM|Hacking")
 	FLMHackingCompleted OnHackingCompleted;
 	
