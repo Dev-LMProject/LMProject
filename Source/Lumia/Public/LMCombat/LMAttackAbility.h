@@ -62,6 +62,10 @@ protected:
 	/** 검 판정을 연결할 공격에 지정하는 기본 피해와 판정 설정이다. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")
 	TObjectPtr<ULMAttackData> AttackData;
+	
+	/** 이전 검 판정을 정리한 뒤 현재 공격 몽타주를 지정한 섹션으로 이동한다. */
+	UFUNCTION(BlueprintCallable, Category = "LM|Attack")
+	void JumpAttackMontageSection(FName SectionName);
 
 private:
 	/** 몽타주가 끝까지 재생되면 공격을 정상 종료한다. */
