@@ -59,8 +59,18 @@ namespace LMGameplayTags
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Combat_Recovery_Begin);
 	/** 특수 준비 또는 SP02가 다음 입력을 기다릴 지점에 도달했음을 알린다. */
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Combat_Special_Hold);
+	/** 공격 몽타주의 타격 허용 구간이 시작되었음을 알린다 */
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Combat_HitWindow_Begin);
+	/** 타격 구간의 끝에 도달하여 마지막 유효 구간까지 처리하도록 알린다. */
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Combat_HitWindow_End);
+	/** 타격 구간이 중단되어 날은 피해 판정을 버리도록 알린다. */
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Combat_HitWindow_Cancel);
+	
 	/** 이동이나 새 행동이 현재 마무리 동작의 취소를 요청한다. */
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Action_CancelRecovery);
+	
+	/** 피해 Spec에서 이번 실행의 피해량을 전달할 때 사용하는 이름표다. */
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Data_Damage);
 
 	//Scan GA 용 쿨타임 태그
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Scan);

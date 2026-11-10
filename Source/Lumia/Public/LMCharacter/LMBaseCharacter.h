@@ -6,9 +6,12 @@
 #include "LMBaseCharacter.generated.h"
 
 class ULMAbilitySystemComponent;
+class ULMAttackData;
+class UGameplayEffect;
+
 struct FGameplayTag;
 
-/** ASC의 소유 위치와 관계없이 캐릭터의 GAS 연결과 공통 행동 제한을 관리한다. */
+/** ASC의 소유 위치와 캐릭터 종류에 관계없이 GAS 연결, 행동 제한, 공통 피해 접수를 관리한다. */
 UCLASS(Abstract)
 class LUMIA_API ALMBaseCharacter : public ACharacter, public IAbilitySystemInterface
 {
@@ -20,6 +23,16 @@ public:
 
 	/** 캐릭터가 참조 중인 ASC를 GAS 인터페이스로 제공한다. */
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+	
+	/**
+	 * 공격자 정보를 보존해 이 피격자의 ASC에 피해를 적용하고 HP 계산은 AttributeSet에 맡긴다.
+	 * 플레이어·일반 몬스터·보스가 공유하며, HP 소진 이후의 사망·무력화 정책은 각 캐릭터가 결정한다.
+	 * @param DamageSource 공격한 캐릭터의 현재 Avatar다. 무기나 PlayerState가 아니며 기존 BP 핀 이름은 유지한다.
+	 * @param AttackData 기본 피해를 읽을 공유 공격 데이터다. 이 함수에서 수정하지 않는다.
+	 * @param HitResult 공격 판정에서 얻은 충돌 결과다. 액터 정보가 있으면 피해 Context에 보관한다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "LM|Combat", meta = (AutoCreateRefTerm = "HitResult"))
+	void ReceiveCombatDamage(AActor* DamageSource, const ULMAttackData* AttackData, const FHitResult& HitResult);
 
 protected:
 	/** 캐릭터 종료 시 남은 GAS 연결을 해제하고 부모 종료 처리를 수행한다. */
@@ -45,6 +58,10 @@ protected:
 
 	/** 능력이나 루트 모션이 일반 이동 대신 이동 제어를 맡고 있는지 반환한다. */
 	bool IsMovementControlledByAbilities() const;
+	
+	/** 이 피격자의 IncomingDamage에 피해를 전달할 Instant GE다. HP 소진 이후의 반응은 결정하지 않는다. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="LM|Combat")
+	TSubclassOf<UGameplayEffect> DamageEffectClass;
 
 private:
 	/** 현재 Avatar의 태그 변경만 파생 클래스의 행동 정책에 전달한다. */

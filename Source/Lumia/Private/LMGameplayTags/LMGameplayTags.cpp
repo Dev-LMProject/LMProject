@@ -33,7 +33,13 @@ namespace LMGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_Combo_Close, "LM.Event.Combat.Combo.Close", "콤보 입력 구간 종료");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_Special_Hold, "LM.Event.Combat.Special.Hold", "특수 스킬 입력 대기 지점");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_Recovery_Begin, "LM.Event.Combat.Recovery.Begin", "공격 마무리 구간 시작");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_HitWindow_Begin, "LM.Event.Combat.HitWindow.Begin", "공격 타격 구간 시작");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_HitWindow_End, "LM.Event.Combat.HitWindow.End", "공격 타격 구간 정상 종료");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Combat_HitWindow_Cancel, "LM.Event.Combat.HitWindow.Cancel", "공격 타격 구간 중단");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Action_CancelRecovery, "LM.Event.Action.CancelRecovery", "현재 마무리 동작 취소 요청");
+	
+	/** GE의 SetByCaller 설정과 피해량을 지정하는 호출부가 함께 사용하는 태그다. */
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Damage, "SetByCaller.LM.Damage", "이번 피해 Spec으로 전달하는 피해량");
 
 	UE_DEFINE_GAMEPLAY_TAG(Cooldown_Scan, "LM.Cooldown.Scan");
 }
