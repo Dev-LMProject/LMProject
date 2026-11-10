@@ -115,15 +115,3 @@ AActor* ULMInteractionHUDWidget::GetSelectedActor() const
 {
     return SelectedActor.Get();
 }
-
-FLMInteractionResult ULMInteractionHUDWidget::TryInteractSelected()
-{
-    if (ULMInteractorComponent* CurrentInteractor = Interactor.Get())
-    {
-        return CurrentInteractor->TryInteract(SelectedActor.Get());
-    }
-
-    FLMInteractionResult Result;
-    Result.Failure = InteractionFailure::CantAccessActor;
-    return Result;
-}

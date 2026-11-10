@@ -1,8 +1,9 @@
 #include "LMComponent/LMInteractionComponent.h"
-
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
 #include "LMComponent/LMInteractorComponent.h"
+//scope 종료 시 가드를 자동 복원
+#include "Templates/UnrealTemplate.h"
 
 ULMInteractionComponent::ULMInteractionComponent()
 {
@@ -219,72 +220,126 @@ void ULMInteractionComponent::SetInteractionTags(FGameplayTagContainer InTags)
 }
 
 //자신이 요청자와 상호작용이 가능한지
-FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* RequestActor,
-                                                                  FGameplayTagContainer* ActionTags)
+FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* RequestActor, const FGameplayTagContainer& ActionTags, bool bIgnoreDispatchGuard)
 {
 	FLMInteractionResult R;
-	//자신이 이미 상호작용중
-	if (bIsBusy)
-	{
-		R.Failure = InteractionFailure::IsBusy;
-		return R;
-	}
+    R.InteractionId = InteractionId;
+    AActor* TargetActor = GetOwner();
+    
+    if (!IsValid(this) || bIsEndingPlay || IsBeingDestroyed() || !IsValid(TargetActor) || !IsValid(RequestActor) || TargetActor->IsActorBeingDestroyed() || RequestActor->IsActorBeingDestroyed())
+    {
+        R.Failure = EInteractionFailure::CantAccessActor;
+        return R;
+    }
+    if (!ActionTags.IsValid())
+    {
+        R.Failure = EInteractionFailure::InvalidActionTags;
+        return R;
+    }
+    if (!TargetActor->GetClass()->ImplementsInterface(ULMInteractable::StaticClass()))
+    {
+        R.Failure = EInteractionFailure::NotHasInterface;
+        return R;
+    }
+    if (bIsBusy || (!bIgnoreDispatchGuard && bIsDispatchingRequest))
+    {
+        R.Failure = EInteractionFailure::IsBusy;
+        return R;
+    }
 
-	R.InteractionId = InteractionId;
-	R.bCanInteraction = MatchesInteractionTags(*ActionTags);
-	//유효 태그 검사
-	if (!R.bCanInteraction)
-	{
-		R.Failure = InteractionFailure::NotHasAllRequireTags;
-		return R;
-	}
+    // 액터 BP는 여기서 상태만 읽으며, 새로운 요청이나 상태 변경을 실행하지 않는다.
+    const bool bReserved = Execute_IsInteractionBusy(TargetActor);
+    if (!IsValid(this) || bIsEndingPlay || IsBeingDestroyed() || GetOwner() != TargetActor || !IsValid(TargetActor) || !IsValid(RequestActor) || TargetActor->IsActorBeingDestroyed() || RequestActor->IsActorBeingDestroyed())
+    {
+        R.Failure = EInteractionFailure::CantAccessActor;
+        return R;
+    }
 
-	return R;
+    if (bIsBusy || (!bIgnoreDispatchGuard && bIsDispatchingRequest) || bReserved)
+    {
+        R.Failure = EInteractionFailure::IsBusy;
+        return R;
+    }
+
+    if (!MatchesInteractionTags(ActionTags))
+    {
+        R.Failure = EInteractionFailure::NotHasAllRequireTags;
+        return R;
+    }
+
+    R.bCanInteraction = true;
+    return R;
 }
 
 //대상에게 인터렉션 요청->대상이 요청자와 인터렉션가능한지 확인->가능한경우 인터페이스로 구현된 interact 실행
-FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* RequestActor,
-                                                                 FGameplayTagContainer& ActionTags)
+FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* RequestActor, FGameplayTagContainer& ActionTags)
 {
-	FLMInteractionResult R;
+    FLMInteractionResult R = EvaluateInteraction(RequestActor, ActionTags);
+    if (!R.bCanInteraction)
+    {
+        return R;
+    }
 	AActor* TargetActor = GetOwner();
+    
+    //Execute_HandleInteractionRequest시 BP가 실행하는 다른 로직에서 같은 액터의 RequestInteraction()을 다시 호출하는것을 막기 위해 임시로 TRUE로 표시
+    TGuardValue<bool> DispatchGuard(bIsDispatchingRequest, true);
+    const ELMInteractionRequestHandling Handling = Execute_HandleInteractionRequest(TargetActor, RequestActor);
 
-	if (!IsValid(TargetActor) || !IsValid(RequestActor))
-	{
-		R.Failure = InteractionFailure::CantAccessActor;
-		return R;
-	}
+    if (!IsValid(this) || bIsEndingPlay || IsBeingDestroyed() || GetOwner() != TargetActor || !IsValid(TargetActor) || !IsValid(RequestActor) || TargetActor->IsActorBeingDestroyed() || RequestActor->IsActorBeingDestroyed())
+    {
+        R.bCanInteraction = false;
+        R.Failure = EInteractionFailure::CantAccessActor;
+        return R;
+    }
+    switch (Handling)
+    {
+    case ELMInteractionRequestHandling::Accepted:
+        return R;
+    case ELMInteractionRequestHandling::PassThrough:
+        break;
+    case ELMInteractionRequestHandling::Rejected:
+    default:
+        R.Failure = EInteractionFailure::ExecutionFailed;
+        return R;
+    }
+    // Handler가 태그·일반 Busy·예약을 바꿨을 수 있으므로 다시 판정한다.
+    // 현재 요청이 세운 DispatchGuard만 무시하고 나머지 조건은 모두 검사한다.
+    R = EvaluateInteraction(RequestActor, ActionTags, true);
+    if (!R.bCanInteraction)
+    {
+        return R;
+    }
 
-	if (!ActionTags.IsValid())
-	{
-		R.Failure = InteractionFailure::InvalidActionTags;
-		return R;
-	}
+    bIsBusy = true;
+    const bool bStarted = Execute_Interact(TargetActor, RequestActor);
+    if (!IsValid(this) || bIsEndingPlay || IsBeingDestroyed() || !IsValid(TargetActor) || !IsValid(RequestActor) || TargetActor->IsActorBeingDestroyed() || RequestActor->IsActorBeingDestroyed())
+    {
+        R.bCanInteraction = false;
+        R.Failure = EInteractionFailure::CantAccessActor;
+        return R;
+    }
 
-	if (!TargetActor->GetClass()->ImplementsInterface(
-		ULMInteractable::StaticClass()))
-	{
-		R.Failure = InteractionFailure::NotHasInterface;
-		return R;
-	}
+    if (!bStarted)
+    {
+        bIsBusy = false;
+        R.Failure = EInteractionFailure::ExecutionFailed;
+    }
 
-	R = EvaluateInteraction(RequestActor, &ActionTags);
-	if (!R.bCanInteraction)
-	{
-		return R;
-	}
-
-	//접근 가능
-
-	bIsBusy = true;
-	const bool bStarted = ILMInteractable::Execute_Interact(TargetActor, RequestActor);
-
-	if (!bStarted)
-	{
-		bIsBusy = false;
-		R.Failure = InteractionFailure::ExecutionFailed;
-	}
-
-	return R;
+    return R;
 }
+
+bool ULMInteractionComponent::GetIsBusy() const
+{
+    if (bIsBusy || bIsDispatchingRequest || bIsEndingPlay || IsBeingDestroyed())
+    {
+        return true;
+    }
+
+    AActor* TargetActor = GetOwner();
+    return IsValid(TargetActor)
+        && TargetActor->GetClass()->ImplementsInterface(ULMInteractable::StaticClass())
+        && ILMInteractable::Execute_IsInteractionBusy(TargetActor);
+}
+
+
 

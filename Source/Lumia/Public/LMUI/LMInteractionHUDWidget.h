@@ -18,9 +18,6 @@ public:
     // 표시 목록에서 이전 또는 다음 액터를 선택한다.
     void MoveSelection(int32 Direction);
 
-    // 현재 선택 액터를 Interactor에 전달해 상호작용을 요청한다.
-    FLMInteractionResult TryInteractSelected();
-
     // 현재 선택된 유효한 액터를 반환한다.
     UFUNCTION(BlueprintPure, Category="Interaction")
     AActor* GetSelectedActor() const;

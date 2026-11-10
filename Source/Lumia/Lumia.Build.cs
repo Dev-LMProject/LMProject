@@ -16,6 +16,7 @@ public class Lumia : ModuleRules
 			 "GameplayTags",
 			 "GameplayAbilities",
 			 "GameplayTasks",
+			 "SlateCore"
 		});
 
 		// 입력, 카메라 시퀀스, 이동 애니메이션 계산에서 사용하는 모듈.

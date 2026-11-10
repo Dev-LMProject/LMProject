@@ -162,6 +162,8 @@ public:
     /** Controller가 캐릭터를 조종하기 시작하면 ASC를 연결한다. */
     virtual void PossessedBy(AController* NewController) override;
 	
+    /** 입력 취소 시 유예없이 이동 · 달리기 · 피벗을 정리한다. */
+    void CancelMoveInput();
 protected:
     /** BP 설정을 검증하고 초기 이동 속도와 카메라 거리를 반영한다. */
     virtual void BeginPlay() override;
@@ -298,8 +300,7 @@ private:
     /** 종료 블렌드 중인 인스턴스까지 포함해 현재 피벗을 찾는다. */
     FAnimMontageInstance* GetPivotInstance() const;
 
-    /** 입력 취소 시 유예없이 이동 · 달리기 · 피벗을 정리한다. */
-    void CancelMoveInput();
+ 
 
     /** 실제 이동의 기준 속도(cm/s). 최종 속도에는 SpeedMultiplier를 적용한다. */
     UPROPERTY(EditDefaultsOnly, Category = "LM|Movement", meta = (ClampMin = "1.0"))
