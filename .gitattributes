@@ -10,7 +10,7 @@
 .gitattributes text eol=lf
 
 # Shared Codex tooling remains text with deterministic checkout line endings.
-/.agents/skills/planning-with-files/** text eol=lf
+/.agents/skills/** text eol=lf
 /.codex/hooks.json text eol=lf
 /.codex/hooks/** text eol=lf
 /.codex/hooks/*.cmd text eol=crlf

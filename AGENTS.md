@@ -78,6 +78,10 @@
 - [Recommended Asset Naming Conventions](https://dev.epicgames.com/documentation/en-us/unreal-engine/recommended-asset-naming-conventions-in-unreal-engine-projects)
 - [Codex AGENTS.md 지침 탐색](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 
+## 공유 스킬
+
+프로젝트 스킬의 원본은 이 저장소의 `.agents/skills/`에서 관리한다. 같은 이름의 개인 설치본이 보이더라도 프로젝트 작업에는 이 저장소의 스킬을 사용한다. 스킬 목록, 팀원 사용 방법, 필요한 플러그인과 기존 개인 설치본 전환은 [공유 스킬 안내](Docs/LMContext/TEAM_SKILLS.ko.md)를 따른다.
+
 <!-- LMContext:start -->
 ## Codex 작업 상태 보존
 

@@ -1,10 +1,10 @@
-# LMProject Codex 컨텍스트 보존
+# LMProject 공유 스킬과 Codex 컨텍스트 보존
 
-작업의 계획·결정·검증·다음 행동을 파일로 남기고, Codex가 새 세션이나 압축 후 같은 작업을 다시 읽도록 돕는 프로젝트 로컬 스킬·훅 구성이다. 기록하지 않은 대화의 무손실 복원은 보장하지 않는다. 게임 코드 안내는 [README_CODE.ko.txt](README_CODE.ko.txt)를 따른다.
+설계 안내·할 일 카드·일일보고·한국어 글쓰기 스킬을 팀이 같은 Git 버전으로 사용한다. 컨텍스트 보존 도구는 작업의 계획·결정·검증·다음 행동을 파일로 남겨 새 세션이나 압축 후 복구를 돕는다. 기록하지 않은 대화의 무손실 복원은 보장하지 않는다. 게임 코드 안내는 [README_CODE.ko.txt](README_CODE.ko.txt)를 따른다.
 
 ## 구성과 사용
 
-- `.agents/skills/planning-with-files/`: 고정 버전 스킬·템플릿·보조 스크립트.
+- `.agents/skills/`: 팀이 함께 사용하는 설계 안내·할 일 카드·일일보고·한국어 글쓰기 스킬과 기존 `planning-with-files` 도구. [스킬 목록과 사용 방법](Docs/LMContext/TEAM_SKILLS.ko.md).
 - `.codex/hooks.json`, `.codex/hooks/`: lifecycle 훅과 LMProject Windows 연결기.
 - `AGENTS.md`, `Docs/LMContext/Team/`: Git으로 공유하는 팀 지침·검토된 인수인계.
 - `.planning/<ID>/`, `Saved/LMContext/`: 개인 작업 기록·대화 바인딩. Git/P4에 공유하지 않는다.
@@ -26,4 +26,4 @@
 
 `LMInvokePlanning.ps1`, 명령 평문, 상위 폴더 전달 평문, 검증 스크립트는 LMProject용 작성물로 구분했다. Python·Git for Windows/Bash·Windows PowerShell·Codex는 실행 전제이며 이 구성에 해당 프로그램의 바이너리나 패키지를 재배포하지 않는다. 별도 Node/npm 또는 pip 의존 패키지는 포함하지 않는다.
 
-이 고지는 위 외부 구성요소에 적용되며 LMProject 게임 코드 전체에 MIT 등 새로운 오픈소스 라이선스를 부여하지 않는다. 이번 정리는 문서·고지만 변경하며 스킬·훅의 동작이나 신뢰 설정을 변경하지 않는다.
+이 고지는 위 외부 구성요소에 적용되며 LMProject 게임 코드 전체에 MIT 등 새로운 오픈소스 라이선스를 부여하지 않는다.
