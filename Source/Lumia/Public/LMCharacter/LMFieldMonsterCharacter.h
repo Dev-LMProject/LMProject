@@ -52,7 +52,7 @@ protected:
 
 	/** 일반 몬스터의 HP 소진 상태다. 보스의 공통 사망 정책으로 사용하지 않는다. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "LM|Reaction")
-	bool bHealthDepleted = false;
+	bool bIsDead = false;
 
 private:
 	/** 현재 HP 또는 최대 HP가 바뀌면 표시값을 갱신한다. */
@@ -62,7 +62,7 @@ private:
 	void RefreshHealthWidget();
 
 	/** 확정된 피해 결과로 일반 몬스터의 피격 또는 소진을 처리한다. */
-	void HandleDamageApplied(float ActualDamage, bool bDepleted);
+	void HandleDamageApplied(float ActualDamage, bool _bIsDead);
 
 	/** 피격 제한을 자신이 추가한 만큼만 해제한다. */
 	void FinishHitReaction();

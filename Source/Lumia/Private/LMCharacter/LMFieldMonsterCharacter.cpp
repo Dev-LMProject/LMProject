@@ -87,17 +87,17 @@ void ALMFieldMonsterCharacter::RefreshHealthWidget()
 }
 
 /** 일반 몬스터의 소진은 즉시 제한하고 비치명 피해는 한 번 반응한다. */
-void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool bDepleted)
+void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIsDead)
 {
-    if (bEndingPlay || bHealthDepleted || !FMath::IsFinite(ActualDamage) || ActualDamage <= 0.0f)
+    if (bEndingPlay || bIsDead || !FMath::IsFinite(ActualDamage) || ActualDamage <= 0.0f)
     {
         return;
     }
 
-    if (bDepleted)
+    if (_bIsDead)
     {
         // 재진입 전에 상태를 확정하고 피격 제한을 풀기 전에 사망 제한을 세운다.
-        bHealthDepleted = true;
+        bIsDead = true;
         bOwnsDeadTag = true;
         AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Dead);
 
@@ -137,7 +137,7 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool bDep
     bOwnsStunTag = true;
     AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Stunned);
 
-    if (bEndingPlay || bHealthDepleted)
+    if (bEndingPlay || bIsDead)
     {
         return;
     }
