@@ -5,11 +5,19 @@
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimMontage.h"
+#include "CollisionQueryParams.h"
+#include "CollisionShape.h"
+#include "Components/CapsuleComponent.h"
+#include "DrawDebugHelpers.h"
+#include "Engine/OverlapResult.h"
+#include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "LMCharacter/LMBaseCharacter.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "LMCombat/LMAbilityTaskWeaponHitTrace.h"
 #include "LMCombat/LMAttackData.h"
+#include "LMCharacter/LMPlayerMeleeMovementComponent.h"
 
 /** 공격 능력의 공통 실행 정책과 상태 태그를 설정한다. */
 ULMAttackAbility::ULMAttackAbility()
@@ -105,6 +113,9 @@ bool ULMAttackAbility::PlayAttackMontage(UAnimMontage* Montage, FName StartSecti
 	// 같은 능력이 다른 몽타주를 시작하면 이전 판정을 먼저 닫는다.
 	StopWeaponHitTrace();
 
+	// 몽타주가 시작되기 전에 이번 평타의 접근 위치와 방향을 등록한다.
+	PrepareMeleeApproach(Montage, StartSection);
+
 	Task->ReadyForActivation();
 
 	// 몽타주 재생 ID가 생긴 뒤 이번 실행을 관찰하는 Task를 만든다.
@@ -160,7 +171,10 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 
 	// 몽타주 종료와 외부 콜백보다 먼저 판정을 닫아 취소 후 피해가 남지 않게 한다.
 	StopWeaponHitTrace();
-
+	
+	// 정상 종료와 취소 모두에서 이 공격이 등록한 접근 타깃과 접촉 정지를 해제한다.
+	FinishMeleeApproach();
+	
 	SetAttackRecovery(false);
 
 	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
@@ -180,7 +194,14 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 /** 회복 관련 사건을 먼저 구독하고 기존 BP의 ActivateAbility 실행을 이어 준다. */
 void ULMAttackAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
-    SetAttackRecovery(false);
+	// 같은 인스턴스를 재사용하므로 새 실행 번호와 착지 피해 기록을 먼저 준비한다.
+	++LandingDamageRun;
+	bLandingDamageApplied = false;
+
+	// 같은 능력 인스턴스를 다시 사용할 때 이전 실행의 접근 상태를 남기지 않는다.
+	FinishMeleeApproach();
+
+	SetAttackRecovery(false);
 
     UAbilityTask_WaitGameplayEvent* RecoveryTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, LMGameplayTags::Event_Combat_Recovery_Begin, nullptr, false, true);
     UAbilityTask_WaitGameplayEvent* CancelTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, LMGameplayTags::Event_Action_CancelRecovery, nullptr, false, true);
@@ -225,14 +246,17 @@ void ULMAttackAbility::SetAttackRecovery(bool bNewRecovery)
     // 태그 변경 알림이 발생하기 전에 이 능력의 내부 상태를 먼저 맞춘다.
     bInAttackRecovery = bNewRecovery;
 
-    if (bNewRecovery)
-    {
-        ASC->AddLooseGameplayTag(LMGameplayTags::State_Action_Recovery);
-    }
-    else
-    {
-        ASC->RemoveLooseGameplayTag(LMGameplayTags::State_Action_Recovery);
-    }
+	if (bNewRecovery)
+	{
+		// 태그 알림으로 다음 공격이 시작되기 전에 현재 공격의 접근 상태를 정리한다.
+		FinishMeleeApproach();
+
+		ASC->AddLooseGameplayTag(LMGameplayTags::State_Action_Recovery);
+	}
+	else
+	{
+		ASC->RemoveLooseGameplayTag(LMGameplayTags::State_Action_Recovery);
+	}
 }
 
 /** 현재 공격의 마무리 동작을 취소할 수 있는지 반환한다. */
@@ -297,5 +321,178 @@ void ULMAttackAbility::JumpAttackMontageSection(FName SectionName)
 		WeaponHitTraceTask->ResetForMontageJump();
 	}
 
+	// 다음 평타는 새 목적지를 준비하고, 특수공격 섹션이면 기존 접근을 정리한다.
+	PrepareMeleeApproach(Montage, SectionName);
+
 	MontageJumpToSection(SectionName);
+}
+
+/** 재생할 섹션의 설정에 따라 접근 보정의 시작과 종료를 선택한다. */
+/** 재생할 섹션의 설정에 따라 접근 보정의 시작과 종료를 선택한다. */
+void ULMAttackAbility::PrepareMeleeApproach(UAnimMontage* Montage, FName SectionName)
+{
+	ACharacter* Character = GetAttackCharacter();
+	ULMPlayerMeleeMovementComponent* Movement = Character ? Cast<ULMPlayerMeleeMovementComponent>(Character->GetCharacterMovement()) : nullptr;
+
+	if (!Movement)
+	{
+		return;
+	}
+
+	// 평타 목록에 등록된 지상 구간에만 적용한다.
+	if (IsValid(Montage) && MeleeApproachSections.Contains(SectionName) && Movement->IsMovingOnGround())
+	{
+		Movement->BeginMeleeApproach(this, Montage);
+	}
+	else
+	{
+		Movement->EndMeleeApproach(this);
+	}
+}
+
+/** 정상 종료와 취소에서 같은 정리 경로를 사용한다. */
+void ULMAttackAbility::FinishMeleeApproach()
+{
+	ACharacter* Character = GetAttackCharacter();
+
+	if (ULMPlayerMeleeMovementComponent* Movement = Character ? Cast<ULMPlayerMeleeMovementComponent>(Character->GetCharacterMovement()) : nullptr)
+	{
+		Movement->EndMeleeApproach(this);
+	}
+}
+
+/** 실제 착지점 주변의 몸체를 검사하고 가려지지 않은 적에게 한 번씩 피해를 요청한다. */
+void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingEvent)
+{
+    // 종료되었거나 이미 처리한 공격에서 피해가 다시 발생하지 않게 한다.
+    if (!IsActive() || bIsAbilityEnding || bLandingDamageApplied)
+    {
+        return;
+    }
+
+    ALMBaseCharacter* Attacker = Cast<ALMBaseCharacter>(GetAvatarActorFromActorInfo());
+
+    // 기존 GAS 피해 경로와 같이 권한이 있는 현재 몸체에서만 피해를 요청한다.
+    if (!IsValid(Attacker) || Attacker->IsActorBeingDestroyed() || !Attacker->HasAuthority())
+    {
+        return;
+    }
+
+    if (LandingEvent.EventTag != LMGameplayTags::Event_Movement_Landed || LandingEvent.Instigator.Get() != Attacker || LandingEvent.Target.Get() != Attacker)
+    {
+        return;
+    }
+
+    UWorld* World = Attacker->GetWorld();
+    const ULMAttackData* LandingData = LandingAttackData.Get();
+    const FHitResult* LandingHit = LandingEvent.ContextHandle.GetHitResult();
+
+    // 착지 정보가 없을 때 캡슐 중심으로 임의 대체하면 다른 높이에 피해가 생긴다.
+    if (!World || !LandingHit || !LandingHit->IsValidBlockingHit() || LandingHit->ImpactPoint.ContainsNaN())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LMLandingAreaDamage] Missing valid landing hit."));
+        return;
+    }
+
+    if (!IsValid(LandingData) || !FMath::IsFinite(LandingData->BaseDamage) || LandingData->BaseDamage < 0.0f || !FMath::IsFinite(LandingDamageRadius) || LandingDamageRadius <= 0.0f || !FMath::IsFinite(LandingDamageHalfHeight) || LandingDamageHalfHeight <= 0.0f)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LMLandingAreaDamage] Check landing attack data, radius and height."));
+        return;
+    }
+
+    const ECollisionChannel WallChannel = LandingData->TraceChannel;
+    if (WallChannel >= ECC_MAX || WallChannel == ECC_OverlapAll_Deprecated)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LMLandingAreaDamage] Invalid wall trace channel."));
+        return;
+    }
+
+    // 피해 콜백의 재진입보다 먼저 기록하고 현재 실행을 식별한다.
+    bLandingDamageApplied = true;
+    const uint32 CurrentRun = LandingDamageRun;
+    const FVector Origin = LandingHit->ImpactPoint;
+    const float Radius = LandingDamageRadius;
+    const float HalfHeight = LandingDamageHalfHeight;
+
+    FCollisionObjectQueryParams ObjectQuery;
+    ObjectQuery.AddObjectTypesToQuery(ECC_Pawn);
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(LMLandingAreaDamage), false, Attacker);
+
+    // 자신에게 부착된 무기가 자신의 충격파를 가리지 않게 한다.
+    TArray<AActor*> AttachedActors;
+    Attacker->GetAttachedActors(AttachedActors, true, true);
+    Query.AddIgnoredActors(AttachedActors);
+
+    // 원기둥을 감싸는 박스로 후보를 모으고 아래에서 모서리의 후보를 제외한다.
+    TArray<FOverlapResult> Overlaps;
+    World->OverlapMultiByObjectType(Overlaps, Origin, FQuat::Identity, ObjectQuery, FCollisionShape::MakeBox(FVector(Radius, Radius, HalfHeight)), Query);
+
+    if (LandingData->bDrawDebug)
+        DrawDebugCylinder(World, Origin - FVector::UpVector * HalfHeight, Origin + FVector::UpVector * HalfHeight, Radius, 48, FColor::Cyan, false, 1.0f, 0, 2.0f);
+
+    TSet<TWeakObjectPtr<AActor>> ProcessedReceivers;
+
+    // 바닥 자체에 선이 막히지 않도록 접점보다 조금 높은 위치에서 검사한다.
+    const float SightHeight = FMath::Min(20.0f, HalfHeight * 0.5f);
+    const FVector VisibilityStart = Origin + FVector(0.0f, 0.0f, SightHeight);
+
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        // 피해 콜백이 공격을 끝내거나 새 실행을 시작했으면 이전 검사를 중단한다.
+        if (!IsActive() || bIsAbilityEnding || LandingDamageRun != CurrentRun || GetAvatarActorFromActorInfo() != Attacker || Attacker->IsActorBeingDestroyed())
+        {
+            break;
+        }
+
+        ALMBaseCharacter* Receiver = Cast<ALMBaseCharacter>(Overlap.GetActor());
+        if (!IsValid(Receiver) || Receiver == Attacker || ProcessedReceivers.Contains(TWeakObjectPtr<AActor>(Receiver)))
+        {
+            continue;
+        }
+
+        UCapsuleComponent* Capsule = Receiver->GetCapsuleComponent();
+
+        // 공통 몸체와 적대·생존·무적 규칙을 사용하여 일반 몬스터와 보스를 함께 처리한다.
+        if (!IsValid(Capsule) || Overlap.GetComponent() != Capsule || Capsule->GetCollisionResponseToChannel(WallChannel) == ECR_Ignore || !Receiver->CanReceiveAttackFrom(Attacker))
+        {
+            continue;
+        }
+
+        const FVector Center = Capsule->GetComponentLocation();
+        const float CapsuleRadius = Capsule->GetScaledCapsuleRadius();
+        const float CapsuleHalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+
+        // shortcut: 직립 캡슐 몸체 기준이다. 다중 몸체·기울어진 보스를 만들 때 형상 조회를 확장한다.
+        // 적의 중심이 범위 밖이어도 몸체가 닿으면 포함하도록 표면까지의 거리를 계산한다.
+        const float AxisHalfHeight = FMath::Max(0.0f, CapsuleHalfHeight - CapsuleRadius);
+        const double HorizontalGap = FMath::Max(0.0, FVector::Dist2D(Origin, Center) - Radius);
+        const double VerticalGap = FMath::Max(0.0, FMath::Abs(Center.Z - Origin.Z) - AxisHalfHeight - HalfHeight);
+
+        // 수평·수직 거리를 함께 검사하여 둥근 캡슐 끝의 대각선 빈 공간을 제외한다.
+        const bool bTouchesArea = FMath::Square(HorizontalGap) + FMath::Square(VerticalGap) <= FMath::Square(static_cast<double>(CapsuleRadius));
+
+        if (!bTouchesArea)
+            continue;
+
+        FCollisionQueryParams WallQuery = Query;
+        WallQuery.AddIgnoredActor(Receiver);
+        AttachedActors.Reset();
+        Receiver->GetAttachedActors(AttachedActors, true, true);
+        WallQuery.AddIgnoredActors(AttachedActors);
+
+        const FVector VisibilityEnd(Center.X, Center.Y, Center.Z - CapsuleHalfHeight + SightHeight);
+        if (World->LineTraceTestByChannel(VisibilityStart, VisibilityEnd, WallChannel, WallQuery))
+        {
+            continue;
+        }
+
+        // 피격 이벤트보다 먼저 기록하여 같은 적에게 중복 요청하지 않는다.
+        ProcessedReceivers.Add(TWeakObjectPtr<AActor>(Receiver));
+
+        if (LandingData->bDrawDebug)
+            DrawDebugLine(World, VisibilityStart, VisibilityEnd, FColor::Yellow, false, 1.0f, 0, 2.0f);
+
+        // 바닥 충돌을 적의 피격점으로 전달하지 않고 기존 GAS 피해 접수만 재사용한다.
+        Receiver->ReceiveCombatDamage(Attacker, LandingData, FHitResult());
+    }
 }

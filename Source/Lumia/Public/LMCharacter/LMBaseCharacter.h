@@ -11,6 +11,15 @@ class UGameplayEffect;
 
 struct FGameplayTag;
 
+/** 전투 진영을 구분하며 중립 대상은 자동 적대 관계에서 제외한다. */
+UENUM(BlueprintType)
+enum class ELMCombatTeam : uint8
+{
+	Neutral,
+	Player,
+	Enemy
+};
+
 /** ASC의 소유 위치와 캐릭터 종류에 관계없이 GAS 연결, 행동 제한, 공통 피해 접수를 관리한다. */
 UCLASS(Abstract)
 class LUMIA_API ALMBaseCharacter : public ACharacter, public IAbilitySystemInterface
@@ -18,9 +27,9 @@ class LUMIA_API ALMBaseCharacter : public ACharacter, public IAbilitySystemInter
 	GENERATED_BODY()
 
 public:
-	/** 공통 GAS 연결을 관리할 캐릭터 기반을 생성한다. */
-	ALMBaseCharacter();
-
+	/** 파생 클래스가 기본 이동 컴포넌트 클래스를 지정할 수 있도록 생성 정보를 받는다. */
+	ALMBaseCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+	
 	/** 캐릭터가 참조 중인 ASC를 GAS 인터페이스로 제공한다. */
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	
@@ -33,6 +42,15 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "LM|Combat", meta = (AutoCreateRefTerm = "HitResult"))
 	void ReceiveCombatDamage(AActor* DamageSource, const ULMAttackData* AttackData, const FHitResult& HitResult);
+	
+	/** 두 캐릭터가 전투상 적대 관계인지 확인한다. */
+	bool IsHostileTo(const ALMBaseCharacter* Other) const;
+	
+	/** 접근 대상으로 선택할 수 있는 살아 있는 적인지 확인한다. */
+	bool CanBeAttackTargetFor(const ALMBaseCharacter* Attacker) const;
+	
+	/** 피해를 받을 수 있는 살아 있는 적인지 확인한다. */
+	bool CanReceiveAttackFrom(const ALMBaseCharacter* Attacker) const;
 
 protected:
 	/** 캐릭터 종료 시 남은 GAS 연결을 해제하고 부모 종료 처리를 수행한다. */
@@ -62,6 +80,18 @@ protected:
 	/** 이 피격자의 IncomingDamage에 피해를 전달할 Instant GE다. HP 소진 이후의 반응은 결정하지 않는다. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="LM|Combat")
 	TSubclassOf<UGameplayEffect> DamageEffectClass;
+	
+	/** 플레이어·일반 몬스터·보스가 같은 진영 판정 규칙을 사용한다. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Combat")
+	ELMCombatTeam CombatTeam = ELMCombatTeam::Neutral;
+	
+	/** 무력화나 전투 종료 시 접근 대상에서 제외할 수 있다. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LM|Combat")
+	bool bCanBeAttackTarget = true;
+
+	/** 무적 상태에서 접근은 허용하면서 피해만 막을 수 있다. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LM|Combat")
+	bool bCanReceiveCombatDamage = true;
 
 private:
 	/** 현재 Avatar의 태그 변경만 파생 클래스의 행동 정책에 전달한다. */
@@ -73,4 +103,7 @@ private:
 
 	bool bInitializingAbilitySystem = false;
 	bool bDisconnectingAbilitySystem = false;
+	
+	/** 현재 몸체의 ASC·체력·사망 상태를 확인한다. */
+	bool IsAliveForCombat() const;
 };
