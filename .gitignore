@@ -13,12 +13,17 @@
 !/Plugins/**/Source/**
 
 
-# LMContext: version only the shared skill, hooks and guide; no personal config.
+# Shared project skills, hooks and guides; no personal config.
 !/.agents/
 /.agents/*
 !/.agents/skills/
 /.agents/skills/*
+!/.agents/skills/.p4ignore
 !/.agents/skills/planning-with-files/
+!/.agents/skills/reviewed-feature-guide/
+!/.agents/skills/lm-task-card/
+!/.agents/skills/lm-daily-report/
+!/.agents/skills/korean-writing-care/
 !/.codex/
 /.codex/*
 !/.codex/hooks.json

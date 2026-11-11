@@ -7,7 +7,7 @@
 | 팀 코딩·빌드·검증·복구 규칙 | `AGENTS.md` | Dev Git |
 | 상위 폴더의 공통 PR·시각 규칙 원본 | `Docs/LMContext/ProjectRoot/AGENTS.md` | Dev Git; 상위 실제 파일은 로컬 배포본 |
 | 공통 설계 결정·인터페이스·팀 인수인계 | `Docs/LMContext/Team/<주제>.md` | 검토 후 Dev Git |
-| 고정 버전 스킬·템플릿과 공통 사용 안내 | 기존 `.agents/skills/planning-with-files/`, `Docs/LMContext/` | Dev Git |
+| 사용자 정의 스킬·고정 버전 스킬·템플릿과 공통 사용 안내 | `.agents/skills/`의 승인된 스킬, `Docs/LMContext/` | Dev Git |
 | 진행 중 계획·임시 조사·개인 TODO | `.planning/<ID>/` 또는 `.lmcontext-local/` | 로컬만; Git/P4 제외 |
 | 대화 연결·로그·머신 경로·상태 | `Saved/LMContext/` | 로컬만; Git/P4 제외 |
 

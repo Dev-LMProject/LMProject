@@ -93,7 +93,7 @@ AGENTS.md와 .planning/<작업 ID>/task_plan.md, findings.md, progress.md를 읽
 
 **플러그인·훅·공유 안내는 게임 C++ 코드와 같은 기존 Dev Git 저장소에서 관리한다.** 별도 LMContextTools 저장소를 사용하지 않는다. 게임 프로젝트·에셋과 `.p4ignore`는 기존 Perforce 흐름을 유지한다. 모든 Markdown은 P4에서 제외하며, AGENTS와 팀 지식만 Git에서 공유한다. 생성된 계획·조사·진행 기록은 기본적으로 개인 로컬이다. [공유/개인 분류와 승격 절차](SHARING.ko.md)를 따른다.
 
-Git에 포함되는 범위는 `AGENTS.md`, `.agents/skills/planning-with-files/`, `.codex/hooks.json`, `.codex/hooks/`, `Docs/LMContext/`다. `.gitignore`는 이 경로만 기존 허용 목록에 더하고 개인 `.codex/config.toml`, Saved, 실제 `.planning` 기록, 다른 P4 문서를 제외한다. P4 `.p4ignore`는 위 도구 경로를 제외하므로 이중 관리하지 않는다.
+Git에 포함되는 범위는 `AGENTS.md`, `.agents/skills/`의 승인된 스킬, `.codex/hooks.json`, `.codex/hooks/`, `Docs/LMContext/`다. `.gitignore`는 스킬별 허용 목록을 사용하고 개인 `.codex/config.toml`, Saved, 실제 `.planning` 기록, 다른 P4 문서를 제외한다. 사용자 정의 스킬 목록과 팀원 준비 절차, P4 제외 설정은 [공유 스킬 안내](TEAM_SKILLS.ko.md)를 따른다.
 
 팀원의 설치 순서:
 
