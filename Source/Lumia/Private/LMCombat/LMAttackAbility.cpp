@@ -278,3 +278,24 @@ void ULMAttackAbility::StopWeaponHitTrace()
 		TaskToStop->EndTask();
 	}
 }
+
+/** 섹션을 건너뛸 때 실제로 재생하지 않은 공간에 검 궤적이 생기지 않도록 처리한다. */
+void ULMAttackAbility::JumpAttackMontageSection(FName SectionName)
+{
+	UAbilitySystemComponent* AttackerASC = GetAbilitySystemComponentFromActorInfo();
+	UAnimMontage* Montage = GetCurrentMontage();
+
+	// 다른 능력이 재생 중인 몽타주나 존재하지 않는 섹션에는 영향을 주지 않는다.
+	if (!IsActive() || !IsValid(AttackerASC) || AttackerASC->GetAnimatingAbility() != this || !IsValid(Montage) || Montage->GetSectionIndex(SectionName) == INDEX_NONE)
+	{
+		return;
+	}
+
+	// 점프 후 발생할 Notify가 새 타격 기록을 시작할 수 있도록 이전 상태를 먼저 비운다.
+	if (IsValid(WeaponHitTraceTask.Get()))
+	{
+		WeaponHitTraceTask->ResetForMontageJump();
+	}
+
+	MontageJumpToSection(SectionName);
+}
