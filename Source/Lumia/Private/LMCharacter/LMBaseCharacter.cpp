@@ -6,10 +6,26 @@
 #include "GameplayEffect.h"
 #include "LMCombat/LMAttackData.h"
 #include "LMCombat/LMCombatAttributeSet.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 
 /** 공통 GAS 연결을 관리할 캐릭터 기반을 생성한다. */
-ALMBaseCharacter::ALMBaseCharacter()
+/** 모든 캡슐형 전투 캐릭터가 같은 몸체 충돌 기본값을 사용하도록 한다. */
+ALMBaseCharacter::ALMBaseCharacter(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
+	// 실제 이동을 막는 몸체를 캡슐로 통일한다.
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Overlap);
+
+	// 적 몸체를 계단이나 지면으로 취급하지 않게 한다.
+	GetCapsuleComponent()->CanCharacterStepUpOn = ECB_No;
+	GetCapsuleComponent()->SetWalkableSlopeOverride(FWalkableSlopeOverride(WalkableSlope_Unwalkable, 0.0f));
+
+	// 메시의 여러 물리 바디가 추가 이동 장애물이 되지 않게 한다.
+	GetMesh()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Ignore);
 }
 
 /** 캐릭터가 참조 중인 ASC를 GAS 인터페이스로 제공한다. */
@@ -118,9 +134,37 @@ void ALMBaseCharacter::DisconnectAbilitySystem()
 	OnAbilitySystemTagsChanged();
 }
 
-/** ActorInfo 준비 후 소유자별 능력 초기화를 수행할 파생 클래스의 확장 지점이다. */
+/** 
+ * ActorInfo 준비 후 소유자별 능력 초기화를 수행할 파생 클래스의 확장 지점이다. 
+ * ASC 연결 후 최종 BP 설정이 공통 캡슐 전투 규칙을 만족하는지 확인한다.
+ */
 void ALMBaseCharacter::OnAbilitySystemReady()
 {
+	// 비전투 대상에는 같은 몸체 규칙을 강제하지 않는다.
+	if (CombatTeam == ELMCombatTeam::Neutral)
+	{
+		return;
+	}
+
+	const UCapsuleComponent* Capsule = GetCapsuleComponent();
+	const USkeletalMeshComponent* CharacterMesh = GetMesh();
+
+	if (!ensure(Capsule && CharacterMesh))
+	{
+		return;
+	}
+
+	// 자식 BP가 부모 설정을 덮어썼을 때 어느 캐릭터가 잘못됐는지 알린다.
+	const bool bBodyValid = Capsule->IsQueryCollisionEnabled() && Capsule->GetCollisionObjectType() == ECC_Pawn && Capsule->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block && Capsule->CanCharacterStepUpOn == ECB_No && Capsule->GetWalkableSlopeOverride().WalkableSlopeBehavior == WalkableSlope_Unwalkable;
+
+	ensureMsgf(bBodyValid, TEXT("%s: Capsule needs query collision, Pawn object/block, No Step Up, Unwalkable."), *GetName());
+
+	ensureMsgf(Capsule->GetCollisionResponseToChannel(ECC_GameTraceChannel3) == ECR_Overlap, TEXT("%s: Capsule LMCombatHit must be Overlap."), *GetName());
+
+	// 충돌 검사를 사용하는 메시만 확인하여 몸체 캡슐과의 중복 충돌을 방지한다.
+	const bool bMeshValid = !CharacterMesh->IsQueryCollisionEnabled() || (CharacterMesh->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Ignore && CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel3) == ECR_Ignore);
+
+	ensureMsgf(bMeshValid, TEXT("%s: Query-enabled mesh must ignore Pawn and LMCombatHit."), *GetName());
 }
 
 /** 연결·태그 변경을 각 캐릭터의 행동 정책에 반영할 파생 클래스의 확장 지점이다. */
@@ -152,7 +196,7 @@ bool ALMBaseCharacter::IsMovementControlledByAbilities() const
 	return ASC && ASC->HasMatchingGameplayTag(LMGameplayTags::State_Movement_External);
 }
 
-/** 착지 직전 속도를 보존하고 실제 착지 사건을 GAS에 한 번 전달한다. */
+/** 착지 직전 속도와 지면 충돌 정보를 실제 착지 사건으로 GAS에 전달한다. */
 void ALMBaseCharacter::Landed(const FHitResult& Hit)
 {
 	// 부모 착지 처리나 BP 이벤트가 속도를 바꾸기 전에 충돌 속도를 보존한다.
@@ -168,6 +212,11 @@ void ALMBaseCharacter::Landed(const FHitResult& Hit)
 		Payload.Instigator = this;
 		Payload.Target = this;
 		Payload.EventMagnitude = ImpactSpeed;
+
+		// 착지 공격이 캡슐 중심 대신 실제 지면 접점을 읽도록 충돌 정보를 복사한다.
+		Payload.ContextHandle = ASC->MakeEffectContext();
+		Payload.ContextHandle.AddHitResult(Hit, true);
+
 		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, LandedTag, Payload);
 	}
 }
@@ -199,6 +248,12 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
         UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Invalid attacker or attack data."), *GetName());
         return;
     }
+	
+	// 다른 호출 경로에서도 아군 피해와 보스 무적을 동일한 규칙으로 거부한다.
+	if (!CanReceiveAttackFrom(Cast<ALMBaseCharacter>(DamageSource)))
+	{
+		return;
+	}
 
     // 공유 DataAsset은 읽기만 한다. 음수·비정상 수치는 거부하며 0은 AttributeSet에서 피해 없이 소비한다.
     const float BaseDamage = AttackData->BaseDamage;
@@ -267,4 +322,31 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
 
     // 공격 출처가 담긴 Spec을 피격자 자신에게 적용한다. HP 차감·소진 결과 알림은 AttributeSet이 담당한다.
     ReceiverASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
+}
+
+/** 진영 관계는 생존 여부와 분리하여 몸체 충돌 처리에서도 사용한다. */
+bool ALMBaseCharacter::IsHostileTo(const ALMBaseCharacter* Other) const
+{
+	return IsValid(Other) && Other != this && CombatTeam != ELMCombatTeam::Neutral && Other->CombatTeam != ELMCombatTeam::Neutral && CombatTeam != Other->CombatTeam;
+}
+
+/** 오래된 Avatar 연결이나 체력이 소진된 몸체를 전투 대상으로 사용하지 않는다. */
+bool ALMBaseCharacter::IsAliveForCombat() const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	const ULMCombatAttributeSet* Attributes = IsValid(ASC) ? ASC->GetSet<ULMCombatAttributeSet>() : nullptr;
+
+	return !IsActorBeingDestroyed() && ASC && ASC->GetAvatarActor() == this && Attributes && FMath::IsFinite(Attributes->GetHealth()) && Attributes->GetHealth() > 0.0f && !ASC->HasMatchingGameplayTag(LMGameplayTags::State_Dead);
+}
+
+/** 접근 허용과 적대 관계·생존 조건을 함께 확인한다. */
+bool ALMBaseCharacter::CanBeAttackTargetFor(const ALMBaseCharacter* Attacker) const
+{
+	return bCanBeAttackTarget && IsHostileTo(Attacker) && IsAliveForCombat() && Attacker->IsAliveForCombat();
+}
+
+/** 접근 허용과 독립적으로 피해 허용 여부를 판단한다. */
+bool ALMBaseCharacter::CanReceiveAttackFrom(const ALMBaseCharacter* Attacker) const
+{
+	return bCanReceiveCombatDamage && IsHostileTo(Attacker) && IsAliveForCombat() && Attacker->IsAliveForCombat();
 }

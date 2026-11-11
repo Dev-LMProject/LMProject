@@ -62,10 +62,30 @@ protected:
 	/** 검 판정을 연결할 공격에 지정하는 기본 피해와 판정 설정이다. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")
 	TObjectPtr<ULMAttackData> AttackData;
+
+	/** 실제 착지 이벤트를 받아 이번 낙하 공격의 범위 피해를 한 번 적용한다. */
+	UFUNCTION(BlueprintCallable, Category = "LM|Attack|Landing")
+	void ApplyLandingAreaDamage(const FGameplayEventData& LandingEvent);
+
+	/** 낙하 범위 공격의 피해량, 벽 검사 채널과 디버그 표시를 지정한다. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Landing")
+	TObjectPtr<ULMAttackData> LandingAttackData;
+
+	/** 착지 지점을 중심으로 하는 원형 공격 범위의 반경이다. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Landing", meta = (ClampMin = "1.0", Units = "cm"))
+	float LandingDamageRadius = 250.0f;
+
+	/** 착지 높이 위아래의 허용 거리이며 전체 판정 높이는 이 값의 두 배다. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Landing", meta = (ClampMin = "1.0", Units = "cm"))
+	float LandingDamageHalfHeight = 100.0f;
 	
 	/** 이전 검 판정을 정리한 뒤 현재 공격 몽타주를 지정한 섹션으로 이동한다. */
 	UFUNCTION(BlueprintCallable, Category = "LM|Attack")
 	void JumpAttackMontageSection(FName SectionName);
+	
+	/** 지정한 섹션에서만 지상 평타 접근을 사용한다. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Approach")
+	TArray<FName> MeleeApproachSections;
 
 private:
 	/** 몽타주가 끝까지 재생되면 공격을 정상 종료한다. */
@@ -93,4 +113,16 @@ private:
 
 	/** 이 능력이 회복 태그를 추가했는지 기록하여 중복 추가·제거를 방지한다. */
 	bool bInAttackRecovery = false;
+
+	/** 같은 공격 실행에서 착지 피해가 중복 처리되지 않게 한다. */
+	bool bLandingDamageApplied = false;
+
+	/** 피격 콜백에서 같은 능력이 재시작되어도 이전 범위 검사를 이어가지 않게 한다. */
+	uint32 LandingDamageRun = 0;
+	
+	/** 평타 섹션이면 접근을 시작하고 다른 섹션이면 정리한다. */
+	void PrepareMeleeApproach(UAnimMontage* Montage, FName SectionName);
+
+	/** 이 공격이 소유한 접근 상태를 해제한다. */
+	void FinishMeleeApproach();
 };
