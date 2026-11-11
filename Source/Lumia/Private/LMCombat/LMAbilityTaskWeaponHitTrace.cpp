@@ -432,7 +432,7 @@ bool ULMAbilityTaskWeaponHitTrace::TraceWeaponMovement(FLMWeaponHitWindowState& 
             // shortcut: 현재 표적은 일반 몬스터다. 보스·아군까지 확장할 때 공통 표적 정책을 추가한다.
             ALMFieldMonsterCharacter* Receiver = Cast<ALMFieldMonsterCharacter>(Hit.GetActor());
 
-            if (!IsValid(Receiver) || Receiver == Attacker || Receiver->IsActorBeingDestroyed() || Hit.GetComponent() != Receiver->GetCapsuleComponent() || Window.ProcessedReceivers.Contains(TWeakObjectPtr<AActor>(Receiver)))
+            if (!IsValid(Receiver) || Receiver == Attacker || Receiver->IsActorBeingDestroyed() || Window.ProcessedReceivers.Contains(TWeakObjectPtr<AActor>(Receiver)))
             {
                 continue;
             }
