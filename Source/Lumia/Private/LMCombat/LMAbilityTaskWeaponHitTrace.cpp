@@ -429,15 +429,24 @@ bool ULMAbilityTaskWeaponHitTrace::TraceWeaponMovement(FLMWeaponHitWindowState& 
                 return false;
             }
 
-            // shortcut: 현재 표적은 일반 몬스터다. 보스·아군까지 확장할 때 공통 표적 정책을 추가한다.
-            ALMFieldMonsterCharacter* Receiver = Cast<ALMFieldMonsterCharacter>(Hit.GetActor());
+            // 검 궤적 검사와 별도로 두 몸체 사이의 벽을 확인하여 벽 너머 피해를 막는다.
+            // 공통 부모 타입으로 검사하여 일반 몬스터와 보스를 함께 처리한다.
+            // 공통 부모 타입으로 검사하여 일반 몬스터와 보스를 함께 처리한다.
+            ALMBaseCharacter* Receiver = Cast<ALMBaseCharacter>(Hit.GetActor());
 
+            // 사용할 수 없는 대상, 자기 자신, 이미 처리한 대상은 제외한다.
             if (!IsValid(Receiver) || Receiver == Attacker || Receiver->IsActorBeingDestroyed() || Window.ProcessedReceivers.Contains(TWeakObjectPtr<AActor>(Receiver)))
             {
                 continue;
             }
 
-            // 피격자의 ASC와 실제 몸체가 연결되어 있고 살아 있을 때만 피해를 요청한다.
+            // 대상의 유효성을 확인한 뒤, 적대 관계·생존·피해 허용 조건을 검사한다.
+            if (!Receiver->CanReceiveAttackFrom(Attacker))
+            {
+                continue;
+            }
+
+            // 기존 ASC 연결 및 체력 검사를 유지한다.
             UAbilitySystemComponent* ReceiverASC = Receiver->GetAbilitySystemComponent();
             const ULMCombatAttributeSet* ReceiverAttributes = IsValid(ReceiverASC) ? ReceiverASC->GetSet<ULMCombatAttributeSet>() : nullptr;
 

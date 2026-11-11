@@ -54,8 +54,11 @@ class LUMIA_API ALMPlayerCharacter : public ALMBaseCharacter
     GENERATED_BODY()
 
 public:
-    /** 캡슐·이동 기본값·카메라 컴포넌트를 구성한다. */
-    ALMPlayerCharacter();
+    /** 
+     * 캡슐·이동 기본값·카메라 컴포넌트를 구성한다. 
+     * 기본 이동 컴포넌트를 평타 접근을 지원하는 클래스로 구성한다.
+     */
+    ALMPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
     /** 점프 요청을 검사하고 허용된 카메라 줌을 갱신한다. */
     virtual void Tick(float DeltaSeconds) override;
