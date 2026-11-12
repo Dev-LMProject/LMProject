@@ -51,6 +51,9 @@ public:
 	
 	/** 피해를 받을 수 있는 살아 있는 적인지 확인한다. */
 	bool CanReceiveAttackFrom(const ALMBaseCharacter* Attacker) const;
+	
+	/** 현재 몸체의 ASC·체력·사망 상태를 확인한다. */
+	bool IsAliveForCombat() const;
 
 protected:
 	/** 캐릭터 종료 시 남은 GAS 연결을 해제하고 부모 종료 처리를 수행한다. */
@@ -103,7 +106,4 @@ private:
 
 	bool bInitializingAbilitySystem = false;
 	bool bDisconnectingAbilitySystem = false;
-	
-	/** 현재 몸체의 ASC·체력·사망 상태를 확인한다. */
-	bool IsAliveForCombat() const;
 };
