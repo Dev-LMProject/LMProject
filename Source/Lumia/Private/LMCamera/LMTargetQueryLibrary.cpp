@@ -1,6 +1,6 @@
 #include "LMCamera/LMTargetQueryLibrary.h"
 
-#include "Components/SceneComponent.h"
+#include "LMComponent/LMTargetComponent.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/OverlapResult.h"
@@ -46,37 +46,30 @@ bool ULMTargetQueryLibrary::IsPointInCameraView(APlayerController* PlayerControl
 	return OutScreenPosition.X >= 0.0 && OutScreenPosition.X < ViewRect.Width() && OutScreenPosition.Y >= 0.0 && OutScreenPosition.Y < ViewRect.Height();
 }
 
-// 표식과 거리·가림 검사에 공통으로 사용할 대상의 월드 위치를 반환한다.
+// 대상 컴포넌트의 월드 위치를 반환하고, 컴포넌트가 없으면 기존 대체 위치를 반환한다.
 FVector ULMTargetQueryLibrary::GetFocusPoint(const AActor* Target)
 {
 	if (!IsValid(Target)) return FVector::ZeroVector;
 
-	static const FName PointTag(TEXT("LM.Focus.Point"));
+	// 컴포넌트 이름이 아니라 실제 ULMTargetComponent 타입으로 표적점을 찾는다.
+	const ULMTargetComponent* TargetComponent = Target->FindComponentByClass<ULMTargetComponent>();
 
-	// Actor가 직접 가지고 있는 SceneComponent들을 가져온다.
-	// SceneComponent는 위치를 가지므로 메시가 없는 빈 컴포넌트도 표적점으로 사용할 수 있다.
-	TInlineComponentArray<USceneComponent*> Components;
-	Target->GetComponents(Components);
-
-	for (const USceneComponent* Component : Components)
+	if (IsValid(TargetComponent) && TargetComponent->IsRegistered())
 	{
-		// Component Tags에 LM.Focus.Point가 있는 등록된 컴포넌트를 찾는다.
-		// GetComponentLocation은 부모와의 상대 위치가 아니라 최종 월드 위치를 반환한다.
-		if (IsValid(Component) && Component->IsRegistered() && Component->ComponentHasTag(PointTag))
-			return Component->GetComponentLocation();
+		// 부모의 이동과 상대 위치가 모두 반영된 월드 좌표를 검색과 HUD가 함께 사용한다.
+		return TargetComponent->GetComponentLocation();
 	}
 
-	// 캐릭터의 전체 Bounds에는 무기나 다른 컴포넌트가 포함될 수 있다.
-	// 별도 표적점이 없으면 캐릭터 Actor 원점을 사용해 그 영향을 피한다.
+	// 호출자가 컴포넌트 없는 캐릭터를 전달해도 무기까지 포함한 Bounds를 사용하지 않는다.
 	if (Cast<ALMBaseCharacter>(Target)) return Target->GetActorLocation();
 
 	FVector Origin;
 	FVector Extent;
 
-	// true이므로 충돌이 있는 컴포넌트들의 경계를 기준으로 중심을 계산한다.
+	// 일반 Actor에서는 충돌이 있는 컴포넌트들의 경계 중심을 대체 위치로 계산한다.
 	Target->GetActorBounds(true, Origin, Extent);
 
-	// 사용할 충돌 경계가 없으면 Actor 원점으로 돌아간다.
+	// 이 대체 좌표는 반환값을 위한 것이며, 해당 Actor를 포커스 후보로 허용하지는 않는다.
 	return Extent.IsNearlyZero() ? Target->GetActorLocation() : Origin;
 }
 
@@ -149,9 +142,6 @@ AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerControl
 	TArray<FOverlapResult> Overlaps;
 	World->OverlapMultiByObjectType(Overlaps, PawnPosition, FQuat::Identity, ObjectTypes, FCollisionShape::MakeSphere(FocusRange), QueryParams);
 
-	static const FName TargetTag(TEXT("LM.Focus.Target"));
-	static const FName DisabledTag(TEXT("LM.Focus.Disabled"));
-
 	// 한 Actor의 Capsule과 Mesh가 모두 검색돼도 Actor 검사는 한 번만 한다.
 	TSet<AActor*> SeenActors;
 
@@ -173,8 +163,17 @@ AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerControl
 
 		SeenActors.Add(Target);
 
-		// Actor 전체가 숨겨졌거나 대상 태그가 없거나 비활성 태그가 있으면 제외한다.
-		if (Target->IsHidden() || !Target->ActorHasTag(TargetTag) || Target->ActorHasTag(DisabledTag))
+		// 숨겨진 Actor는 표식 대상에서 제외한다.
+		if (Target->IsHidden())
+			continue;
+
+		// 이름만 TargetComponent인 SceneComponent는 이 타입 검색으로 찾을 수 없다.
+		const ULMTargetComponent* TargetComponent = Target->FindComponentByClass<ULMTargetComponent>();
+		if (!IsValid(TargetComponent))
+			continue;
+
+		// 새 컴포넌트에 저장된 Gameplay Tags로 대상 허용과 비활성을 검사한다.
+		if (!TargetComponent->CanFocus())
 			continue;
 
 		// 프로젝트 캐릭터는 기존 체력·사망 검사를 사용한다.

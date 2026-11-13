@@ -85,4 +85,9 @@ namespace LMGameplayTags
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Interaction_Actor_Hacking);
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Interaction_Actor_ActiveTarget);
 	
+	// 이 태그가 있는 대상 컴포넌트의 소유 Actor를 오토포커싱 후보로 검사한다.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Focus_Target);
+	
+	// 대상 태그를 유지하면서 해당 Actor만 일시적으로 오토포커싱에서 제외한다.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Focus_Disabled);
 }

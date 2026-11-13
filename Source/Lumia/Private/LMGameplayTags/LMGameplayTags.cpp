@@ -49,5 +49,9 @@ namespace LMGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(Interaction_Actor_Hacking,"LM.Interaction.Actor.Hacking");
 	UE_DEFINE_GAMEPLAY_TAG(Interaction_Actor_ActiveTarget,"LM.Interaction.Actor.ActiveTarget");
 	
+	// 에디터의 Gameplay Tag 선택 목록에 오토포커싱 허용 태그를 등록한다.
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Focus_Target, "LM.Focus.Target", "오토포커싱 대상으로 사용할 수 있는 Actor");
 	
+	// 에디터와 코드가 같은 이름으로 대상의 일시적인 제외 상태를 검사하게 한다.
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Focus_Disabled, "LM.Focus.Disabled", "오토포커싱 대상에서 일시적으로 제외");
 }
