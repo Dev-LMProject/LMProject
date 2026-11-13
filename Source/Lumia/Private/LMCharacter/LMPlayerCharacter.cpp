@@ -22,6 +22,7 @@
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMPlayer/LMPlayerState.h"
 #include "LMGameplayTags/LMGameplayTags.h"
+#include "LMCharacter/LMPlayerMeleeMovementComponent.h"
 
 namespace LMPivot
 {
@@ -37,8 +38,12 @@ namespace LMPivot
 }
 
 /** 몸은 이동 방향, 카메라는 컨트롤러 방향을 사용하도록 기본값을 구성한다. */
-ALMPlayerCharacter::ALMPlayerCharacter()
+/** 기본 CharacterMovement의 클래스만 교체하고 기존 이동·카메라 설정을 유지한다. */
+ALMPlayerCharacter::ALMPlayerCharacter(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer.SetDefaultSubobjectClass<ULMPlayerMeleeMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
+    // 모든 Enemy 계열과 공통 적대 관계를 사용한다.
+    CombatTeam = ELMCombatTeam::Player;
+    
     PrimaryActorTick.bCanEverTick = true;
 
     GetCapsuleComponent()->InitCapsuleSize(42.0f, 90.0f);

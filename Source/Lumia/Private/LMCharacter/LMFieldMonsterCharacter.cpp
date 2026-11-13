@@ -14,6 +14,9 @@
 /** 몬스터의 실제 체력과 표시 객체를 각 인스턴스에 독립적으로 생성한다. */
 ALMFieldMonsterCharacter::ALMFieldMonsterCharacter()
 {
+    // 모든 일반 몬스터가 플레이어의 공통 적대·접근·피해 판정에 포함되도록 한다.
+    CombatTeam = ELMCombatTeam::Enemy;
+    
     // 첫 전투 연결에서는 고정 표적으로 사용한다.
     AutoPossessAI = EAutoPossessAI::Disabled;
 
