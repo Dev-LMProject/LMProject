@@ -101,13 +101,22 @@ void ULMAbilityTaskAutoFocus::UpdateFocus()
 		return;
 	}
 
-	// 이번 검색 결과를 담을 임시 배열이다. 이전 프레임 후보를 그대로 이어 쓰지 않는다.
+	// 공격 중에도 매번 새로 검색해야 시야·거리 밖으로 나간 대상이 후보에서 즉시 빠진다.
 	TArray<TWeakObjectPtr<AActor>> Candidates;
 
-	// Query 함수가 검사에 통과한 Actor들을 Candidates에 넣고 선택한 Actor 하나를 반환한다.
 	AActor* Target = ULMTargetQueryLibrary::FindFocusTargets(Controller, FocusRange, SwitchMargin, Controller->GetFocusTarget(), Candidates);
 
-	// 목록과 선택을 같은 호출에서 교체해 서로 다른 프레임의 결과가 섞이지 않게 한다.
+	// 이번 타가 진행 중이면 화면 중앙 점수로 다른 대상을 고르지 않는다.
+	if (Controller->IsAttackFocusActive())
+	{
+		Target = Controller->GetAttackFocusTarget();
+
+		// 기존 공격 대상도 이번 검색을 통과하지 못하면 유지하지 않는다.
+		if (!Target || !Candidates.Contains(TWeakObjectPtr<AActor>(Target)))
+			Target = nullptr;
+	}
+
+	// 후보 목록과 표식 대상을 함께 갱신한다.
 	Controller->SetFocusResult(Candidates, Target);
 }
 
