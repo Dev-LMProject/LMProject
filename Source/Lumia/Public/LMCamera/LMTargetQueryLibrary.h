@@ -19,9 +19,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "LM|Camera")
 	static bool IsPointInCameraView(APlayerController* PlayerController, FVector WorldPosition, FVector2D& OutScreenPosition);
 
-	// LM.Focus.Point가 붙은 컴포넌트 위치를 찾는다.
-	// 없으면 캐릭터 원점 또는 일반 Actor의 충돌 경계 중심을 반환한다.
-	UFUNCTION(BlueprintPure, Category = "LM|Focus")
+	// 대상의 ULMTargetComponent 월드 위치를 반환한다.
+	// 컴포넌트가 없으면 기존 캐릭터 원점 또는 일반 Actor의 충돌 경계 중심을 반환한다.
+	UFUNCTION(BlueprintPure, Category="LM|Focus")
 	static FVector GetFocusPoint(const AActor* Target);
 
 	// OutCandidates를 이번 검사에 통과한 Actor들로 채우고 선정된 Actor 하나를 반환한다.
