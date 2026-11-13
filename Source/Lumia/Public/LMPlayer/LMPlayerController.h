@@ -15,6 +15,12 @@ class ULMHackingComponent;
 class ULMHackingWidget;
 class ULMAbilitySystemComponent;
 
+// 매 프레임 카메라 계산이 끝났다는 사실을 C++ Task에 알린다.
+DECLARE_MULTICAST_DELEGATE(FLMFocusFrameDelegate);
+
+// 선택 대상이 A에서 B 또는 nullptr로 바뀌었을 때 새 대상을 전달한다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FLMFocusChangedDelegate, AActor*, FocusTarget);
+
 // 로컬 플레이어의 입력 환경과 카메라 매니저를 연결한다.
 UCLASS()
 class LUMIA_API ALMPlayerController : public APlayerController
@@ -49,6 +55,36 @@ public:
 	// 요청한 컴포넌트가 현재 화면의 세션일 때만 닫는다.
 	// 생성 도중 호출되면 취소를 표시하고, 생성 함수에서 제거한다.
 	void CloseHackingWidget(ULMHackingComponent* InSession);
+	
+	// 카메라를 먼저 계산하고 Task 검색을 실행한 뒤 HUD 표식 위치를 갱신한다.
+	virtual void UpdateCameraManager(float DeltaSeconds) override;
+
+	// 일시정지 성공 시 다음 카메라 갱신을 기다리지 않고 표식을 숨긴다.
+	virtual bool SetPause(bool bPause, FCanUnpause CanUnpauseDelegate = FCanUnpause()) override;
+
+	// Task가 UpdateFocus 함수를 연결할 C++ 알림이다.
+	FLMFocusFrameDelegate OnFocusFrame;
+
+	// Blueprint에서도 선택 대상 변경을 받을 수 있게 노출한다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|Focus")
+	FLMFocusChangedDelegate OnFocusChanged;
+
+	// 선택 Actor가 아직 존재하면 반환하고 파괴됐으면 nullptr을 반환한다.
+	UFUNCTION(BlueprintPure, Category = "LM|Focus")
+	AActor* GetFocusTarget() const;
+
+	// 내부 약한 참조 배열에서 아직 유효한 Actor만 복사해 반환한다.
+	UFUNCTION(BlueprintPure, Category = "LM|Focus")
+	TArray<AActor*> GetFocusCandidates() const;
+
+	// 해킹·일시정지·연출 중인지 검사해 지금 검색할 수 있는지 반환한다.
+	bool CanUpdateFocus() const;
+
+	// 후보 목록을 새 결과로 바꾸고 그 목록에 속한 대상만 현재 선택으로 저장한다.
+	void SetFocusResult(const TArray<TWeakObjectPtr<AActor>>& _FocusCandidates, AActor* _FocusTarget);
+
+	// 후보 배열을 비우고 선택을 nullptr로 만든 뒤 HUD 표식을 숨긴다.
+	void ClearFocus();
 
 protected:
 	// UserHUD를 생성하고 화면에 등록한다.
@@ -134,4 +170,11 @@ private:
 
 	// 저장한 커서 상태와 게임 입력을 복원하고, 필요한 경우 일시정지를 해제한다.
 	void RestoreHackingInput();
+	
+	// 현재 프레임 검사에 통과한 Actor들만 보관한다.
+	// 약한 참조이므로 대상이 삭제되면 Get()으로 유효한 Actor를 얻을 수 없게 된다.
+	TArray<TWeakObjectPtr<AActor>> FocusCandidates;
+
+	// 현재 후보 중 선택된 Actor 하나다. 선택이 없으면 비어 있다.
+	TWeakObjectPtr<AActor> FocusTarget;
 };

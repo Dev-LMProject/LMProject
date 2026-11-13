@@ -83,33 +83,34 @@ void ALMPlayerController::SetupInputComponent()
 	SetInputMode(FInputModeGameOnly());
 }
 
-// 플레이 종료 또는 컨트롤러 제거 시 입력 매핑을 정리한다.
-void ALMPlayerController::EndPlay(
-	const EEndPlayReason::Type EndPlayReason)
+// 플레이 종료 시 포커스·해킹 화면·HUD·입력 연결을 정리한다.
+void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// 종료 중 새 포커스 갱신이 실행되지 않도록 먼저 막는다.
 	bIsEndingPlay = true;
+	ClearFocus();
+	OnFocusFrame.Clear();
+
 	ReleaseHackingWidget();
 	CancelAbilityInput();
-	
+
 	if (UserHUD)
 	{
 		UserHUD->RemoveFromParent();
 		UserHUD = nullptr;
 	}
-	
+
 	InteractionHUD = nullptr;
 
 	if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
 	{
-		UEnhancedInputLocalPlayerSubsystem* Subsystem =
-			LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+		UEnhancedInputLocalPlayerSubsystem* Subsystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
 
+		// 이 컨트롤러가 등록한 입력 매핑만 제거한다.
 		if (Subsystem && DefaultMappingContext)
-		{
-			// 이 컨트롤러가 사용한 매핑만 제거한다.
 			Subsystem->RemoveMappingContext(DefaultMappingContext);
-		}
 	}
+
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -416,12 +417,13 @@ void ALMPlayerController::PostProcessInput(const float DeltaTime, const bool bGa
 }
 
 /** UI 전환 등으로 중단된 능력 입력을 취소한다. */
+// 입력이 중단되는 UI 전환에서 능력 입력과 이전 포커스 표시를 정리한다.
 void ALMPlayerController::CancelAbilityInput()
 {
+	ClearFocus();
+
 	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
-	{
 		ASC->ClearAbilityInput();
-	}
 }
 
 /** 키 초기화를 정상적인 버튼 해제로 해석하지 않도록 먼저 능력 입력을 취소한다. */
@@ -430,4 +432,139 @@ void ALMPlayerController::FlushPressedKeys()
 	CancelAbilityInput();
 
 	Super::FlushPressedKeys();
+}
+
+// 이번 프레임 카메라 → 대상 검색 → 표식 위치 갱신 순서를 만든다.
+void ALMPlayerController::UpdateCameraManager(float DeltaSeconds)
+{
+	// 부모 함수가 PlayerCameraManager의 카메라 위치·회전 등을 갱신한다.
+	// 검색보다 먼저 호출해야 이번 프레임 카메라로 후보를 판단할 수 있다.
+	Super::UpdateCameraManager(DeltaSeconds);
+
+	if (bIsEndingPlay) return;
+
+	// 구독 중인 Task의 UpdateFocus가 호출되고 Controller의 후보·선택이 교체된다.
+	OnFocusFrame.Broadcast();
+
+	// 검색 결과가 반영된 다음 현재 선택의 표식 위치를 갱신한다.
+	// 선택이 그대로여도 카메라나 대상이 움직일 수 있으므로 매 프레임 호출한다.
+	if (UserHUD)
+		UserHUD->UpdateFocusMarker(GetFocusTarget());
+}
+
+// 게임이 멈추면 카메라 갱신도 멈출 수 있으므로 여기서 표식까지 비운다.
+bool ALMPlayerController::SetPause(bool bPause, FCanUnpause CanUnpauseDelegate)
+{
+	// 실제 일시정지 처리는 기존 엔진 함수에 맡기고 성공 여부를 받는다.
+	const bool bSucceeded = Super::SetPause(bPause, CanUnpauseDelegate);
+
+	// 일시정지 요청이 성공했을 때만 즉시 목록·선택·표식을 비운다.
+	if (bPause && bSucceeded)
+		ClearFocus();
+
+	return bSucceeded;
+}
+
+// 현재 화면이 플레이어 캐릭터의 일반 플레이 화면인지 확인한다.
+bool ALMPlayerController::CanUpdateFocus() const
+{
+	if (bIsEndingPlay) return false;
+	if (!IsLocalPlayerController()) return false;
+	if (IsPaused()) return false;
+
+	// 검색 원점과 화면 투영을 얻을 캐릭터·카메라가 모두 필요하다.
+	if (!IsValid(GetPawn()) || !IsValid(PlayerCameraManager))
+		return false;
+
+	// 해킹 위젯이 있거나 생성·제거 중이면 일반 플레이 표식을 표시하지 않는다.
+	if (IsValid(ActiveHackingWidget) || bIsChangingHackingWidget)
+		return false;
+
+	// 다른 Actor를 보는 카메라로 전환된 동안에는 일반 플레이 포커스를 멈춘다.
+	if (GetViewTarget() != GetPawn()) return false;
+
+	const ALMPlayerCameraManager* Camera = Cast<ALMPlayerCameraManager>(PlayerCameraManager);
+
+	// 기존 CameraManager가 재생 중인 시퀀스 연출도 같은 방식으로 제외한다.
+	if (Camera && Camera->IsSequenceCameraActive())
+		return false;
+
+	return true;
+}
+
+// 저장된 약한 참조에서 현재 사용할 수 있는 선택 Actor만 반환한다.
+AActor* ALMPlayerController::GetFocusTarget() const
+{
+	AActor* Target = FocusTarget.Get();
+
+	// 삭제됐거나 파괴 처리가 시작된 Actor를 다른 기능이 사용하지 않게 한다.
+	if (!IsValid(Target) || Target->IsActorBeingDestroyed())
+		return nullptr;
+
+	return Target;
+}
+
+// 내부 후보 배열을 직접 노출하지 않고 유효한 Actor만 담은 복사본을 반환한다.
+TArray<AActor*> ALMPlayerController::GetFocusCandidates() const
+{
+	TArray<AActor*> Result;
+	Result.Reserve(FocusCandidates.Num());
+
+	for (const TWeakObjectPtr<AActor>& Candidate : FocusCandidates)
+	{
+		AActor* Target = Candidate.Get();
+
+		// 검색 이후 삭제된 Actor가 있을 수 있으므로 조회할 때도 확인한다.
+		if (IsValid(Target) && !Target->IsActorBeingDestroyed())
+			Result.Add(Target);
+	}
+
+	return Result;
+}
+
+// 새 후보와 새 선택을 모두 저장한 뒤 선택 변경 알림을 보낸다.
+void ALMPlayerController::SetFocusResult(const TArray<TWeakObjectPtr<AActor>>& _FocusCandidates, AActor* _FocusTarget)
+{
+	// 갱신 전후에 선택이 달라졌는지 비교하기 위해 이전 약한 참조를 보관한다.
+	const TWeakObjectPtr<AActor> PreviousTarget = FocusTarget;
+
+	// 이번 검색 결과로 교체하므로 이전 배열에 계속 추가하지 않는다.
+	FocusCandidates.Reset();
+
+	for (const TWeakObjectPtr<AActor>& Candidate : _FocusCandidates)
+	{
+		AActor* Target = Candidate.Get();
+
+		// 이미 파괴된 Actor는 저장하지 않고 같은 Actor가 중복 전달돼도 한 번만 넣는다.
+		if (IsValid(Target) && !Target->IsActorBeingDestroyed())
+			FocusCandidates.AddUnique(Target);
+	}
+
+	// 이전 선택을 먼저 지우고 새 후보 안에 있는 대상만 다시 선택한다.
+	FocusTarget.Reset();
+
+	const TWeakObjectPtr<AActor> NewTarget(_FocusTarget);
+	if (IsValid(_FocusTarget) && FocusCandidates.Contains(NewTarget))
+		FocusTarget = NewTarget;
+
+	// 이 검사가 활성화된 빌드에서 '선택은 후보 안에 있어야 한다'는 규칙을 확인한다.
+	checkSlow(!FocusTarget.IsValid() || FocusCandidates.Contains(FocusTarget));
+
+	// Get() 결과만 비교하면 파괴된 이전 대상과 새 nullptr이 같아 보일 수 있다.
+	// 약한 참조 자체를 비교해 그 경우에도 선택 해제 알림을 보낸다.
+	if (PreviousTarget != FocusTarget)
+		OnFocusChanged.Broadcast(FocusTarget.Get());
+}
+
+// 대상이 없는 검색 결과를 저장하고 화면에 남아 있는 표식을 숨긴다.
+void ALMPlayerController::ClearFocus()
+{
+	const TArray<TWeakObjectPtr<AActor>> EmptyCandidates;
+
+	// 빈 목록과 nullptr도 같은 갱신 함수를 사용해 변경 알림 규칙을 유지한다.
+	SetFocusResult(EmptyCandidates, nullptr);
+
+	// 일시정지나 종료 중에는 다음 카메라 프레임이 없을 수 있어 즉시 숨긴다.
+	if (UserHUD)
+		UserHUD->UpdateFocusMarker(nullptr);
 }
