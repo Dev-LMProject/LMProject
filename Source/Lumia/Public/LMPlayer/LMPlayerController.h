@@ -14,6 +14,7 @@ class ULMUserHUDWidget;
 class ULMHackingComponent;
 class ULMHackingWidget;
 class ULMAbilitySystemComponent;
+class UGameplayAbility;
 
 // 매 프레임 카메라 계산이 끝났다는 사실을 C++ Task에 알린다.
 DECLARE_MULTICAST_DELEGATE(FLMFocusFrameDelegate);
@@ -85,6 +86,18 @@ public:
 
 	// 후보 배열을 비우고 선택을 nullptr로 만든 뒤 HUD 표식을 숨긴다.
 	void ClearFocus();
+	
+	// 공격 GA가 이번 타에서 사용할 대상을 등록한다. 대상이 없어도 이번 타가 진행 중이라는 사실은 보관한다.
+	void BeginAttackFocus(UGameplayAbility* _AttackFocusOwner, AActor* _AttackFocusTarget);
+	
+	// 요청한 공격 GA가 보관한 대상만 해제한다. 다른 공격의 상태는 지우지 않는다.
+	void EndAttackFocus(const UGameplayAbility* _AttackFocusOwner);
+
+	// 현재 플레이어가 수행 중인 공격 GA가 포커스 대상을 사용 중인지 확인한다.
+	bool IsAttackFocusActive() const;
+
+	// 이번 타의 대상이 여전히 공격·포커스 대상으로 유효할 때만 반환한다.
+	AActor* GetAttackFocusTarget() const;
 
 protected:
 	// UserHUD를 생성하고 화면에 등록한다.
@@ -177,4 +190,10 @@ private:
 
 	// 현재 후보 중 선택된 Actor 하나다. 선택이 없으면 비어 있다.
 	TWeakObjectPtr<AActor> FocusTarget;
+	
+	// 공격이 취소되거나 끝났을 때 어느 GA의 상태를 지워야 하는지 구분한다.
+	TWeakObjectPtr<UGameplayAbility> AttackFocusOwner;
+	
+	// 이번 타가 시작될 때 확정한 대상이다. 몬스터의 수명을 연장하지 않는다.
+	TWeakObjectPtr<AActor> AttackFocusTarget;
 };

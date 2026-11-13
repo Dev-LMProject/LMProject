@@ -15,11 +15,14 @@ class LUMIA_API ULMPlayerMeleeMovementComponent : public UCharacterMovementCompo
     GENERATED_BODY()
 
 public:
-    /** 공격 능력이 첫 평타 재생 전과 다음 평타 섹션 진입 전에 호출한다. */
-    void BeginMeleeApproach(UGameplayAbility* Requester, UAnimMontage* Montage);
+    // 전달받은 적을 이번 타의 방향 대상으로 사용한다. true는 대상 수락이며 명중 성공을 뜻하지 않는다.
+    bool BeginMeleeApproach(UGameplayAbility* _ApproachOwner, UAnimMontage* _ApproachMontage, ALMBaseCharacter* _ApproachTarget);
 
     /** 공격 능력이 회복·특수 진입·종료·취소 시 자신이 시작한 접근을 정리한다. */
     void EndMeleeApproach(const UGameplayAbility* Requester);
+    
+    // 기존 이동 Tick에서 대상 상실을 확인한 뒤 엔진의 이동 처리를 실행한다.
+    virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 protected:
     /** 엔진이 충돌 후 잔여 이동을 처리할 때 호출하며 지상 평타의 적 접촉만 제한한다. */
@@ -27,6 +30,8 @@ protected:
 
     /** 엔진이 애니메이션 루트 속도를 적용할 때 호출하며 접촉한 타의 XY를 제한한다. */
     virtual FVector ConstrainAnimRootMotionVelocity(const FVector& RootMotionVelocity, const FVector& CurrentVelocity) const override;
+    
+    
 
 private:
     // 이보다 많이 걸어가야 하는 적은 이번 타의 자동 접근 대상에서 제외한다.
@@ -36,10 +41,6 @@ private:
     // 두 캡슐 표면 사이에 남길 거리이며 적의 반지름은 별도로 자동 반영한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", Units = "cm"))
     float ContactGap = 15.0f;
-
-    // 카메라가 아닌 캐릭터 정면을 기준으로 좌우 각각 허용하는 각도다.
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", ClampMax = "89.0", Units = "deg"))
-    float TargetHalfAngle = 60.0f;
 
     // 대상이 없을 때의 전진량이다. 최초 검증에서는 0으로 두어 대상 선택을 구분한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", Units = "cm"))
@@ -53,17 +54,24 @@ private:
     UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", Units = "cm"))
     float SweepMargin = 2.0f;
 
-    // 약한 참조이므로 취소된 능력이나 삭제된 몬스터의 수명을 연장하지 않는다.
+    // 이번 접근 보정을 시작한 공격 GA를 기억한다.
     TWeakObjectPtr<UGameplayAbility> ApproachOwner;
-    TWeakObjectPtr<UAnimMontage> ApproachMontage;
-    TWeakObjectPtr<ALMBaseCharacter> FocusedTarget;
 
-    // 이번 타에서 실제 접촉한 이후에만 후속 전진을 막는다. 다음 타에서 초기화한다.
-    bool bStoppedByMeleeContact = false;
+    // 이번 접근 보정에 사용하는 공격 몽타주를 기억한다.
+    TWeakObjectPtr<UAnimMontage> ApproachMontage;
+
+    // 공격 GA가 전달한 적을 기억한다. 이동 컴포넌트에서 다른 적을 다시 찾지 않는다.
+    TWeakObjectPtr<ALMBaseCharacter> ApproachTarget;
+
+    // 적에게 닿았거나 대상을 잃으면 true로 바꿔 이번 타의 남은 수평 전진을 막는다.
+    bool bStopMeleeMove = false;
 
     /** 현재 Avatar·능력·몽타주가 이 접근을 소유하는지 확인한다. */
     bool OwnsActiveApproach() const;
 
     /** 공통 표적 정책과 거리·발 높이·전방·벽 조건을 검사한다. */
     bool EvaluateCandidate(ALMBaseCharacter* Candidate, FVector& OutDirection, float& OutTravel) const;
+    
+    // 대상을 잃었을 때 이전 목적지로 계속 전진하거나 회전하지 않도록 보정을 멈춘다.
+    void StopMeleeTargetAssist();
 };
