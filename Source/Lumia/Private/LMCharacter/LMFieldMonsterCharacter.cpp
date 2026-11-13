@@ -10,6 +10,8 @@
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "LMUI/LMMonsterHealthWidget.h"
 #include "TimerManager.h"
+#include "LMCharacter/LMPlayerCharacter.h"
+#include "LMCombat/LMCombatArea.h"
 
 /** 몬스터의 실제 체력과 표시 객체를 각 인스턴스에 독립적으로 생성한다. */
 ALMFieldMonsterCharacter::ALMFieldMonsterCharacter()
@@ -35,6 +37,45 @@ ALMFieldMonsterCharacter::ALMFieldMonsterCharacter()
 
     // 표시 컴포넌트가 무기 판정의 표적이나 장애물이 되지 않도록 한다.
     HealthWidgetComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+// 한 몬스터가 서로 다른 두 영역에 동시에 등록되지 않도록 한다.
+bool ALMFieldMonsterCharacter::RegisterCombatArea(ALMCombatArea* _CombatArea)
+{
+    if (!IsValid(_CombatArea)||bIsDead||bEndingPlay||IsActorBeingDestroyed())
+    {
+        return false;
+    }
+    if (IsValid(CombatArea)&&CombatArea!=_CombatArea)return false;
+    //파괴된 이전 영역의 대상이 새 영역등록에 남지 않도록 함
+    if (CombatArea!=_CombatArea)TargetPlayer.Reset();
+
+    CombatArea=_CombatArea;
+    return true;
+}// 종료 중인 영역도 실제 발신자가 맞으면 자신의 참조를 정리할 수 있다.
+void ALMFieldMonsterCharacter::UnregisterCombatArea(ALMCombatArea* _CombatArea)
+{
+    if (CombatArea!=_CombatArea) return;
+    TargetPlayer.Reset();
+    CombatArea=nullptr;
+}
+
+bool ALMFieldMonsterCharacter::SetTargetPlayer(ALMCombatArea* SourceArea, ALMPlayerCharacter* _TargetPlayer)
+{
+    if (!SourceArea||CombatArea!=SourceArea)return false;
+    
+    // 사망이나 영역 종료 중에도 기존 대상을 지울 수 있어야 한다.
+    if (!_TargetPlayer)
+    {
+        TargetPlayer.Reset();
+        return true;
+    }
+    if (!IsValid(_TargetPlayer)||!_TargetPlayer->IsPlayerControlled()||bIsDead||bEndingPlay||IsActorBeingDestroyed())
+    {
+        return false;
+    }
+    TargetPlayer=_TargetPlayer;
+    return true;
 }
 
 /** 기존 Base 초기화 후 피해 결과를 연결하고 초기 체력을 표시한다. */
@@ -68,6 +109,7 @@ void ALMFieldMonsterCharacter::BeginPlay()
 
     RefreshHealthWidget();
 }
+
 
 /** 체력 관련 변경을 받으면 두 표시값을 함께 갱신한다. */
 void ALMFieldMonsterCharacter::HandleHealthChanged(const FOnAttributeChangeData& Data)
@@ -167,6 +209,26 @@ void ALMFieldMonsterCharacter::FinishHitReaction()
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /** 자신의 구독과 태그를 정리하고 기존 Base의 GAS 연결 해제를 실행한다. */
 void ALMFieldMonsterCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)

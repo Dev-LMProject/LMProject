@@ -431,7 +431,7 @@ bool ULMAbilityTaskWeaponHitTrace::TraceWeaponMovement(FLMWeaponHitWindowState& 
 
             // 검 궤적 검사와 별도로 두 몸체 사이의 벽을 확인하여 벽 너머 피해를 막는다.
             // 공통 부모 타입으로 검사하여 일반 몬스터와 보스를 함께 처리한다.
-            // 공통 부모 타입으로 검사하여 일반 몬스터와 보스를 함께 처리한다.
+
             ALMBaseCharacter* Receiver = Cast<ALMBaseCharacter>(Hit.GetActor());
 
             // 사용할 수 없는 대상, 자기 자신, 이미 처리한 대상은 제외한다.
