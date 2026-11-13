@@ -15,6 +15,9 @@
 #include "LMPlayer/LMPlayerState.h"
 #include "LMPlayer/LMInputConfig.h"
 #include "UObject/StrongObjectPtr.h"
+#include "Abilities/GameplayAbility.h"
+#include "LMCharacter/LMBaseCharacter.h"
+#include "LMComponent/LMTargetComponent.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -89,6 +92,11 @@ void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	// 종료 중 새 포커스 갱신이 실행되지 않도록 먼저 막는다.
 	bIsEndingPlay = true;
 	ClearFocus();
+	
+	// Controller 종료 시에는 공격 소유 정보까지 모두 비운다.
+	AttackFocusOwner.Reset();
+	AttackFocusTarget.Reset();
+	
 	OnFocusFrame.Clear();
 
 	ReleaseHackingWidget();
@@ -542,10 +550,22 @@ void ALMPlayerController::SetFocusResult(const TArray<TWeakObjectPtr<AActor>>& _
 
 	// 이전 선택을 먼저 지우고 새 후보 안에 있는 대상만 다시 선택한다.
 	FocusTarget.Reset();
-
+	
+	// 새로 선정된 대상이 후보 목록에 있을 때 현재 포커스로 저장한다.
 	const TWeakObjectPtr<AActor> NewTarget(_FocusTarget);
 	if (IsValid(_FocusTarget) && FocusCandidates.Contains(NewTarget))
 		FocusTarget = NewTarget;
+
+	// 이번 타의 대상이 후보에서 빠졌다면 표식과 공격 대상을 함께 비운다.
+	// GA 소유 정보는 남겨, 공격 도중 다른 몬스터가 대신 선택되는 것을 막는다.
+	if (IsAttackFocusActive() && FocusTarget != AttackFocusTarget)
+	{
+		AttackFocusTarget.Reset();
+		FocusTarget.Reset();
+	}
+
+	// 공격 중에는 표식 대상과 이번 타의 대상이 반드시 같아야 한다.
+	checkSlow(!IsAttackFocusActive() || FocusTarget == AttackFocusTarget);
 
 	// 이 검사가 활성화된 빌드에서 '선택은 후보 안에 있어야 한다'는 규칙을 확인한다.
 	checkSlow(!FocusTarget.IsValid() || FocusCandidates.Contains(FocusTarget));
@@ -567,4 +587,64 @@ void ALMPlayerController::ClearFocus()
 	// 일시정지나 종료 중에는 다음 카메라 프레임이 없을 수 있어 즉시 숨긴다.
 	if (UserHUD)
 		UserHUD->UpdateFocusMarker(nullptr);
+}
+
+// 현재 플레이어가 실행 중인 공격만 대상을 등록하고, 표식도 같은 대상으로 맞춘다.
+void ALMPlayerController::BeginAttackFocus(UGameplayAbility* _AttackFocusOwner, AActor* _AttackFocusTarget)
+{
+    if (!IsValid(_AttackFocusOwner) || !_AttackFocusOwner->IsActive() || _AttackFocusOwner->GetAvatarActorFromActorInfo() != GetPawn())
+    {
+        return;
+    }
+
+    // nullptr도 저장한다. 대상 없이 시작한 공격이 도중에 옆 몬스터를 잡지 않게 한다.
+    AttackFocusOwner = _AttackFocusOwner;
+    AttackFocusTarget = _AttackFocusTarget;
+
+    // 현재 표식과 다르거나 공격할 수 없는 대상은 받아들이지 않는다.
+    if (!GetAttackFocusTarget())
+        AttackFocusTarget.Reset();
+
+    // SetFocusResult가 내부 후보 배열을 비우므로, 같은 배열을 인자로 넘기지 않고 복사한다.
+    const TArray<TWeakObjectPtr<AActor>> SavedCandidates = FocusCandidates;
+    SetFocusResult(SavedCandidates, AttackFocusTarget.Get());
+}
+
+// 자신이 시작한 공격의 보관 상태만 해제하고, 일반 포커스 선정은 다음 Task 갱신에 맡긴다.
+void ALMPlayerController::EndAttackFocus(const UGameplayAbility* _AttackFocusOwner)
+{
+    if (!_AttackFocusOwner) return;
+    if (AttackFocusOwner.Get() != _AttackFocusOwner) return;
+
+    AttackFocusOwner.Reset();
+    AttackFocusTarget.Reset();
+}
+
+// 이미 끝난 GA나 다른 캐릭터의 GA를 공격 중인 상태로 취급하지 않는다.
+bool ALMPlayerController::IsAttackFocusActive() const
+{
+    const UGameplayAbility* OwnerAbility = AttackFocusOwner.Get();
+
+    return OwnerAbility && OwnerAbility->IsActive() && OwnerAbility->GetAvatarActorFromActorInfo() == GetPawn();
+}
+
+// 카메라와 이동 보정이 죽었거나 비활성화된 대상을 계속 사용하지 않도록 확인한다.
+AActor* ALMPlayerController::GetAttackFocusTarget() const
+{
+    if (!IsAttackFocusActive() || !CanUpdateFocus() || AttackFocusTarget != FocusTarget)
+    {
+        return nullptr;
+    }
+
+    ALMBaseCharacter* Attacker = Cast<ALMBaseCharacter>(GetPawn());
+    ALMBaseCharacter* Target = Cast<ALMBaseCharacter>(AttackFocusTarget.Get());
+    const ULMTargetComponent* Point = Target ? Target->FindComponentByClass<ULMTargetComponent>() : nullptr;
+
+    // 일반 중요 오브젝트는 포커스할 수 있어도, 현재 지상 평타의 적 대상은 아니다.
+    if (!Attacker || !Target || !Point || !Point->CanFocus() || !Target->CanBeAttackTargetFor(Attacker))
+    {
+        return nullptr;
+    }
+
+    return Target;
 }

@@ -18,6 +18,7 @@
 #include "LMCombat/LMAbilityTaskWeaponHitTrace.h"
 #include "LMCombat/LMAttackData.h"
 #include "LMCharacter/LMPlayerMeleeMovementComponent.h"
+#include "LMPlayer/LMPlayerController.h"
 
 /** 공격 능력의 공통 실행 정책과 상태 태그를 설정한다. */
 ULMAttackAbility::ULMAttackAbility()
@@ -327,38 +328,44 @@ void ULMAttackAbility::JumpAttackMontageSection(FName SectionName)
 	MontageJumpToSection(SectionName);
 }
 
-/** 재생할 섹션의 설정에 따라 접근 보정의 시작과 종료를 선택한다. */
-/** 재생할 섹션의 설정에 따라 접근 보정의 시작과 종료를 선택한다. */
+// 평타 한 타가 시작될 때 현재 표식 대상을 읽고, 이동 보정과 공통 공격 대상에 전달한다.
 void ULMAttackAbility::PrepareMeleeApproach(UAnimMontage* Montage, FName SectionName)
 {
+	// 같은 GA의 직전 타가 남긴 접근·대상 보관을 먼저 정리한다.
+	FinishMeleeApproach();
+
 	ACharacter* Character = GetAttackCharacter();
 	ULMPlayerMeleeMovementComponent* Movement = Character ? Cast<ULMPlayerMeleeMovementComponent>(Character->GetCharacterMovement()) : nullptr;
+	ALMPlayerController* Controller = Character ? Cast<ALMPlayerController>(Character->GetController()) : nullptr;
 
-	if (!Movement)
+	// 현재 등록된 지상 평타 섹션에만 적용한다.
+	if (!Movement || !IsValid(Montage) || !MeleeApproachSections.Contains(SectionName) || !Movement->IsMovingOnGround())
 	{
 		return;
 	}
 
-	// 평타 목록에 등록된 지상 구간에만 적용한다.
-	if (IsValid(Montage) && MeleeApproachSections.Contains(SectionName) && Movement->IsMovingOnGround())
-	{
-		Movement->BeginMeleeApproach(this, Montage);
-	}
-	else
-	{
-		Movement->EndMeleeApproach(this);
-	}
+	AActor* FocusActor = Controller && Controller->CanUpdateFocus() ? Controller->GetFocusTarget() : nullptr;
+	ALMBaseCharacter* Target = Cast<ALMBaseCharacter>(FocusActor);
+
+	// 이동 컴포넌트는 전달된 대상만 검사하며, 실패해도 다른 몬스터를 대신 찾지 않는다.
+	const bool bHasTarget = Movement->BeginMeleeApproach(this, Montage, Target);
+
+	// 실제로 받아들인 대상만 카메라·표식과 공유한다.
+	// 대상이 없어도 이번 타가 끝날 때까지 중간 재선정은 막는다.
+	if (Controller)
+		Controller->BeginAttackFocus(this, bHasTarget ? Target : nullptr);
 }
 
-/** 정상 종료와 취소에서 같은 정리 경로를 사용한다. */
+// 회복·종료·취소에서 자신이 시작한 접근과 공통 공격 대상 보관을 함께 해제한다.
 void ULMAttackAbility::FinishMeleeApproach()
 {
 	ACharacter* Character = GetAttackCharacter();
 
 	if (ULMPlayerMeleeMovementComponent* Movement = Character ? Cast<ULMPlayerMeleeMovementComponent>(Character->GetCharacterMovement()) : nullptr)
-	{
 		Movement->EndMeleeApproach(this);
-	}
+
+	if (ALMPlayerController* Controller = Character ? Cast<ALMPlayerController>(Character->GetController()) : nullptr)
+		Controller->EndAttackFocus(this);
 }
 
 /** 실제 착지점 주변의 몸체를 검사하고 가려지지 않은 적에게 한 번씩 피해를 요청한다. */
