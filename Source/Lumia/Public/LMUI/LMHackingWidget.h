@@ -8,6 +8,7 @@
 #include "LMHackingWidget.generated.h"
 
 class ULMHackingComponent;
+class ULMHackingPuzzleData;
 enum class ELMHackingPhase : uint8;
 /**
  * 
@@ -33,6 +34,8 @@ public:
 protected:
 	//자식 버튼에 포커스가 있어도 ESC를 받아 처리
 	virtual FReply NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+	// 디자이너에서 지정한 퍼즐 데이터로 그리드 미리보기를 갱신한다.
+	virtual void NativePreConstruct() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 
@@ -43,6 +46,10 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Hacking")
 	void OnPuzzleUpdated(const TArray<uint8>& Values, int32 RemainingMoves, ELMHackingPhase Phase, const FText& ResultText);
 private:
+	// 위젯 디자이너에서 보드 모양을 확인할 퍼즐 데이터.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Hacking|Preview", meta = (AllowPrivateAccess = "true", DesignerRebuild))
+	TObjectPtr<ULMHackingPuzzleData> PreviewPuzzleData = nullptr;
+
 	TWeakObjectPtr<ULMHackingComponent> HackingComponent;
 	UFUNCTION()
 	void RefreshPuzzle();
