@@ -5,22 +5,25 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Hacking/LMHackingDefinition.h"
+#include "LMComponent/LMHackingComponent.h"
 #include "LMHackingWidget.generated.h"
 
 class ULMHackingComponent;
 class ULMHackingPuzzleData;
-enum class ELMHackingPhase : uint8;
-/**
- * 
- */
+
+// 퍼즐 UI 입력과 세션 표시를 관리한다.
 UCLASS()
 class LUMIA_API ULMHackingWidget : public UUserWidget
 {
 	GENERATED_BODY()
 public:
+	// 위젯의 초기 포커스 가능 상태를 설정한다.
 	ULMHackingWidget(const FObjectInitializer& ObjectInitializer);
-	void InitializeForSession(ULMHackingComponent * _HackingComponent);	
+	// 현재 위젯이 표시할 해킹 세션을 연결한다.
+	void InitializeForSession(ULMHackingComponent* _HackingComponent);
+	// 세션 알림 구독과 참조를 정리한다.
 	void ClearSession();
+	// 현재 세션의 진행 상태에 따라 닫기 또는 완료를 요청한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	void RequestClose();
 
@@ -32,13 +35,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	void RequestRetry();
 protected:
-	//자식 버튼에 포커스가 있어도 ESC를 받아 처리
+	// 자식 버튼에 포커스가 있어도 ESC 입력을 처리한다.
 	virtual FReply NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 	// 디자이너에서 지정한 퍼즐 데이터로 그리드 미리보기를 갱신한다.
 	virtual void NativePreConstruct() override;
+	// 위젯이 화면에 만들어질 때 연결된 퍼즐 상태를 표시한다.
 	virtual void NativeConstruct() override;
+	// 위젯이 제거될 때 세션 알림과 참조를 정리한다.
 	virtual void NativeDestruct() override;
 
+	// 퍼즐 설정을 BP에 전달해 보드 표시를 초기화한다.
 	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Hacking")
 	void OnPuzzleInitialized(const FLMHexPuzzleDefinition& Definition);
 
@@ -51,6 +57,7 @@ private:
 	TObjectPtr<ULMHackingPuzzleData> PreviewPuzzleData = nullptr;
 
 	TWeakObjectPtr<ULMHackingComponent> HackingComponent;
+	// 연결된 세션의 보드·횟수·단계 표시를 갱신한다.
 	UFUNCTION()
 	void RefreshPuzzle();
 };
