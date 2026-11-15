@@ -87,7 +87,9 @@ bool ULMAttackAbility::PlayAttackMontage(UAnimMontage* Montage, FName StartSecti
 		return false;
 	}
 
-	UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, 1.0f, StartSection, true, RootMotionTranslationScale, 0.0f, true);
+	// 왕복 거리는 Warp 목표가 결정하므로 별도 루트 배율을 중복 적용하지 않는다.
+	const float TranslationScale = bUseRoundTripMove ? 1.0f : RootMotionTranslationScale;
+	UAbilityTask_PlayMontageAndWait* Task = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Montage, 1.0f, StartSection, true, TranslationScale, 0.0f, true);
 
 	if (!ensure(Task))
 	{
@@ -114,8 +116,12 @@ bool ULMAttackAbility::PlayAttackMontage(UAnimMontage* Montage, FName StartSecti
 	// 같은 능력이 다른 몽타주를 시작하면 이전 판정을 먼저 닫는다.
 	StopWeaponHitTrace();
 
-	// 몽타주가 시작되기 전에 이번 평타의 접근 위치와 방향을 등록한다.
-	PrepareMeleeApproach(Montage, StartSection);
+	// 첫 루트 이동 전에 목적지와 충돌 응답을 준비한다. 실패한 왕복은 원본 이동으로 재생하지 않는다.
+	if (!PrepareAttackMovement(Montage, StartSection))
+	{
+		HandleAttackMontageAborted();
+		return false;
+	}
 
 	Task->ReadyForActivation();
 
@@ -174,7 +180,7 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 	StopWeaponHitTrace();
 	
 	// 정상 종료와 취소 모두에서 이 공격이 등록한 접근 타깃과 접촉 정지를 해제한다.
-	FinishMeleeApproach();
+	FinishAttackMovement();
 	
 	SetAttackRecovery(false);
 
@@ -200,7 +206,7 @@ void ULMAttackAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 	bLandingDamageApplied = false;
 
 	// 같은 능력 인스턴스를 다시 사용할 때 이전 실행의 접근 상태를 남기지 않는다.
-	FinishMeleeApproach();
+	FinishAttackMovement();
 
 	SetAttackRecovery(false);
 
@@ -250,7 +256,7 @@ void ULMAttackAbility::SetAttackRecovery(bool bNewRecovery)
 	if (bNewRecovery)
 	{
 		// 태그 알림으로 다음 공격이 시작되기 전에 현재 공격의 접근 상태를 정리한다.
-		FinishMeleeApproach();
+		FinishAttackMovement();
 
 		ASC->AddLooseGameplayTag(LMGameplayTags::State_Action_Recovery);
 	}
@@ -322,47 +328,68 @@ void ULMAttackAbility::JumpAttackMontageSection(FName SectionName)
 		WeaponHitTraceTask->ResetForMontageJump();
 	}
 
-	// 다음 평타는 새 목적지를 준비하고, 특수공격 섹션이면 기존 접근을 정리한다.
-	PrepareMeleeApproach(Montage, SectionName);
+	// 섹션 전환에도 이전 이동을 정리하고 새 목적지를 준비한다.
+	if (!PrepareAttackMovement(Montage, SectionName))
+	{
+		HandleAttackMontageAborted();
+		return;
+	}
 
 	MontageJumpToSection(SectionName);
 }
 
-// 평타 한 타가 시작될 때 현재 표식 대상을 읽고, 이동 보정과 공통 공격 대상에 전달한다.
-void ULMAttackAbility::PrepareMeleeApproach(UAnimMontage* Montage, FName SectionName)
+// 현재 포커스를 한 번 읽어 공격 종류에 맞는 이동과 공통 공격 대상을 준비한다.
+bool ULMAttackAbility::PrepareAttackMovement(UAnimMontage* Montage, FName SectionName)
 {
 	// 같은 GA의 직전 타가 남긴 접근·대상 보관을 먼저 정리한다.
-	FinishMeleeApproach();
+	FinishAttackMovement();
 
 	ACharacter* Character = GetAttackCharacter();
 	ULMPlayerMeleeMovementComponent* Movement = Character ? Cast<ULMPlayerMeleeMovementComponent>(Character->GetCharacterMovement()) : nullptr;
 	ALMPlayerController* Controller = Character ? Cast<ALMPlayerController>(Character->GetController()) : nullptr;
 
-	// 현재 등록된 지상 평타 섹션에만 적용한다.
-	if (!Movement || !IsValid(Montage) || !MeleeApproachSections.Contains(SectionName) || !Movement->IsMovingOnGround())
-	{
-		return;
-	}
+	const bool bUseApproach = MeleeApproachSections.Contains(SectionName);
+	if (!bUseRoundTripMove && !bUseApproach) return true;
+
+	if (!Movement || !IsValid(Montage) || !Movement->IsMovingOnGround())
+		return !bUseRoundTripMove;
+
+	if (!ensureMsgf(!bUseRoundTripMove || !bUseApproach, TEXT("%s: Round trip and melee approach cannot own the same section."), *GetName()))
+		return false;
 
 	AActor* FocusActor = Controller && Controller->CanUpdateFocus() ? Controller->GetFocusTarget() : nullptr;
 	ALMBaseCharacter* Target = Cast<ALMBaseCharacter>(FocusActor);
 
-	// 이동 컴포넌트는 전달된 대상만 검사하며, 실패해도 다른 몬스터를 대신 찾지 않는다.
-	const bool bHasTarget = Movement->BeginMeleeApproach(this, Montage, Target);
+	bool bHasTarget = false;
+	if (bUseRoundTripMove)
+	{
+		// 고정된 몸 방향·거리를 사용하므로 적 사망이나 시야 이탈이 복귀를 취소하지 않는다.
+		bHasTarget = Target && Target->CanBeAttackTargetFor(Cast<ALMBaseCharacter>(Character));
+		const FVector Direction = bHasTarget ? (Target->GetActorLocation() - Character->GetActorLocation()).GetSafeNormal2D() : Character->GetActorForwardVector();
+		if (!Movement->BeginRoundTripMove(this, Montage, Direction, RoundTripDistance, RoundTripWindupDistance))
+			return false;
+	}
+	else
+	{
+		// 전달된 대상만 검사하며, 실패해도 다른 몬스터를 대신 찾지 않는다.
+		bHasTarget = Movement->BeginMeleeApproach(this, Montage, Target);
+	}
 
 	// 실제로 받아들인 대상만 카메라·표식과 공유한다.
 	// 대상이 없어도 이번 타가 끝날 때까지 중간 재선정은 막는다.
 	if (Controller)
 		Controller->BeginAttackFocus(this, bHasTarget ? Target : nullptr);
+
+	return true;
 }
 
-// 회복·종료·취소에서 자신이 시작한 접근과 공통 공격 대상 보관을 함께 해제한다.
-void ULMAttackAbility::FinishMeleeApproach()
+// 회복·종료·취소에서 자신의 이동과 임시 충돌·공통 포커스를 함께 해제한다.
+void ULMAttackAbility::FinishAttackMovement()
 {
 	ACharacter* Character = GetAttackCharacter();
 
 	if (ULMPlayerMeleeMovementComponent* Movement = Character ? Cast<ULMPlayerMeleeMovementComponent>(Character->GetCharacterMovement()) : nullptr)
-		Movement->EndMeleeApproach(this);
+		Movement->EndAttackMove(this);
 
 	if (ALMPlayerController* Controller = Character ? Cast<ALMPlayerController>(Character->GetController()) : nullptr)
 		Controller->EndAttackFocus(this);
@@ -423,6 +450,7 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
 
     FCollisionObjectQueryParams ObjectQuery;
     ObjectQuery.AddObjectTypesToQuery(ECC_Pawn);
+    ObjectQuery.AddObjectTypesToQuery(ECC_GameTraceChannel4); // LMEnemyBody
     FCollisionQueryParams Query(SCENE_QUERY_STAT(LMLandingAreaDamage), false, Attacker);
 
     // 자신에게 부착된 무기가 자신의 충격파를 가리지 않게 한다.

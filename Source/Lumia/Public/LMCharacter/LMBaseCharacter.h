@@ -56,6 +56,9 @@ public:
 	bool IsAliveForCombat() const;
 
 protected:
+	// BP 기본값이 적용된 뒤 전투 진영에 맞는 몸체 채널을 한 번 설정한다.
+	virtual void PostInitializeComponents() override;
+
 	/** 캐릭터 종료 시 남은 GAS 연결을 해제하고 부모 종료 처리를 수행한다. */
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
