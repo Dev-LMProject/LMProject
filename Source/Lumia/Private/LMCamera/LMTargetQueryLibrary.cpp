@@ -124,6 +124,7 @@ AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerControl
 	// Actor 태그 검사는 충돌로 Actor를 찾은 다음에 수행한다.
 	FCollisionObjectQueryParams ObjectTypes;
 	ObjectTypes.AddObjectTypesToQuery(ECC_Pawn);
+	ObjectTypes.AddObjectTypesToQuery(ECC_GameTraceChannel4); // LMEnemyBody
 	ObjectTypes.AddObjectTypesToQuery(ECC_WorldStatic);
 	ObjectTypes.AddObjectTypesToQuery(ECC_WorldDynamic);
 	ObjectTypes.AddObjectTypesToQuery(ECC_PhysicsBody);
