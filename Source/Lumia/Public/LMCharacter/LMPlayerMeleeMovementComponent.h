@@ -37,10 +37,8 @@ protected:
     // 평타의 적 접촉과 강공격의 벽 접촉에서 불필요한 접선 이동을 제한한다.
     virtual float SlideAlongSurface(const FVector& Delta, float Time, const FVector& Normal, FHitResult& Hit, bool bHandleImpact) override;
 
-    /** 엔진이 애니메이션 루트 속도를 적용할 때 호출하며 접촉한 타의 XY를 제한한다. */
-    virtual FVector ConstrainAnimRootMotionVelocity(const FVector& RootMotionVelocity, const FVector& CurrentVelocity) const override;
-    
-    
+    // 원본 루트 모션 속도를 적용한 뒤 적 앞 간격을 침범하는 수평 이동만 줄인다.
+    virtual void ApplyRootMotionToVelocity(float DeltaTime) override;
 
 private:
     // 평타·왕복 중 하나만 이동을 소유하며 능력과 몽타주의 수명은 연장하지 않는다.
@@ -58,17 +56,9 @@ private:
     // 소유자가 이미 무효여도 이 컴포넌트가 변경한 상태를 정확히 한 번 복구한다.
     void ResetAttackMove(bool bResolveOverlap = true);
 
-    // 이보다 많이 걸어가야 하는 적은 이번 타의 자동 접근 대상에서 제외한다.
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", Units = "cm"))
-    float MaxApproachDistance = 40.0f;
-
     // 두 캡슐 표면 사이에 남길 거리이며 적의 반지름은 별도로 자동 반영한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", Units = "cm"))
     float ContactGap = 15.0f;
-
-    // 대상이 없을 때의 전진량이다. 최초 검증에서는 0으로 두어 대상 선택을 구분한다.
-    UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", Units = "cm"))
-    float UntargetedApproachDistance = 0.0f;
 
     // 키가 다른 적도 선택하도록 몸 중심이 아닌 캡슐 바닥 높이 차이를 검사한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Melee Approach", meta = (ClampMin = "0.0", Units = "cm"))
@@ -81,12 +71,9 @@ private:
     // 공격 GA가 전달한 적을 기억한다. 이동 컴포넌트에서 다른 적을 다시 찾지 않는다.
     TWeakObjectPtr<ALMBaseCharacter> ApproachTarget;
 
-    // 적에게 닿았거나 대상을 잃으면 true로 바꿔 이번 타의 남은 수평 전진을 막는다.
-    bool bStopMeleeMove = false;
-
-    /** 공통 표적 정책과 거리·발 높이·전방·벽 조건을 검사한다. */
-    bool EvaluateCandidate(ALMBaseCharacter* Candidate, FVector& OutDirection, float& OutTravel) const;
+    // 전달된 적의 유효성·발 높이·가림 조건을 검사하고 바라볼 방향을 구한다.
+    bool EvaluateCandidate(ALMBaseCharacter* Candidate, FVector& OutDirection) const;
     
-    // 대상을 잃었을 때 이전 목적지로 계속 전진하거나 회전하지 않도록 보정을 멈춘다.
+    // 대상을 잃으면 회전·거리 보정만 해제하고 원본 루트 모션은 유지한다.
     void StopMeleeTargetAssist();
 };
