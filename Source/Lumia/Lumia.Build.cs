@@ -27,7 +27,8 @@ public class Lumia : ModuleRules
 			"LevelSequence",
 			"MovieScene",
 			"AnimationLocomotionLibraryRuntime",
-			"MotionWarping"
+			"MotionWarping",
+			"AIModule"
 		});
 
 		if (Target.bBuildEditor)
