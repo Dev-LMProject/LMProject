@@ -46,6 +46,15 @@ public:
 	// ASC 준비 여부와 구분하여 확정된 사망 상태를 반환한다.
 	// 준비되지 않은 몬스터를 사망한 몬스터로 취급하지 않는다.
 	FORCEINLINE bool IsDead() const{return bIsDead;}
+
+	// 현재 이동 판단에 필요한 값을 읽고 소멸한 대상의 복귀 상태를 정리한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	bool ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove);
+
+	// 대상이 없는 복귀 성공에서만 최초 방향을 복원하고 복귀를 완료한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	void FinishReturn();
+
 protected:
 	/** 플레이 시작 시 ASC를 몸체에 연결하고 체력 초기화를 확인한다. */
 	virtual void BeginPlay() override;
@@ -105,4 +114,16 @@ private:
 
 	UPROPERTY(VisibleInstanceOnly, Transient, Category = "LM|CombatArea")
 	TWeakObjectPtr<ALMPlayerCharacter> TargetPlayer;
+
+	// 이동을 시작하기 전 배치된 위치를 한 번만 저장한다.
+	UPROPERTY(VisibleInstanceOnly, Transient, Category = "LM|AI")
+	FVector StartLocation = FVector::ZeroVector;
+
+	// 복귀가 끝나면 배치 당시 바라보던 방향으로 다시 맞춘다.
+	UPROPERTY(VisibleInstanceOnly, Transient, Category = "LM|AI")
+	FRotator StartRotation = FRotator::ZeroRotator;
+
+	// 실제 교전 대상이 해제된 뒤 최초 위치로 돌아가는 동안 유지한다.
+	UPROPERTY(VisibleInstanceOnly, Transient, Category = "LM|AI")
+	bool bReturning = false;
 };
