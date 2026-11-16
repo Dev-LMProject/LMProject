@@ -17,13 +17,8 @@
 !/.agents/
 /.agents/*
 !/.agents/skills/
-/.agents/skills/*
-!/.agents/skills/.p4ignore
-!/.agents/skills/planning-with-files/
-!/.agents/skills/reviewed-feature-guide/
-!/.agents/skills/lm-task-card/
-!/.agents/skills/lm-daily-report/
-!/.agents/skills/korean-writing-care/
+# All current and future LM project skills share this Git-managed source.
+!/.agents/skills/**
 !/.codex/
 /.codex/*
 !/.codex/hooks.json

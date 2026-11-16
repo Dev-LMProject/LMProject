@@ -116,7 +116,7 @@
 
 ## 공유 스킬
 
-프로젝트 스킬의 원본은 이 저장소의 `.agents/skills/`에서 관리한다. 같은 이름의 개인 설치본이 보이더라도 프로젝트 작업에는 이 저장소의 스킬을 사용한다. 스킬 목록, 팀원 사용 방법, 필요한 플러그인과 기존 개인 설치본 전환은 [공유 스킬 안내](Docs/LMContext/TEAM_SKILLS.ko.md)를 따른다.
+LMProject·Lumia 관련 스킬은 앞으로 추가하는 스킬까지 모두 이 저장소의 `.agents/skills/`에서 Git으로 통합 관리한다. 스킬 생성·수정·개인 설치본 전환 시 [공유 스킬 안내](Docs/LMContext/TEAM_SKILLS.ko.md)를 읽고, 저장소 원본 한 곳을 수정하며 개인 경로는 그 원본을 참조하도록 유지한다.
 
 <!-- LMContext:start -->
 ## Codex 작업 상태 보존
