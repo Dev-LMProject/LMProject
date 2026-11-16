@@ -47,7 +47,7 @@ public:
 	// 준비되지 않은 몬스터를 사망한 몬스터로 취급하지 않는다.
 	FORCEINLINE bool IsDead() const{return bIsDead;}
 
-	// 현재 이동 판단에 필요한 값을 읽고 소멸한 대상의 복귀 상태를 정리한다.
+	// 현재 이동 값을 읽고 복귀 상태와 BP가 읽을 공격 허가 기록을 갱신한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove);
 
@@ -56,6 +56,22 @@ public:
 	void FinishReturn();
 
 protected:
+	// 아래 값은 ReadMoveData에서 갱신하는 스냅샷이며 실제 허가는 CombatArea가 소유한다.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	bool bHasAttackTurn = false;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	int64 AttackCombatId = 0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	int64 AttackId = 0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	bool bAttackStopping = false;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	int64 WaitId = 0;
+
 	/** 플레이 시작 시 ASC를 몸체에 연결하고 체력 초기화를 확인한다. */
 	virtual void BeginPlay() override;
 	

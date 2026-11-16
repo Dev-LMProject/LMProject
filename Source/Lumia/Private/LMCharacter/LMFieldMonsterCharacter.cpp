@@ -112,6 +112,10 @@ void ALMFieldMonsterCharacter::BeginPlay()
     // UI 설정이 빠져도 피해 반응 경로는 별도로 준비한다.
     DamageAppliedHandle = CombatAttributes->OnDamageApplied.AddUObject(this, &ALMFieldMonsterCharacter::HandleDamageApplied);
 
+    // 전투 영역이 먼저 대상을 전달했다면 ASC 준비가 끝난 지금 빈 정원을 다시 채운다.
+    if (!bEndingPlay && !bIsDead && IsValid(CombatArea.Get()))
+        CombatArea->FillAttackSlots();
+
     HealthWidgetComponent->InitWidget();
 
     if (!ensureMsgf(Cast<ULMMonsterHealthWidget>(HealthWidgetComponent->GetUserWidgetObject()) != nullptr, TEXT("%s: Assign WBP_LM_MonsterHealth."), *GetName()))
@@ -224,6 +228,10 @@ void ALMFieldMonsterCharacter::FinishHitReaction()
             AbilitySystemComponent->RemoveLooseGameplayTag(LMGameplayTags::State_Stunned);
         }
     }
+
+    // 피격 제한이 모두 해제된 뒤 현재 준비 상태로 다음 공격 차례를 판단한다.
+    if (!bEndingPlay && !bIsDead && IsValid(CombatArea.Get()))
+        CombatArea->FillAttackSlots();
 }
 
 // 현재 이동 데이터를 제공하고 약한 대상 참조의 자연 소멸도 복귀로 처리한다.
@@ -243,6 +251,13 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
 
     // ASC 준비 전이나 사망·경직·능력의 이동 제어 중에는 경로 이동을 막는다.
     _bCanMove = !bEndingPlay && !bIsDead && !bIsHitReacting && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
+
+    // 기존 데이터 갱신 한 번으로 허가 정보도 읽으며 소속이 없으면 이전 값을 남기지 않는다.
+    AttackCombatId = 0;
+    AttackId = 0;
+    bAttackStopping = false;
+    WaitId = 0;
+    bHasAttackTurn = IsValid(CombatArea.Get()) && CombatArea->ReadAttackTurn(this, AttackCombatId, AttackId, bAttackStopping, WaitId);
 
     return IsValid(_TargetPlayer);
 }
