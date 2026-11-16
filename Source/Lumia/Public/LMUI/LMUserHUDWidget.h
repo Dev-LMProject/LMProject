@@ -17,9 +17,8 @@ public:
     // Designer에서 InteractionHUD라는 이름으로 배치한 기존 자식 위젯을 반환한다.
     ULMInteractionHUDWidget* GetInteractionHUD() const;
 
-    // 대상의 표적점을 화면 위치로 바꾸고 FocusMarker의 Canvas 위치를 변경한다.
-    // 대상이 nullptr이면 표식을 숨긴다.
-    void UpdateFocusMarker(AActor* FocusTarget);
+    // 표적점의 화면 위치와 고정 색상을 갱신하며 대상이 없으면 표식을 숨긴다.
+    void UpdateFocusMarker(AActor* FocusTarget, bool bLocked = false);
 
 private:
     // 기존 상호작용 HUD 연결이므로 이름과 타입을 유지한다.

@@ -21,6 +21,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMPlayer/LMPlayerState.h"
+#include "LMPlayer/LMPlayerController.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "LMCharacter/LMPlayerMeleeMovementComponent.h"
 
@@ -389,19 +390,18 @@ bool ALMPlayerCharacter::CanUseCameraZoom() const
     return !CameraManager || !CameraManager->IsSequenceCameraActive();
 }
 
+// 같은 휠 입력을 다른 기능에서 사용하지 않았을 때만 기존 줌을 적용한다.
 void ALMPlayerCharacter::ZoomCamera(const FInputActionValue& Value)
 {
-    if (!CanUseCameraZoom())
-    {
-        return;
-    }
+    if (!CanUseCameraZoom()) return;
 
     const float WheelInput = Value.Get<float>();
+    ALMPlayerController* PlayerController = Cast<ALMPlayerController>(Controller);
+    if (PlayerController && PlayerController->HandleMouseWheel(WheelInput))
+        return;
 
     // 보간 중에도 연속 휠 입력이 빠지지 않도록 목표 거리에 누적한다.
-    TargetZoomDistance = FMath::Clamp(
-        TargetZoomDistance - WheelInput * ZoomStep,
-        MinZoomDistance, MaxZoomDistance);
+    TargetZoomDistance = FMath::Clamp(TargetZoomDistance - WheelInput * ZoomStep, MinZoomDistance, MaxZoomDistance);
 }
 
 void ALMPlayerCharacter::UpdateCameraZoom(float DeltaSeconds)

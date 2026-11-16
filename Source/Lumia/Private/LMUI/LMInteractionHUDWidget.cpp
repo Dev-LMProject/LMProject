@@ -95,11 +95,12 @@ void ULMInteractionHUDWidget::RefreshTargets()
     OnInteractionSelectionChanged(SelectedActor.Get());
 }
 
-void ULMInteractionHUDWidget::MoveSelection(int32 Direction)
+// 목록이 있으면 선택에 입력을 사용하고, 비었으면 카메라 줌에 넘길 수 있게 한다.
+bool ULMInteractionHUDWidget::MoveSelection(int32 Direction)
 {
     if (DisplayedTargets.IsEmpty() || Direction == 0)
     {
-        return;
+        return false;
     }
 
     const int32 Step = Direction > 0 ? 1 : -1;
@@ -109,6 +110,7 @@ void ULMInteractionHUDWidget::MoveSelection(int32 Direction)
         : FMath::Clamp(PreviousIndex + Step, 0, DisplayedTargets.Num() - 1);
     SelectedActor = DisplayedTargets[NextIndex];
     OnInteractionSelectionChanged(SelectedActor.Get());
+    return true;
 }
 
 AActor* ULMInteractionHUDWidget::GetSelectedActor() const
