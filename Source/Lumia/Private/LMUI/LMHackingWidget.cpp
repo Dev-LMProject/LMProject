@@ -8,6 +8,7 @@
 #include "LMComponent/LMHackingComponent.h"
 #include "Hacking/LMHackingPuzzleData.h"
 
+// 위젯의 초기 포커스 가능 상태를 설정한다.
 ULMHackingWidget::ULMHackingWidget(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
 	SetIsFocusable(true);
@@ -37,6 +38,7 @@ void ULMHackingWidget::NativePreConstruct()
 	OnPuzzleUpdated(Definition.InitialValues, Definition.MaxMoves, ELMHackingPhase::Playing, FText::GetEmpty());
 }
 
+// 위젯이 화면에 만들어질 때 연결된 퍼즐 상태를 표시한다.
 void ULMHackingWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -47,53 +49,90 @@ void ULMHackingWidget::NativeConstruct()
 		return;
 	}
 
+	Component->OnMoveResolved.AddUniqueDynamic(this, &ThisClass::HandleMoveResolved);
 	Component->OnPuzzleChanged.AddUniqueDynamic(this, &ThisClass::RefreshPuzzle);
 	OnPuzzleInitialized(Component->GetDefinition());
 	RefreshPuzzle();
 }
 
+// 위젯이 제거될 때 세션 알림과 참조를 정리한다.
 void ULMHackingWidget::NativeDestruct()
 {
 	ClearSession();
 	Super::NativeDestruct();
 }
 
-void ULMHackingWidget::InitializeForSession(ULMHackingComponent* InHackingComponent)
+// 현재 위젯이 표시할 해킹 세션을 연결한다.
+void ULMHackingWidget::InitializeForSession(ULMHackingComponent* _HackingComponent)
 {
-    ClearSession();
-    HackingComponent = InHackingComponent;
+	ClearSession();
+	HackingComponent = _HackingComponent;
 }
 
+// 세션 알림 구독과 참조를 정리한다.
 void ULMHackingWidget::ClearSession()
 {
-    if (ULMHackingComponent* Component = HackingComponent.Get())
-    {
-        Component->OnPuzzleChanged.RemoveDynamic(this, &ThisClass::RefreshPuzzle);
-    }
+	if (ULMHackingComponent* Component = HackingComponent.Get())
+	{
+		Component->OnMoveResolved.RemoveDynamic(this, &ThisClass::HandleMoveResolved);
+		Component->OnPuzzleChanged.RemoveDynamic(this, &ThisClass::RefreshPuzzle);
+	}
 
-    HackingComponent.Reset();
+	bIsMovePresentationActive = false;
+	HackingComponent.Reset();
 }
 
 
-
+// 연결된 세션의 보드·횟수·단계 표시를 갱신한다.
 void ULMHackingWidget::RefreshPuzzle()
 {
-    ULMHackingComponent* Component = HackingComponent.Get();
-    if (!IsValid(Component))
-    {
-        return;
-    }
+	ULMHackingComponent* Component = HackingComponent.Get();
+	if (!IsValid(Component) || bIsMovePresentationActive)
+	{
+		return;
+	}
 
 	OnPuzzleUpdated(Component->GetCellValues(), Component->GetRemainingMoves(), Component->GetPhase(), Component->GetResultText());
 }
 
-void ULMHackingWidget::RequestClose()
+// BP의 파동 연출이 끝난 뒤 컴포넌트의 최종 보드와 진행 상태를 다시 표시한다.
+void ULMHackingWidget::FinishMovePresentation()
 {
-	ULMHackingComponent* Component = HackingComponent.Get();
-	if (!IsValid(Component))
+	if (!bIsMovePresentationActive) return;
+
+	bIsMovePresentationActive = false;
+	RefreshPuzzle();
+}
+
+// BP 이벤트를 구현하지 않은 화면은 다음 OnPuzzleChanged에서 최종 값을 갱신한다.
+void ULMHackingWidget::OnMovePropagationStarted_Implementation(const TArray<int32>& AffectedCellIndices)
+{
+	// 기본 구현은 변경 목록을 사용하지 않고 다음 전체 갱신을 허용한다.
+	static_cast<void>(AffectedCellIndices);
+	bIsMovePresentationActive = false;
+}
+
+// 1에서 0 또는 0에서 F로 전파되는 조작만 즉시 갱신을 보류하고 BP 연출을 시작한다.
+void ULMHackingWidget::HandleMoveResolved(uint8 OriginalValue, uint8 NewValue, const TArray<int32>& AffectedCellIndices)
+{
+	// 정화와 F 확정 이동만 전체 갱신을 연출 종료까지 보류한다.
+	const bool bIsPurificationMove = OriginalValue == 1 && NewValue == 0;
+	const bool bIsFSpreadMove = OriginalValue == 0 && NewValue == 15;
+
+	if ((!bIsPurificationMove && !bIsFSpreadMove) || AffectedCellIndices.IsEmpty())
 	{
 		return;
 	}
+
+	bIsMovePresentationActive = true;
+	OnMovePropagationStarted(AffectedCellIndices);
+}
+
+// 현재 세션의 진행 상태에 따라 닫기 또는 완료를 요청한다.
+void ULMHackingWidget::RequestClose()
+{
+	ULMHackingComponent* Component = HackingComponent.Get();
+	if (!IsValid(Component)) return;
 
 	switch (Component->GetPhase())
 	{
@@ -112,8 +151,12 @@ void ULMHackingWidget::RequestClose()
 	}
 }
 
+// 클릭한 셀 인덱스와 선택 숫자를 현재 해킹 세션에 전달한다.
 bool ULMHackingWidget::RequestMove(int32 CellIndex, uint8 NewValue)
 {
+	// 정화 파동이 진행되는 동안 중복 입력으로 연출과 실제 보드가 어긋나지 않게 막는다.
+	if (bIsMovePresentationActive) return false;
+
 	ULMHackingComponent* Component = HackingComponent.Get();
 	return IsValid(Component) && Component->SubmitMove(CellIndex, NewValue);
 }
@@ -123,15 +166,13 @@ void ULMHackingWidget::RequestRetry()
 {
 	// 이 화면에 연결된 세션만 요청 대상으로 사용한다.
 	ULMHackingComponent* Component = HackingComponent.Get();
-	if (!IsValid(Component))
-	{
-		return;
-	}
+	if (!IsValid(Component)) return;
 
 	// 실패 상태와 세션 유효성 검사는 기존 컴포넌트가 담당한다.
 	Component->RetryPuzzle();
 }
 
+// 자식 버튼에 포커스가 있어도 ESC 입력을 처리한다.
 FReply ULMHackingWidget::NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
 	if (InKeyEvent.GetKey() == EKeys::Escape)
