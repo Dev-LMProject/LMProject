@@ -63,7 +63,7 @@ public:
 	// 일시정지 성공 시 다음 카메라 갱신을 기다리지 않고 표식을 숨긴다.
 	virtual bool SetPause(bool bPause, FCanUnpause CanUnpauseDelegate = FCanUnpause()) override;
 
-	// Task가 UpdateFocus 함수를 연결할 C++ 알림이다.
+	// 카메라 갱신과 특수 타 시작 요청을 기존 오토포커스 Task에 전달한다.
 	FLMFocusFrameDelegate OnFocusFrame;
 
 	// Blueprint에서도 선택 대상 변경을 받을 수 있게 노출한다.
@@ -95,6 +95,9 @@ public:
 
 	// 현재 플레이어가 수행 중인 공격 GA가 포커스 대상을 사용 중인지 확인한다.
 	bool IsAttackFocusActive() const;
+
+	// 특수 모드의 공격이 소유한 포커스만 대상 상실 뒤 새 적을 선택할 수 있다.
+	bool CanChangeAttackTarget() const;
 
 	// 이번 타의 대상이 여전히 공격·포커스 대상으로 유효할 때만 반환한다.
 	AActor* GetAttackFocusTarget() const;
@@ -194,6 +197,6 @@ private:
 	// 공격이 취소되거나 끝났을 때 어느 GA의 상태를 지워야 하는지 구분한다.
 	TWeakObjectPtr<UGameplayAbility> AttackFocusOwner;
 	
-	// 이번 타가 시작될 때 확정한 대상이다. 몬스터의 수명을 연장하지 않는다.
+	// 평타는 시작 대상을 유지하고 특수 모드만 다음 대상 재선정을 허용한다.
 	TWeakObjectPtr<AActor> AttackFocusTarget;
 };

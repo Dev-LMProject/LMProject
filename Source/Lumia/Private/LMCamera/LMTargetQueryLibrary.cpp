@@ -74,7 +74,7 @@ FVector ULMTargetQueryLibrary::GetFocusPoint(const AActor* Target)
 }
 
 // 주변 Actor를 찾고 태그·거리·화면·가림 검사를 통과한 대상 중 하나를 선택한다.
-AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerController, float FocusRange, float SwitchMargin, AActor* CurrentTarget, TArray<TWeakObjectPtr<AActor>>& OutCandidates)
+AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerController, float FocusRange, float SwitchMargin, AActor* CurrentTarget, TArray<TWeakObjectPtr<AActor>>& OutCandidates, bool bAttackOnly)
 {
 	// 이전 검색의 대상이 이번 결과에 남지 않도록 출력 배열부터 비운다.
 	OutCandidates.Reset();
@@ -210,6 +210,10 @@ AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerControl
 
 		// 위 조건을 전부 통과한 뒤에야 Controller에 전달할 후보 배열에 넣는다.
 		OutCandidates.Add(Target);
+
+		// 감지 목록은 유지하되 특수 공격의 선정 점수는 공격 가능한 적에게만 계산한다.
+		if (bAttackOnly && (!Character || !Character->CanBeAttackTargetFor(Cast<ALMBaseCharacter>(Pawn))))
+			continue;
 
 		// 예: 중심에서 108픽셀 떨어지고 화면 짧은 변이 1080이면 점수는 0.1이다.
 		const double Score = (ScreenPosition - ViewCenter).Size() / ViewScale;

@@ -178,6 +178,7 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 
 	// 몽타주 종료와 외부 콜백보다 먼저 판정을 닫아 취소 후 피해가 남지 않게 한다.
 	StopWeaponHitTrace();
+	PassReturnTarget.Reset();
 	
 	// 정상 종료와 취소 모두에서 이 공격이 등록한 접근 타깃과 접촉 정지를 해제한다.
 	FinishAttackMovement();
@@ -204,6 +205,7 @@ void ULMAttackAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 	// 같은 인스턴스를 재사용하므로 새 실행 번호와 착지 피해 기록을 먼저 준비한다.
 	++LandingDamageRun;
 	bLandingDamageApplied = false;
+	PassReturnTarget.Reset();
 
 	// 같은 능력 인스턴스를 다시 사용할 때 이전 실행의 접근 상태를 남기지 않는다.
 	FinishAttackMovement();
@@ -349,13 +351,34 @@ bool ULMAttackAbility::PrepareAttackMovement(UAnimMontage* Montage, FName Sectio
 	ALMPlayerController* Controller = Character ? Cast<ALMPlayerController>(Character->GetController()) : nullptr;
 
 	const bool bUseApproach = MeleeApproachSections.Contains(SectionName);
-	if (!bUseRoundTripMove && !bUseApproach) return true;
+	const bool bUsePass = PassMoveSections.Contains(SectionName);
+	if (!bUsePass) PassReturnTarget.Reset();
+	if (!bUseRoundTripMove && !bUseApproach && !bUsePass) return true;
 
-	if (!Movement || !IsValid(Montage) || !Movement->IsMovingOnGround())
+	if (!Movement || !IsValid(Montage) || (!bUsePass && !Movement->IsMovingOnGround()))
 		return !bUseRoundTripMove;
 
-	if (!ensureMsgf(!bUseRoundTripMove || !bUseApproach, TEXT("%s: Round trip and melee approach cannot own the same section."), *GetName()))
+	if (!ensureMsgf(static_cast<int32>(bUseRoundTripMove) + static_cast<int32>(bUseApproach) + static_cast<int32>(bUsePass) == 1, TEXT("%s: Only one attack movement may own a section."), *GetName()))
 		return false;
+
+	if (bUsePass)
+	{
+		if (Controller && Controller->CanUpdateFocus())
+		{
+			// 다음 타가 시작될 때만 최신 유효 적을 읽고 진행 중인 타의 방향은 유지한다.
+			Controller->BeginAttackFocus(this, Controller->GetFocusTarget());
+			Controller->OnFocusFrame.Broadcast();
+			if (!IsActive() || bIsAbilityEnding) return false;
+		}
+
+		// 갱신 콜백 뒤 생존을 확인한다. 화면 밖으로 간 기존 적도 복귀 방향에만 쓰고 포커스로 강제 등록하지 않는다.
+		ALMBaseCharacter* PassTarget = PassReturnTarget.Get();
+		if (!PassTarget || !PassTarget->CanBeAttackTargetFor(Cast<ALMBaseCharacter>(Character)))
+			PassTarget = Controller && Controller->CanUpdateFocus() ? Cast<ALMBaseCharacter>(Controller->GetAttackFocusTarget()) : nullptr;
+		PassReturnTarget = PassTarget;
+		// 대상이 없어도 원래 전방 모션으로 공격하며 적 몸체 통과는 같은 구간에 적용한다.
+		return Movement->BeginPassMove(this, Montage, PassTarget);
+	}
 
 	AActor* FocusActor = Controller && Controller->CanUpdateFocus() ? Controller->GetFocusTarget() : nullptr;
 	ALMBaseCharacter* Target = Cast<ALMBaseCharacter>(FocusActor);
@@ -383,14 +406,20 @@ bool ULMAttackAbility::PrepareAttackMovement(UAnimMontage* Montage, FName Sectio
 	return true;
 }
 
-// 회복·종료·취소에서 자신의 이동과 임시 충돌·공통 포커스를 함께 해제한다.
-void ULMAttackAbility::FinishAttackMovement()
+// 특수 대기에 진입하면 몸체 충돌만 복구하고 다음 타에서 쓸 포커스는 남긴다.
+void ULMAttackAbility::EndAttackTravel()
 {
 	ACharacter* Character = GetAttackCharacter();
 
 	if (ULMPlayerMeleeMovementComponent* Movement = Character ? Cast<ULMPlayerMeleeMovementComponent>(Character->GetCharacterMovement()) : nullptr)
 		Movement->EndAttackMove(this);
+}
 
+// 회복·종료·취소에서는 임시 충돌과 포커스 소유권을 모두 정리한다.
+void ULMAttackAbility::FinishAttackMovement()
+{
+	EndAttackTravel();
+	ACharacter* Character = GetAttackCharacter();
 	if (ALMPlayerController* Controller = Character ? Cast<ALMPlayerController>(Character->GetController()) : nullptr)
 		Controller->EndAttackFocus(this);
 }
