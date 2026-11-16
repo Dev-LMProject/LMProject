@@ -11,7 +11,6 @@ class UWidgetComponent;
 class UAnimSequence;
 struct FOnAttributeChangeData;
 class ALMCombatArea;
-class ALMPlayerCharacter;
 /** 
  * 본인 ASC와 전투 속성을 소유하는 일반 몬스터의 기반 몸체다. 
  * 자체 ASC와 체력, 임시 HP UI, 일반 몬스터의 피격·소진 반응을 관리한다.
