@@ -18,6 +18,8 @@ namespace
 	constexpr float PlaceShift = 40.0f;
 	constexpr float PlaceGap = 50.0f;
 	constexpr float PlaceHeight = 150.0f;
+	constexpr float PlaceMove = 80.0f;
+	constexpr float PlaceAngles[] = {0.0f, 30.0f, -30.0f, 60.0f, -60.0f};
 }
 
 // Sets default values
@@ -181,7 +183,7 @@ void ALMCombatArea::BeginCombat()
 
     bIsSight = true;
 	++CombatId;
-	PlaceDirections.Reset();
+	WaitOffsets.Reset();
 	AttackQueue.Reset();
 	const FVector EncounterPlayerPos = TargetPlayer->GetNavAgentLocation();
 
@@ -206,6 +208,8 @@ void ALMCombatArea::BeginCombat()
 	for (const FLMQueueEntry& Entry : AttackQueue)
 		Entry.Monster->SetTargetPlayer(this, TargetPlayer);
 
+	// 대상 전달을 마친 뒤 대기 위치 배정과 공격 허가를 진행함.
+	SetCombatPlaces();
 	FillAttackSlots();
 }
 
@@ -215,7 +219,7 @@ void ALMCombatArea::EndCombat()
 	bIsSight = false;
 	TargetPlayer = nullptr;
 	AttackQueue.Reset();
-	PlaceDirections.Reset();
+	WaitOffsets.Reset();
 
 	for (FLMAttackTurn& Turn : ActiveAttacks)
 		Turn.bStopping = true;
@@ -227,11 +231,109 @@ void ALMCombatArea::EndCombat()
 	}
 }
 
+// 대기 위치 또는 허가자와 간격을 둔 공격 후보를 NavMesh에 보정해 반환함.
 bool ALMCombatArea::ReadCombatLocation(ALMFieldMonsterCharacter* Monster, bool bAttack, FVector& Location) const
 {
-	return false;
-}
+    Location = IsValid(Monster) ? Monster->GetNavAgentLocation() : FVector::ZeroVector;
 
+    if (bEndingPlay || !bIsSight || !IsValid(TargetPlayer) || TargetPlayer->IsActorBeingDestroyed() || !IsValid(CombatBounds))
+        return false;
+    if (!IsQueueMember(Monster) || Monster->GetTargetPlayer() != TargetPlayer)
+        return false;
+
+    const FVector* WaitOffset = WaitOffsets.Find(Monster);
+    if (!WaitOffset) return false;
+
+    const int32 OwnTurn = FindAttackTurn(Monster);
+    if (bAttack && OwnTurn != INDEX_NONE && (ActiveAttacks[OwnTurn].CombatId != CombatId || ActiveAttacks[OwnTurn].bStopping))
+        return false;
+
+    UNavigationSystemV1* NavSystem = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+    if (!NavSystem) return false;
+
+    const ANavigationData* NavData = NavSystem->GetNavDataForProps(Monster->GetNavAgentPropertiesRef(), Monster->GetNavAgentLocation());
+    if (!NavData) return false;
+
+    const FVector PlayerLocation = TargetPlayer->GetNavAgentLocation();
+    const float PlayerRadius = TargetPlayer->GetCapsuleComponent()->GetScaledCapsuleRadius();
+    const float Radius = Monster->GetCapsuleComponent()->GetScaledCapsuleRadius();
+    const float InnerDistance = FMath::Max(AttackDistance, PlayerRadius + Radius + PlaceReach + PlaceShift + PlaceGap);
+    const int32 TryCount = bAttack && OwnTurn == INDEX_NONE ? UE_ARRAY_COUNT(PlaceAngles) : 1;
+
+    for (int32 Try = 0; Try < TryCount; ++Try)
+    {
+        FVector Offset = *WaitOffset;
+        if (bAttack)
+            Offset = OwnTurn != INDEX_NONE ? ActiveAttacks[OwnTurn].AttackOffset : WaitOffset->GetSafeNormal2D().RotateAngleAxis(PlaceAngles[Try], FVector::UpVector) * InnerDistance;
+
+        const FVector Candidate = PlayerLocation + Offset;
+        FNavLocation Projected;
+
+        // 좁은 통로에서 후보들이 같은 점으로 몰리지 않도록 보정 거리를 제한함.
+        if (!NavSystem->ProjectPointToNavigation(Candidate, Projected, FVector(PlaceShift, PlaceShift, PlaceHeight), NavData))
+            continue;
+        if (FVector::DistSquared2D(Candidate, Projected.Location) > FMath::Square(PlaceShift) || FMath::Abs(Candidate.Z - Projected.Location.Z) > PlaceHeight)
+            continue;
+
+        const FVector Local = CombatBounds->GetComponentTransform().InverseTransformPosition(Projected.Location);
+        const FVector Extent = CombatBounds->GetUnscaledBoxExtent();
+
+        if (FMath::Abs(Local.X) > Extent.X || FMath::Abs(Local.Y) > Extent.Y || FMath::Abs(Local.Z) > Extent.Z)
+            continue;
+
+        bool bFree = true;
+        if (!bAttack)
+        {
+            // 간보기 이동과 도착 오차를 포함한 대기 구역 간격을 유지함.
+            if (FVector::Dist2D(Projected.Location, PlayerLocation) < CurrentWaitDistance - PlaceShift)
+                continue;
+
+            for (const auto& Pair : WaitOffsets)
+            {
+                ALMFieldMonsterCharacter* Other = Pair.Key.Get();
+                if (Other == Monster || !IsQueueMember(Other)) continue;
+
+                const float OtherRadius = Other->GetCapsuleComponent()->GetScaledCapsuleRadius();
+                const float Gap = Radius + OtherRadius + 2.0f * (PlaceReach + PlaceShift + PlaceMove) + PlaceGap;
+
+                if (FVector::DistSquared2D(Projected.Location, PlayerLocation + Pair.Value) < FMath::Square(Gap))
+                {
+                    bFree = false;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            // 종료 중인 옛 허가는 현재 몸체 위치를 기준으로 공간을 남김.
+            if (FVector::Dist2D(Projected.Location, PlayerLocation) < PlayerRadius + Radius + PlaceReach + PlaceGap)
+                continue;
+
+            for (const FLMAttackTurn& Turn : ActiveAttacks)
+            {
+                ALMFieldMonsterCharacter* Other = Turn.Monster.Get();
+                if (!IsValid(Other) || Other == Monster) continue;
+
+                const float OtherRadius = Other->GetCapsuleComponent()->GetScaledCapsuleRadius();
+                const FVector OtherLocation = Turn.CombatId == CombatId && !Turn.bStopping ? PlayerLocation + Turn.AttackOffset : Other->GetNavAgentLocation();
+                const float Gap = Radius + OtherRadius + 2.0f * (PlaceReach + PlaceShift) + PlaceGap;
+
+                if (FVector::DistSquared2D(Projected.Location, OtherLocation) < FMath::Square(Gap))
+                {
+                    bFree = false;
+                    break;
+                }
+            }
+        }
+
+        if (!bFree) continue;
+
+        Location = Projected.Location;
+        return true;
+    }
+
+    return false;
+}
 // Area 자체가 사라질 때는 신규 허가를 막고 자기 기록과 소속을 함께 정리한다.
 void ALMCombatArea::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
@@ -253,41 +355,94 @@ void ALMCombatArea::EndPlay(const EEndPlayReason::Type EndPlayReason)
 // 같은 교전 동안 유지할 방향과 안전한 바깥 대기 반경을 정한다.
 void ALMCombatArea::SetCombatPlaces()
 {
-	PlaceDirections.Reset();
+	WaitOffsets.Reset();
 
-	TArray<ALMFieldMonsterCharacter*> Members;
+	if (!IsValid(TargetPlayer) || !IsValid(CombatBounds)) return;
+	
+	const FVector PlayerLocation = TargetPlayer->GetNavAgentLocation();
+	const FTransform BoundsTransform = CombatBounds->GetComponentTransform();
+	const FVector BoundsExtent = CombatBounds->GetUnscaledBoxExtent();
+	
 	float MaxRadius = 0.0f;
 
-	// ASC 준비가 늦어도 소속이 맞는 살아 있는 몬스터의 자리를 확보한다.
-	for (ALMFieldMonsterCharacter* Monster : RegisteredMonsters)
+	// 이번 큐의 참가자만 사용하고 ASC 준비 전 참가자도 자리를 보존함.
+	for (const FLMQueueEntry& Entry : AttackQueue)
 	{
-		if (!IsValid(Monster) || Monster->IsActorBeingDestroyed() || Monster->IsDead() || Monster->GetCombatArea() != this)
-			continue;
-
-		Members.Add(Monster);
-		MaxRadius = FMath::Max(MaxRadius, Monster->GetCapsuleComponent()->GetScaledCapsuleRadius());
+		ALMFieldMonsterCharacter* Monster = Entry.Monster.Get();
+		if (IsQueueMember(Monster))
+			MaxRadius = FMath::Max(MaxRadius, Monster->GetCapsuleComponent()->GetScaledCapsuleRadius());
 	}
 
-	const int32 Count = Members.Num();
-	if (Count == 0) return;
-
-	// 도착 오차와 작은 NavMesh 보정을 포함해 서로의 공간을 남긴다.
 	const float PlayerRadius = TargetPlayer->GetCapsuleComponent()->GetScaledCapsuleRadius();
-	CurrentWaitDistance = FMath::Max(WaitDistance, PlayerRadius + MaxRadius + PlaceReach + PlaceShift + PlaceGap);
+	const float InnerDistance = FMath::Max(AttackDistance, PlayerRadius + MaxRadius + PlaceReach + PlaceShift + PlaceGap);
 
-	if (Count > 1)
-	{
-		const float Spacing = 2.0f * MaxRadius + 2.0f * PlaceReach + 2.0f * PlaceShift + PlaceGap;
-		CurrentWaitDistance = FMath::Max(CurrentWaitDistance, Spacing / (2.0f * FMath::Sin(PI / Count)));
-	}
+	// 지연된 Nav 보정 이후에도 간격 검사에 막히지 않도록 여유를 더함.
+	const float Spacing = 2.0f * MaxRadius + 2.0f * (PlaceReach + PlaceShift + PlaceMove) + PlaceGap + PlaceShift;
+	CurrentWaitDistance = FMath::Max(WaitDistance, InnerDistance + Spacing);
+	
 
-	// 플레이어가 회전해도 방향은 바뀌지 않으며 새 교전에서만 다시 배정한다.
-	for (int32 Index = 0; Index < Count; ++Index)
+	for (const FLMQueueEntry& Entry : AttackQueue)
 	{
-		const float Angle = 2.0f * PI * Index / Count;
-		PlaceDirections.Add(Members[Index], FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f));
+		ALMFieldMonsterCharacter* Monster = Entry.Monster.Get();
+		if (!IsQueueMember(Monster)) continue;
+
+		FVector Direction = (Monster->GetNavAgentLocation() - PlayerLocation).GetSafeNormal2D();
+		if (Direction.IsNearlyZero())
+			Direction = Monster->GetActorForwardVector().GetSafeNormal2D();
+		if (Direction.IsNearlyZero())
+			Direction = FVector::ForwardVector;
+
+		const float BaseDistance = FMath::Max(CurrentWaitDistance, FVector::Dist2D(Monster->GetNavAgentLocation(), PlayerLocation));
+		FVector FallbackOffset = FVector::ZeroVector;
+		bool bHasFallback = false;
+		bool bAssigned = false;
+		
+		for (int32 depth = 0; depth < 3 && !bAssigned; ++depth)
+		{
+			for (float Angle : PlaceAngles)
+			{
+				const FVector Offset = Direction.RotateAngleAxis(Angle, FVector::UpVector) * (BaseDistance + depth * Spacing);
+				const FVector Candidate = PlayerLocation + Offset;
+				const FVector Local = BoundsTransform.InverseTransformPosition(Candidate);
+
+				if (FMath::Abs(Local.X) > BoundsExtent.X || FMath::Abs(Local.Y) > BoundsExtent.Y || FMath::Abs(Local.Z) > BoundsExtent.Z)
+					continue;
+
+				bool bFree = true;
+				for (const auto& Pair : WaitOffsets)
+				{
+					if (FVector::DistSquared2D(Offset, Pair.Value) < FMath::Square(Spacing))
+					{
+						bFree = false;
+						break;
+					}
+				}
+				if (!bFree) continue;
+
+				// Nav 준비가 늦어도 안전 간격을 확보한 후보를 보존함.
+				if (!bHasFallback)
+				{
+					FallbackOffset = Offset;
+					bHasFallback = true;
+				}
+
+				WaitOffsets.Add(Monster, Offset);
+				FVector Projected;
+				if (ReadCombatLocation(Monster, false, Projected))
+				{
+					WaitOffsets[Monster] = Projected - PlayerLocation;
+					bAssigned = true;
+					break;
+				}
+				WaitOffsets.Remove(Monster);
+			}
+		}
+
+		if (!bAssigned && bHasFallback)
+			WaitOffsets.Add(Monster, FallbackOffset);
 	}
 }
+
 // ASC 준비 전에도 참가 자격은 유지하고 실제 허가 시점에 행동 가능 여부를 검사한다.
 bool ALMCombatArea::IsQueueMember(ALMFieldMonsterCharacter* Monster) const
 {
@@ -297,8 +452,8 @@ bool ALMCombatArea::IsQueueMember(ALMFieldMonsterCharacter* Monster) const
 // 같은 몬스터의 새 허가를 만들기 전에 옛 종료 대기까지 확인한다.
 int32 ALMCombatArea::FindAttackTurn(ALMFieldMonsterCharacter* Monster) const
 {
-	const TWeakObjectPtr<ALMFieldMonsterCharacter> Owner(Monster);
-	return ActiveAttacks.IndexOfByPredicate([&Owner](const FLMAttackTurn& Turn) { return Turn.Monster.HasSameIndexAndSerialNumber(Owner); });
+	const TWeakObjectPtr<ALMFieldMonsterCharacter> OwnerMonster(Monster);
+	return ActiveAttacks.IndexOfByPredicate([&OwnerMonster](const FLMAttackTurn& Turn) { return Turn.Monster.HasSameIndexAndSerialNumber(OwnerMonster); });
 }
 
 // 준비되지 않은 항목의 순서는 보존하고 현재 가능한 몬스터로 빈 정원만 채운다.
@@ -338,7 +493,16 @@ void ALMCombatArea::FillAttackSlots()
 			continue;
 		}
 
-		ActiveAttacks.Add({Entry.Monster, CombatId, ++NextAttackId, false});
+		// 유효한 공격 위치가 있는 몬스터에게만 허가를 배정함.
+		FVector AttackLocation;
+		if (!ReadCombatLocation(Monster, true, AttackLocation))
+		{
+			++Index;
+			continue;
+		}
+
+		// 허가와 함께 공격 위치를 확정해 다른 허가자의 자리 계산에 사용함.
+		ActiveAttacks.Add({Entry.Monster, CombatId, ++NextAttackId, false, AttackLocation - TargetPlayer->GetNavAgentLocation()});
 		AttackQueue.RemoveAt(Index);
 	}
 }

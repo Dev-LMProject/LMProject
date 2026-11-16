@@ -109,7 +109,8 @@ private:
 	// 개전할 때 고정 명단의 살아 있는 몬스터에게 서로 다른 방향을 배정한다.
 	void SetCombatPlaces();
 
-	TMap<TWeakObjectPtr<ALMFieldMonsterCharacter>, FVector> PlaceDirections;
+	// 방향과 거리를 함께 저장한 플레이어 기준 대기 위치임. 즉,플레이어로부터 떨어진 방향과 거리
+	TMap<TWeakObjectPtr<ALMFieldMonsterCharacter>, FVector> WaitOffsets;
 
 	float CurrentWaitDistance = 600.0f;
 	
@@ -130,6 +131,9 @@ private:
 		//개별 공격 허가 번호
 		int64 AttackId = 0;
 		bool bStopping = false;
+		
+		// 허가 시 확정한 플레이어 기준 공격 위치임.
+		FVector AttackOffset = FVector::ZeroVector;
 	};
 
 	// 고정 명단에 속한 살아 있는 몬스터인지 확인한다.
