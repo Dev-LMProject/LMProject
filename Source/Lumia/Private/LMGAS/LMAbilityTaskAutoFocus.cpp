@@ -61,8 +61,8 @@ void ULMAbilityTaskAutoFocus::Activate()
 	FocusController = Controller;
 	FocusPawn = Pawn;
 
-	// Controller가 카메라 계산을 끝낸 뒤 Broadcast하면 UpdateFocus가 호출된다.
-	// 일반 Task Tick은 쓰지 않는다. 특수 타가 시작될 때만 같은 알림으로 즉시 다시 검사한다.
+	/* Controller의 카메라 계산 뒤에 검사하며 일반 Task Tick은 쓰지 않는다.
+	 * 특수 타 시작이나 수동 고정 입력도 같은 알림으로 최신 후보를 확인한다. */
 	Controller->OnFocusFrame.AddUObject(this, &ThisClass::UpdateFocus);
 }
 
@@ -112,15 +112,14 @@ void ULMAbilityTaskAutoFocus::UpdateFocus()
 	const bool bCanChangeTarget = Controller->CanChangeAttackTarget();
 	AActor* Target = ULMTargetQueryLibrary::FindFocusTargets(Controller, FocusRange, SwitchMargin, Controller->GetFocusTarget(), Candidates, bCanChangeTarget);
 
-	// 살아 있고 현재 후보에 남은 기존 적을 우선한다. 상실했을 때만 특수 공격이 새 적을 고른다.
-	if (Controller->IsAttackFocusActive())
-	{
-		AActor* CurrentTarget = Controller->GetAttackFocusTarget();
-		if (CurrentTarget && Candidates.Contains(TWeakObjectPtr<AActor>(CurrentTarget)))
-			Target = CurrentTarget;
-		else if (!bCanChangeTarget)
-			Target = nullptr;
-	}
+	/* 수동 대상 상실 뒤에는 이번 타가 끝나기를 기다리지 않고 자동 선정으로 복귀한다.
+	 * 공격 보조의 대상은 Controller가 별도로 검증하므로 새 적에게 현재 평타를 돌리지 않는다. */
+	bool bKeepLock = Controller->IsLockOn();
+	AActor* CurrentTarget = Controller->GetFocusTarget();
+	AActor* LockedTarget = Controller->CanLockTarget(CurrentTarget) ? CurrentTarget : nullptr;
+	Target = ULMTargetQueryLibrary::ChooseFocusTarget(Candidates, Target, LockedTarget, Controller->GetAttackFocusTarget(), bKeepLock);
+	if (!bKeepLock)
+		Controller->StopLockOn();
 
 	// 후보 목록과 표식 대상을 함께 갱신한다.
 	Controller->SetFocusResult(Candidates, Target);

@@ -241,3 +241,21 @@ AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerControl
 	// 유효 후보가 없었다면 BestTarget은 처음 값인 nullptr이다.
 	return BestTarget;
 }
+
+// 이번 검사에 남은 대상만 사용하고, 상실한 수동 고정을 다른 적에게 자동으로 넘기지 않는다.
+AActor* ULMTargetQueryLibrary::ChooseFocusTarget(const TArray<TWeakObjectPtr<AActor>>& Candidates, AActor* AutoTarget, AActor* CurrentTarget, AActor* AttackTarget, bool& bLockOn)
+{
+	// 검색 이후 파괴가 시작된 Actor도 선정 결과에서 제외한다.
+	const auto IsCandidate = [&Candidates](AActor* Target)
+	{
+		return IsValid(Target) && !Target->IsActorBeingDestroyed() && Candidates.Contains(TWeakObjectPtr<AActor>(Target));
+	};
+
+	if (bLockOn && IsCandidate(CurrentTarget))
+		return CurrentTarget;
+
+	// 같은 갱신에서 자동 선정으로 복귀하되, 진행 중인 한 타의 대상은 새로 지정하지 않는다.
+	bLockOn = false;
+	if (IsCandidate(AttackTarget)) return AttackTarget;
+	return IsCandidate(AutoTarget) ? AutoTarget : nullptr;
+}

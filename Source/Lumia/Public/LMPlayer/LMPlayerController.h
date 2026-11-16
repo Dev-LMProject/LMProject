@@ -8,6 +8,7 @@
 
 class ULMInputConfig;
 class ULMScanComponent;
+class UInputAction;
 class UInputMappingContext;
 class ULMInteractionHUDWidget;
 class ULMUserHUDWidget;
@@ -78,6 +79,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "LM|Focus")
 	TArray<AActor*> GetFocusCandidates() const;
 
+	// 현재 선택을 사용자가 수동으로 고정했는지 반환한다.
+	UFUNCTION(BlueprintPure, Category = "LM|Focus")
+	bool IsLockOn() const;
+
+	// 휠 버튼을 누르면 기존 오토포커싱의 수동 고정을 켜거나 해제한다.
+	void ToggleLockOn();
+
+	// 검색을 다시 실행하지 않고 수동 고정 상태만 해제한다.
+	void StopLockOn();
+
+	// 휠을 락온 전환 또는 상호작용 선택에 사용했으면 true를 반환한다.
+	bool HandleMouseWheel(float WheelInput);
+
+	// 현재 감지 후보 중 살아 있는 적만 전투 대상으로 허용한다.
+	bool CanLockTarget(AActor* Target) const;
+
 	// 해킹·일시정지·연출 중인지 검사해 지금 검색할 수 있는지 반환한다.
 	bool CanUpdateFocus() const;
 
@@ -146,6 +163,10 @@ private:
 	// BP의 Class Defaults에서 지정할 기본 키 배치.
 	UPROPERTY(EditDefaultsOnly, Category="Input")
 	TObjectPtr<UInputMappingContext> DefaultMappingContext;
+
+	// 별도 입력 GA 없이 기존 오토포커싱의 고정 여부를 바꿀 입력 액션.
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Input")
+	TObjectPtr<UInputAction> LockOnAction = nullptr;
 	
 	/** 현재 PlayerState가 소유한 프로젝트 ASC를 반환한다. */
 	ULMAbilitySystemComponent* GetLMAbilitySystemComponent() const;
@@ -199,4 +220,16 @@ private:
 	
 	// 평타는 시작 대상을 유지하고 특수 모드만 다음 대상 재선정을 허용한다.
 	TWeakObjectPtr<AActor> AttackFocusTarget;
+
+	// 수동 고정도 기존 FocusTarget을 사용하므로 별도의 선택 Actor를 만들지 않는다.
+	bool bLockOn = false;
+
+	// 일반 플레이·생존·입력 차단 여부를 함께 검사한다.
+	bool CanUseFocusInput() const;
+
+	// 0이면 화면 중앙, -1이면 현재 대상의 왼쪽, 1이면 오른쪽에서 적을 고른다.
+	AActor* FindLockTarget(int32 Direction) const;
+
+	// 최신 후보 안에서만 고정 대상을 요청한 방향으로 옮긴다.
+	void SwitchLockTarget(int32 Direction);
 };

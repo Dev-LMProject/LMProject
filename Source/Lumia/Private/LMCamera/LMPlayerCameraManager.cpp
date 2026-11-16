@@ -167,20 +167,26 @@ void ALMPlayerCameraManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	
 }
 
-// 직접 카메라를 조작하는 동안 자동 회전을 멈추고, 입력이 끝난 뒤 다시 시작한다.
+// 유효한 수동 고정은 계속 추적하고 해제 상태는 기존 자유 시점 규칙을 사용한다.
 void ALMPlayerCameraManager::ProcessViewRotation(float DeltaTime, FRotator& OutViewRotation, FRotator& OutDeltaRot)
 {
-    // 부모 함수가 입력 회전량을 소비하기 전에 사용자의 시점 입력 여부를 확인한다.
-    const bool bHasLookInput = !OutDeltaRot.IsNearlyZero();
-
-    if (bHasLookInput)
-        LookWait = LookDelay;
+    const ALMPlayerController* Controller = Cast<ALMPlayerController>(PCOwner);
+    const bool bTrackLock = Controller && Controller->IsLockOn() && Controller->CanLockTarget(Controller->GetFocusTarget());
+    if (bTrackLock)
+    {
+        // 입력 무시 플래그는 추적도 멈추므로 이번 자유 시점 회전량만 소비한다.
+        OutDeltaRot = FRotator::ZeroRotator;
+        LookWait = 0.0f;
+        if (DeltaTime > 0.0f)
+            ApplyFocusRotation(DeltaTime, OutViewRotation);
+    }
     else
-        LookWait = FMath::Max(0.0f, LookWait - DeltaTime);
-
-    // 수동 입력이 없고 대기 시간이 끝났을 때만 포커스 대상을 향해 회전한다.
-    if (DeltaTime > 0.0f && !bHasLookInput && LookWait <= 0.0f)
-        ApplyFocusRotation(DeltaTime, OutViewRotation);
+    {
+        const bool bHasLookInput = !OutDeltaRot.IsNearlyZero();
+        LookWait = bHasLookInput ? LookDelay : FMath::Max(0.0f, LookWait - DeltaTime);
+        if (DeltaTime > 0.0f && !bHasLookInput && LookWait <= 0.0f)
+            ApplyFocusRotation(DeltaTime, OutViewRotation);
+    }
 
     // 기존 수동 입력과 CameraModifier, 엔진의 시점 각도 제한을 적용한다.
     Super::ProcessViewRotation(DeltaTime, OutViewRotation, OutDeltaRot);
@@ -198,9 +204,10 @@ void ALMPlayerCameraManager::ApplyFocusRotation(float DeltaTime, FRotator& ViewR
         return;
     }
 
-    // 공격 중에는 이번 타의 대상만 사용하고, 평소에는 일반 포커스 대상을 사용한다.
-    const bool bAttackFocus = Controller->IsAttackFocusActive();
-    AActor* Target = bAttackFocus ? Controller->GetAttackFocusTarget() : Controller->GetFocusTarget();
+    // 이번 타의 대상이 사라져도 새 자동 포커스와 표식을 그대로 따라간다.
+    AActor* Target = Controller->GetFocusTarget();
+    const bool bLockOn = Controller->IsLockOn();
+    const bool bAttackFocus = Target && Controller->GetAttackFocusTarget() == Target;
 
     if (!IsValid(Target)) return;
 
@@ -216,8 +223,11 @@ void ALMPlayerCameraManager::ApplyFocusRotation(float DeltaTime, FRotator& ViewR
         return;
     }
 
-    // HUD 표식과 같은 월드 표적점을 카메라가 바라보도록 방향을 구한다.
-    const FVector AimDirection = ULMTargetQueryLibrary::GetFocusPoint(Target) - GetCameraLocation();
+    // 고정 중에는 플레이어 위치도 일부 반영하여 적만 화면 중앙에 몰리지 않게 한다.
+    FVector AimPoint = ULMTargetQueryLibrary::GetFocusPoint(Target);
+    if (bLockOn)
+        AimPoint = FMath::Lerp(Player->GetPawnViewLocation(), AimPoint, FMath::Clamp(LockTargetWeight, 0.0f, 1.0f));
+    const FVector AimDirection = AimPoint - GetCameraLocation();
 
     if (AimDirection.ContainsNaN() || AimDirection.IsNearlyZero())
     {
@@ -239,7 +249,7 @@ void ALMPlayerCameraManager::ApplyFocusRotation(float DeltaTime, FRotator& ViewR
     if (FMath::Abs(Turn.Pitch) <= FocusDeadAngle)
         Turn.Pitch = 0.0;
 
-    const float Speed = bAttackFocus ? AttackFocusSpeed : NormalFocusSpeed;
+    const float Speed = bLockOn ? LockFocusSpeed : (bAttackFocus ? AttackFocusSpeed : NormalFocusSpeed);
 
     // 프레임 시간에 맞춰 남은 각도를 줄이고, 한 프레임에 회전할 최대 각도를 계산한다.
     const double Alpha = 1.0 - FMath::Exp(-static_cast<double>(Speed) * DeltaTime);
