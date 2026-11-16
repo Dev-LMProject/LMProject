@@ -4,6 +4,7 @@
 #include "LMCamera/LMTargetQueryLibrary.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "LMPlayer/LMPlayerController.h"
+#include "Templates/UnrealTemplate.h"
 
 // GA가 소유하는 Task를 만들고 에디터에서 설정한 값을 Task에 복사한다.
 ULMAbilityTaskAutoFocus* ULMAbilityTaskAutoFocus::CreateAutoFocus(UGameplayAbility* OwningAbility, float _FocusRange, float _SwitchMargin)
@@ -61,13 +62,17 @@ void ULMAbilityTaskAutoFocus::Activate()
 	FocusPawn = Pawn;
 
 	// Controller가 카메라 계산을 끝낸 뒤 Broadcast하면 UpdateFocus가 호출된다.
-	// 일반 Task Tick은 사용하지 않으므로 같은 프레임에 검색이 두 번 실행되지 않는다.
+	// 일반 Task Tick은 쓰지 않는다. 특수 타가 시작될 때만 같은 알림으로 즉시 다시 검사한다.
 	Controller->OnFocusFrame.AddUObject(this, &ThisClass::UpdateFocus);
 }
 
 // 현재 플레이 상태를 확인하고 이번 프레임의 후보와 선택을 다시 계산한다.
 void ULMAbilityTaskAutoFocus::UpdateFocus()
 {
+	// OnFocusChanged 안에서 특수 입력이 실행돼도 같은 검색에 다시 진입하지 않는다.
+	if (bUpdatingFocus) return;
+	TGuardValue<bool> UpdateGuard(bUpdatingFocus, true);
+
 	// 소유 GA가 이미 끝났다면 이 Task도 더 이상 결과를 전달하지 않는다.
 	if (!ShouldBroadcastAbilityTaskDelegates())
 	{
@@ -104,15 +109,16 @@ void ULMAbilityTaskAutoFocus::UpdateFocus()
 	// 공격 중에도 매번 새로 검색해야 시야·거리 밖으로 나간 대상이 후보에서 즉시 빠진다.
 	TArray<TWeakObjectPtr<AActor>> Candidates;
 
-	AActor* Target = ULMTargetQueryLibrary::FindFocusTargets(Controller, FocusRange, SwitchMargin, Controller->GetFocusTarget(), Candidates);
+	const bool bCanChangeTarget = Controller->CanChangeAttackTarget();
+	AActor* Target = ULMTargetQueryLibrary::FindFocusTargets(Controller, FocusRange, SwitchMargin, Controller->GetFocusTarget(), Candidates, bCanChangeTarget);
 
-	// 이번 타가 진행 중이면 화면 중앙 점수로 다른 대상을 고르지 않는다.
+	// 살아 있고 현재 후보에 남은 기존 적을 우선한다. 상실했을 때만 특수 공격이 새 적을 고른다.
 	if (Controller->IsAttackFocusActive())
 	{
-		Target = Controller->GetAttackFocusTarget();
-
-		// 기존 공격 대상도 이번 검색을 통과하지 못하면 유지하지 않는다.
-		if (!Target || !Candidates.Contains(TWeakObjectPtr<AActor>(Target)))
+		AActor* CurrentTarget = Controller->GetAttackFocusTarget();
+		if (CurrentTarget && Candidates.Contains(TWeakObjectPtr<AActor>(CurrentTarget)))
+			Target = CurrentTarget;
+		else if (!bCanChangeTarget)
 			Target = nullptr;
 	}
 

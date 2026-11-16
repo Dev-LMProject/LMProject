@@ -18,6 +18,7 @@
 #include "Abilities/GameplayAbility.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "LMComponent/LMTargetComponent.h"
+#include "LMGameplayTags/LMGameplayTags.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -556,12 +557,21 @@ void ALMPlayerController::SetFocusResult(const TArray<TWeakObjectPtr<AActor>>& _
 	if (IsValid(_FocusTarget) && FocusCandidates.Contains(NewTarget))
 		FocusTarget = NewTarget;
 
-	// 이번 타의 대상이 후보에서 빠졌다면 표식과 공격 대상을 함께 비운다.
-	// GA 소유 정보는 남겨, 공격 도중 다른 몬스터가 대신 선택되는 것을 막는다.
-	if (IsAttackFocusActive() && FocusTarget != AttackFocusTarget)
+	// 특수 모드는 새 유효 적을 공유하고, 평타·강공격은 기존 대상 잠금 규칙을 유지한다.
+	if (IsAttackFocusActive())
 	{
-		AttackFocusTarget.Reset();
-		FocusTarget.Reset();
+		if (CanChangeAttackTarget())
+		{
+			ALMBaseCharacter* Target = Cast<ALMBaseCharacter>(FocusTarget.Get());
+			if (!Target || !Target->CanBeAttackTargetFor(Cast<ALMBaseCharacter>(GetPawn())))
+				FocusTarget.Reset();
+			AttackFocusTarget = FocusTarget;
+		}
+		else if (FocusTarget != AttackFocusTarget)
+		{
+			AttackFocusTarget.Reset();
+			FocusTarget.Reset();
+		}
 	}
 
 	// 공격 중에는 표식 대상과 이번 타의 대상이 반드시 같아야 한다.
@@ -626,6 +636,13 @@ bool ALMPlayerController::IsAttackFocusActive() const
     const UGameplayAbility* OwnerAbility = AttackFocusOwner.Get();
 
     return OwnerAbility && OwnerAbility->IsActive() && OwnerAbility->GetAvatarActorFromActorInfo() == GetPawn();
+}
+
+// 기존 특수 상태 태그로 재선정 정책을 구분하고 별도 태그나 컴포넌트는 만들지 않는다.
+bool ALMPlayerController::CanChangeAttackTarget() const
+{
+    const ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent();
+    return IsAttackFocusActive() && ASC && ASC->HasMatchingGameplayTag(LMGameplayTags::State_Attack_Special);
 }
 
 // 카메라와 이동 보정이 죽었거나 비활성화된 대상을 계속 사용하지 않도록 확인한다.

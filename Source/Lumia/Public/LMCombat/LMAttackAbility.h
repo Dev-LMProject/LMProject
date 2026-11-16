@@ -6,6 +6,7 @@
 #include "LMAttackAbility.generated.h"
 
 class ACharacter;
+class ALMBaseCharacter;
 class UAnimMontage;
 class ULMAttackData;
 class ULMAbilityTaskWeaponHitTrace;
@@ -87,6 +88,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Approach")
 	TArray<FName> MeleeApproachSections;
 
+	// 지정한 섹션에서는 원본 돌진 모션을 유지하며 적 몸체만 통과한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Pass Move")
+	TArray<FName> PassMoveSections;
+
+	// 특수 대기에서는 포커스를 유지한 채 이번 타의 임시 충돌만 복구한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Attack")
+	void EndAttackTravel();
+
 	// 강공격의 준비 후퇴·전진·복귀를 환경 충돌에 맞춰 보정한다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Round Trip")
 	bool bUseRoundTripMove = false;
@@ -131,7 +140,10 @@ private:
 
 	/** 피격 콜백에서 같은 능력이 재시작되어도 이전 범위 검사를 이어가지 않게 한다. */
 	uint32 LandingDamageRun = 0;
-	
+
+	// 같은 특수 연속 공격의 복귀 방향에만 쓴다. 현재 포커스 후보로 강제 등록하지 않는다.
+	TWeakObjectPtr<ALMBaseCharacter> PassReturnTarget;
+
 	// 공격 종류에 맞는 이동과 공통 포커스를 준비하며 왕복 준비 실패를 알린다.
 	bool PrepareAttackMovement(UAnimMontage* Montage, FName SectionName);
 

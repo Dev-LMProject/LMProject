@@ -26,5 +26,5 @@ public:
 
 	// OutCandidates를 이번 검사에 통과한 Actor들로 채우고 선정된 Actor 하나를 반환한다.
 	// 후보가 없거나 카메라 조회에 실패하면 빈 배열과 nullptr을 돌려준다.
-	static AActor* FindFocusTargets(APlayerController* PlayerController, float FocusRange, float SwitchMargin, AActor* CurrentTarget, TArray<TWeakObjectPtr<AActor>>& OutCandidates);
+	static AActor* FindFocusTargets(APlayerController* PlayerController, float FocusRange, float SwitchMargin, AActor* CurrentTarget, TArray<TWeakObjectPtr<AActor>>& OutCandidates, bool bAttackOnly = false);
 };
