@@ -142,6 +142,8 @@ bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 
 	TArray<FLMHackingCell*> PendingCells;
 	PendingCells.Add(&Cells[CellIndex]);
+	TArray<int32> AffectedCellIndices;
+	AffectedCellIndices.Reserve(PendingCells.Num());
 
 	// 처리 중 추가된 이웃까지 읽기 위해 매번 현재 Num()을 확인한다.
 	for (int32 ReadIndex = 0; ReadIndex < PendingCells.Num(); ++ReadIndex)
@@ -149,7 +151,11 @@ bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 		// PendingCells가 늘어나도 안전하도록 포인터 값을 복사한다.
 		FLMHackingCell* PendingCell = PendingCells[ReadIndex];
 
-		PendingCell->ReceiveValue(OriginalValue, NewValue, PendingCells);
+		// 중복으로 큐에 들어온 셀은 첫 변경에서만 기록해 실제 전파 순서를 보존한다.
+		if (PendingCell->ReceiveValue(OriginalValue, NewValue, PendingCells))
+		{
+			AffectedCellIndices.Add(static_cast<int32>(PendingCell - Cells.GetData()));
+		}
 	}
 
 	// 전파된 셀 수와 관계없이 클릭 한 번으로 계산한다.
@@ -165,7 +171,10 @@ bool ULMHackingComponent::SubmitMove(int32 CellIndex, uint8 NewValue)
 		Phase = ELMHackingPhase::Failed;
 	}
 
-	// 전파와 판정을 모두 끝낸 뒤 UI에 한 번 알린다.
+	// 보드 숫자는 이미 확정했지만 WBP가 먼저 전파 연출을 시작하도록 변경 정보를 전달한다.
+	OnMoveResolved.Broadcast(OriginalValue, NewValue, AffectedCellIndices);
+
+	// 전파 연출을 시작한 뒤 최종 횟수·단계를 UI에 알린다.
 	OnPuzzleChanged.Broadcast();
 	return true;
 }

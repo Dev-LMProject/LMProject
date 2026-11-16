@@ -27,6 +27,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	void RequestClose();
 
+	// BP 연출 종료 후 실제 퍼즐 값으로 화면을 다시 맞춘다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
+	void FinishMovePresentation();
+
 	// 클릭한 셀 인덱스와 선택 숫자를 현재 해킹 세션에 전달한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	bool RequestMove(int32 CellIndex, uint8 NewValue);
@@ -51,13 +55,27 @@ protected:
 	// 현재 숫자, 남은 횟수, 진행 단계와 결과 문구를 BP에 전달한다.
 	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Hacking")
 	void OnPuzzleUpdated(const TArray<uint8>& Values, int32 RemainingMoves, ELMHackingPhase Phase, const FText& ResultText);
+
+	// 1에서 0으로 바뀐 영역을 BP가 전파 순서대로 연출하도록 알린다.
+	UFUNCTION(BlueprintNativeEvent, Category = "LM|Hacking")
+	void OnMovePropagationStarted(const TArray<int32>& AffectedCellIndices);
+	// BP 이벤트를 구현하지 않은 화면의 기본 갱신 동작을 제공한다.
+	virtual void OnMovePropagationStarted_Implementation(const TArray<int32>& AffectedCellIndices);
 private:
 	// 위젯 디자이너에서 보드 모양을 확인할 퍼즐 데이터.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Hacking|Preview", meta = (AllowPrivateAccess = "true", DesignerRebuild))
 	TObjectPtr<ULMHackingPuzzleData> PreviewPuzzleData = nullptr;
 
 	TWeakObjectPtr<ULMHackingComponent> HackingComponent;
+
+	// 파동 연출 중 전체 값 갱신이 셀 글리치를 덮어쓰지 않도록 막는다.
+	bool bIsMovePresentationActive = false;
+
 	// 연결된 세션의 보드·횟수·단계 표시를 갱신한다.
 	UFUNCTION()
 	void RefreshPuzzle();
+
+	// 컴포넌트가 전달한 변경 셀 중 1에서 0으로 정화되는 조작만 BP에 전달한다.
+	UFUNCTION()
+	void HandleMoveResolved(uint8 OriginalValue, uint8 NewValue, const TArray<int32>& AffectedCellIndices);
 };
