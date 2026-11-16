@@ -32,11 +32,10 @@ bool ULMPlayerMeleeMovementComponent::OwnsAttackMove() const
     return OwnerAbility && OwnerAbility->IsActive() && MoveMontage.IsValid() && OwnerAbility->GetAvatarActorFromActorInfo() == CharacterOwner && ASC && ASC->GetAvatarActor() == CharacterOwner && ASC->GetAnimatingAbility() == OwnerAbility && OwnerAbility->GetCurrentMontage() == MoveMontage.Get();
 }
 
-// 전달받은 적의 공격 가능 여부와 지상 접근 조건을 확인하고 방향·전진량을 계산한다.
-bool ULMPlayerMeleeMovementComponent::EvaluateCandidate(ALMBaseCharacter* Candidate, FVector& OutDirection, float& OutTravel) const
+// 전달된 적이 보정 가능한 대상인지 확인하고 수평 방향만 계산한다.
+bool ULMPlayerMeleeMovementComponent::EvaluateCandidate(ALMBaseCharacter* Candidate, FVector& OutDirection) const
 {
     OutDirection = FVector::ZeroVector;
-    OutTravel = 0.0f;
 
     const ALMBaseCharacter* Attacker = Cast<ALMBaseCharacter>(CharacterOwner);
     const UCapsuleComponent* SelfCapsule = Attacker ? Attacker->GetCapsuleComponent() : nullptr;
@@ -85,18 +84,10 @@ bool ULMPlayerMeleeMovementComponent::EvaluateCandidate(ALMBaseCharacter* Candid
         return false;
     }
 
-    const float StopDistance = SelfCapsule->GetScaledCapsuleRadius() + OtherCapsule->GetScaledCapsuleRadius() + ContactGap;
-    const float SurfaceTravel = Distance - StopDistance;
-
-    // 멀리 있는 표식 대상도 바라볼 수는 있지만, 그 적에게 장거리 돌진하지는 않는다.
-    // 기존 접근 허용 거리 안일 때만 캡슐 사이의 간격을 줄인다.
-    if (SurfaceTravel <= MaxApproachDistance)
-        OutTravel = FMath::Max(SurfaceTravel, 0.0f);
-
     return true;
 }
 
-// 이번 타에서 사용할 방향과 짧은 접근 목적지를 한 번 계산해 MotionWarping에 전달한다.
+// 이번 타의 소유자를 등록하고 선택된 적을 바라볼 회전 목표만 전달한다.
 bool ULMPlayerMeleeMovementComponent::BeginMeleeApproach(UGameplayAbility* _MoveOwner, UAnimMontage* _MoveMontage, ALMBaseCharacter* _ApproachTarget)
 {
     if (!IsValid(_MoveOwner) || !_MoveOwner->IsActive() || !IsValid(_MoveMontage) || _MoveOwner->GetAvatarActorFromActorInfo() != CharacterOwner)
@@ -114,62 +105,25 @@ bool ULMPlayerMeleeMovementComponent::BeginMeleeApproach(UGameplayAbility* _Move
         return false;
     }
 
-    // 직전 이동의 목표·접촉 정지·임시 충돌을 정리한 뒤 이번 타의 소유자를 등록한다.
+    // 직전 이동의 목표·임시 충돌을 정리한 뒤 이번 타의 소유자를 등록한다.
     ResetAttackMove();
     MoveOwner = _MoveOwner;
     MoveMontage = _MoveMontage;
+    Warping->RemoveWarpTarget(LMMelee::WarpTarget);
 
+    /* 대상이 없어도 공격 소유권은 유지하고 원본 애니메이션의 전진을 사용한다.
+     * 이동 컴포넌트에서 다른 적을 검색하거나 고정 전진 거리를 만들지 않는다. */
     FVector Direction;
-    float Travel = 0.0f;
-    const bool bHasTarget = EvaluateCandidate(_ApproachTarget, Direction, Travel);
+    if (!EvaluateCandidate(_ApproachTarget, Direction))
+        return false;
 
-    if (bHasTarget)
-    {
-        ApproachTarget = _ApproachTarget;
-    }
-    else
-    {
-        // 전달된 대상이 없거나 사용할 수 없으면 현재 정면으로 공격한다.
-        // 다른 적을 찾는 Overlap 검색은 수행하지 않는다.
-        Direction = CharacterOwner->GetActorForwardVector().GetSafeNormal2D();
-        Travel = UntargetedApproachDistance;
-    }
+    ApproachTarget = _ApproachTarget;
+    const FVector WarpLocation = Capsule->GetComponentLocation() - FVector(0.0f, 0.0f, Capsule->GetScaledCapsuleHalfHeight());
 
-    const FVector Start = Capsule->GetComponentLocation();
-    FVector Destination = Start + Direction * Travel;
-
-    FCollisionQueryParams SweepQuery(SCENE_QUERY_STAT(LMMeleeApproach), false, CharacterOwner);
-
-    TArray<AActor*> AttachedActors;
-    CharacterOwner->GetAttachedActors(AttachedActors, true, true);
-    SweepQuery.AddIgnoredActors(AttachedActors);
-
-    FHitResult Hit;
-    const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(), Capsule->GetScaledCapsuleHalfHeight());
-    const FCollisionResponseParams Responses(Capsule->GetCollisionResponseToChannels());
-
-    // 실제 플레이어 캡슐로 경로를 검사해 벽이나 다른 몸체를 뚫는 목적지를 만들지 않는다.
-    if (Travel > UE_KINDA_SMALL_NUMBER && GetWorld()->SweepSingleByChannel(Hit, Start, Destination, Capsule->GetComponentQuat(), Capsule->GetCollisionObjectType(), Shape, SweepQuery, Responses))
-    {
-        if (Hit.bStartPenetrating)
-        {
-            Destination = Start;
-            bStopMeleeMove = true;
-        }
-        else
-        {
-            const float SafeTravel = FMath::Clamp(Hit.Distance - SweepMargin, 0.0f, Travel);
-            Destination = Start + Direction * SafeTravel;
-        }
-    }
-
-    // 기존 지상 공격과 같은 발 위치 기준이다. 몽타주의 Ignore Z Axis를 켜서 사용한다.
-    const FVector WarpLocation = Destination - FVector(0.0f, 0.0f, Capsule->GetScaledCapsuleHalfHeight());
-
-    // 표적의 Actor 위치가 아니라 접근 목적지와 바라볼 방향을 함께 전달한다.
+    // 몽타주의 Warp Translation은 끄고 Warp Rotation만 켜서 이 목표의 방향만 사용한다.
     Warping->AddOrUpdateWarpTargetFromLocationAndRotation(LMMelee::WarpTarget, WarpLocation, Direction.Rotation());
 
-    return bHasTarget;
+    return true;
 }
 
 // 이전 능력의 늦은 종료가 새 능력의 이동을 지우지 않도록 요청자를 확인한다.
@@ -191,8 +145,7 @@ float ULMPlayerMeleeMovementComponent::SlideAlongSurface(const FVector& Delta, f
         const ALMBaseCharacter* Other = Cast<ALMBaseCharacter>(Hit.GetActor());
         if (Other && Other->IsHostileTo(Attacker) && Hit.GetComponent() == Other->GetCapsuleComponent())
         {
-            // 평타는 적 접촉 뒤 남은 전진도 멈춰 몸 옆으로 미끄러지지 않게 한다.
-            bStopMeleeMove = true;
+            // 이번 충돌의 잔여 이동만 막고 다음 물리 단계의 후퇴는 허용한다.
             Velocity.X = 0.0f;
             Velocity.Y = 0.0f;
             return 0.0f;
@@ -203,19 +156,60 @@ float ULMPlayerMeleeMovementComponent::SlideAlongSurface(const FVector& Delta, f
     return Super::SlideAlongSurface(Delta, Time, Normal, Hit, bHandleImpact);
 }
 
-/** 엔진의 루트 속도 적용 과정에서 접촉한 타의 XY만 제거하고 Z축 처리는 유지한다. */
-FVector ULMPlayerMeleeMovementComponent::ConstrainAnimRootMotionVelocity(const FVector& RootMotionVelocity, const FVector& CurrentVelocity) const
+// 물리 단계의 이동 선분이 적 앞 정지 경계를 통과하면 최초 접점까지 수평 속도를 줄인다.
+void ULMPlayerMeleeMovementComponent::ApplyRootMotionToVelocity(float DeltaTime)
 {
-    FVector Result = Super::ConstrainAnimRootMotionVelocity(RootMotionVelocity, CurrentVelocity);
+    // 애니메이션과 엔진이 정한 루트 속도를 먼저 받아 원본 이동량과 Z축 처리를 유지한다.
+    Super::ApplyRootMotionToVelocity(DeltaTime);
 
-    if (bStopMeleeMove && OwnsAttackMove() && IsMovingOnGround())
+    // 평타 소유 구간에만 적용한다. 왕복 공격·일반 보행·공중 이동은 기존 처리를 사용한다.
+    if (DeltaTime <= 0.0f || bRoundTripMove || !HasAnimRootMotion() || !IsMovingOnGround() || !OwnsAttackMove())
+        return;
+
+    if (ApproachTarget.IsExplicitlyNull()) return;
+
+    ALMBaseCharacter* Target = ApproachTarget.Get();
+    const ALMPlayerController* Controller = CharacterOwner ? Cast<ALMPlayerController>(CharacterOwner->GetController()) : nullptr;
+    if (!Target || !Controller || Controller->GetAttackFocusTarget() != Target)
     {
-        // 접촉 다음 프레임에 애니메이션이 다시 앞으로 미는 것을 막는다.
-        Result.X = 0.0f;
-        Result.Y = 0.0f;
+        StopMeleeTargetAssist();
+        return;
     }
 
-    return Result;
+    const UCapsuleComponent* SelfCapsule = CharacterOwner->GetCapsuleComponent();
+    const UCapsuleComponent* OtherCapsule = Target->GetCapsuleComponent();
+    if (!SelfCapsule || !OtherCapsule) return;
+
+    const FVector Start = SelfCapsule->GetComponentLocation();
+    const FVector Other = OtherCapsule->GetComponentLocation();
+    const double FootDifference = (Other.Z - OtherCapsule->GetScaledCapsuleHalfHeight()) - (Start.Z - SelfCapsule->GetScaledCapsuleHalfHeight());
+    if (FMath::Abs(FootDifference) > MaxFootHeightDifference)
+        return;
+
+    // 실제 스케일이 반영된 캡슐 반경을 사용해 크기가 다른 지상 몬스터도 같은 규칙을 따른다.
+    const double StopDistance = static_cast<double>(SelfCapsule->GetScaledCapsuleRadius()) + OtherCapsule->GetScaledCapsuleRadius() + FMath::Max(ContactGap, 0.0f);
+    const FVector Move(Velocity.X * DeltaTime, Velocity.Y * DeltaTime, 0.0f);
+    const FVector ToTarget(Other.X - Start.X, Other.Y - Start.Y, 0.0f);
+    const double MoveLengthSquared = Move.SizeSquared();
+    const double Toward = FVector::DotProduct(Move, ToTarget);
+
+    // 이동이 없거나 적에게서 멀어지는 방향이면 후퇴·옆걸음을 그대로 허용한다.
+    if (MoveLengthSquared <= 0.0 || Toward <= 0.0) return;
+
+    const double Outside = ToTarget.SizeSquared() - FMath::Square(StopDistance);
+    double MoveScale = 0.0;
+    if (Outside > 0.0)
+    {
+        /* 이동 선분과 정지 경계 원의 첫 교점을 구한다.
+         * 프레임이 길어 적 반대편까지 넘어가는 이동도 끝점 검사만으로 놓치지 않는다. */
+        const double Discriminant = FMath::Square(Toward) - MoveLengthSquared * Outside;
+        if (Discriminant <= 0.0) return;
+        MoveScale = FMath::Clamp(Outside / (Toward + FMath::Sqrt(Discriminant)), 0.0, 1.0);
+    }
+
+    // 이미 간격 안이면 안쪽 이동만 막는다. 영구 정지 플래그를 남기지 않는다.
+    Velocity.X *= MoveScale;
+    Velocity.Y *= MoveScale;
 }
 
 // 기존 이동 처리 전에 공통 공격 대상이 사라졌는지 확인한다.
@@ -224,7 +218,7 @@ void ULMPlayerMeleeMovementComponent::TickComponent(float DeltaTime, ELevelTick 
     // 종료 알림이 누락되어도 소유권을 잃은 워프와 임시 충돌 응답을 남기지 않는다.
     if (!OwnsAttackMove())
         ResetAttackMove();
-    /* 적을 잃으면 평타 접근만 멈춘다. 왕복은 고정된 시작점으로 복귀한다.
+    /* 적을 잃으면 평타 보정만 해제하고 원본 이동은 유지한다. 왕복은 시작점으로 복귀한다.
      * 파괴된 weak 참조도 검사하도록 명시적 null과 구분한다. */
     else if (!bRoundTripMove && !ApproachTarget.IsExplicitlyNull())
     {
@@ -239,22 +233,13 @@ void ULMPlayerMeleeMovementComponent::TickComponent(float DeltaTime, ELevelTick 
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 }
 
-// 사라진 적의 이전 위치로 남은 루트 모션이 계속 진행되지 않도록 정지 상태로 바꾼다.
+// 사라진 적의 회전·거리 보정만 해제하고 애니메이션의 전진·후퇴는 계속 허용한다.
 void ULMPlayerMeleeMovementComponent::StopMeleeTargetAssist()
 {
     ApproachTarget.Reset();
-    bStopMeleeMove = true;
 
-    UCapsuleComponent* Capsule = CharacterOwner ? CharacterOwner->GetCapsuleComponent() : nullptr;
-    UMotionWarpingComponent* Warping = CharacterOwner ? CharacterOwner->FindComponentByClass<UMotionWarpingComponent>() : nullptr;
-
-    if (!Capsule || !Warping) return;
-
-    const FVector StopLocation = Capsule->GetComponentLocation() - FVector(0.0f, 0.0f, Capsule->GetScaledCapsuleHalfHeight());
-
-    // 타깃을 바로 삭제하면 원본 루트 모션의 전진이 다시 나올 수 있어 현재 위치로 바꾼다.
-    // 남은 회전 보정도 사라진 적 대신 현재 몸 방향을 목표로 삼는다.
-    Warping->AddOrUpdateWarpTargetFromLocationAndRotation(LMMelee::WarpTarget, StopLocation, CharacterOwner->GetActorRotation());
+    if (UMotionWarpingComponent* Warping = CharacterOwner ? CharacterOwner->FindComponentByClass<UMotionWarpingComponent>() : nullptr)
+        Warping->RemoveWarpTarget(LMMelee::WarpTarget);
 }
 
 // 실제 캡슐과 같은 응답으로 검사하여 앞·뒤의 구조물에 맞춰 이동 거리를 줄인다.
@@ -349,7 +334,6 @@ void ULMPlayerMeleeMovementComponent::ResetAttackMove(bool bResolveOverlap)
     MoveOwner.Reset();
     MoveMontage.Reset();
     ApproachTarget.Reset();
-    bStopMeleeMove = false;
     if (!CharacterOwner) return;
 
     if (UMotionWarpingComponent* Warping = CharacterOwner->FindComponentByClass<UMotionWarpingComponent>())
