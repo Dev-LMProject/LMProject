@@ -74,7 +74,7 @@ FVector ULMTargetQueryLibrary::GetFocusPoint(const AActor* Target)
 }
 
 // 주변 Actor를 찾고 태그·거리·화면·가림 검사를 통과한 대상 중 하나를 선택한다.
-AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerController, float FocusRange, float SwitchMargin, AActor* CurrentTarget, TArray<TWeakObjectPtr<AActor>>& OutCandidates)
+AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerController, float FocusRange, float SwitchMargin, AActor* CurrentTarget, TArray<TWeakObjectPtr<AActor>>& OutCandidates, bool bAttackOnly)
 {
 	// 이전 검색의 대상이 이번 결과에 남지 않도록 출력 배열부터 비운다.
 	OutCandidates.Reset();
@@ -211,6 +211,10 @@ AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerControl
 		// 위 조건을 전부 통과한 뒤에야 Controller에 전달할 후보 배열에 넣는다.
 		OutCandidates.Add(Target);
 
+		// 감지 목록은 유지하되 특수 공격의 선정 점수는 공격 가능한 적에게만 계산한다.
+		if (bAttackOnly && (!Character || !Character->CanBeAttackTargetFor(Cast<ALMBaseCharacter>(Pawn))))
+			continue;
+
 		// 예: 중심에서 108픽셀 떨어지고 화면 짧은 변이 1080이면 점수는 0.1이다.
 		const double Score = (ScreenPosition - ViewCenter).Size() / ViewScale;
 
@@ -236,4 +240,22 @@ AActor* ULMTargetQueryLibrary::FindFocusTargets(APlayerController* PlayerControl
 
 	// 유효 후보가 없었다면 BestTarget은 처음 값인 nullptr이다.
 	return BestTarget;
+}
+
+// 이번 검사에 남은 대상만 사용하고, 상실한 수동 고정을 다른 적에게 자동으로 넘기지 않는다.
+AActor* ULMTargetQueryLibrary::ChooseFocusTarget(const TArray<TWeakObjectPtr<AActor>>& Candidates, AActor* AutoTarget, AActor* CurrentTarget, AActor* AttackTarget, bool& bLockOn)
+{
+	// 검색 이후 파괴가 시작된 Actor도 선정 결과에서 제외한다.
+	const auto IsCandidate = [&Candidates](AActor* Target)
+	{
+		return IsValid(Target) && !Target->IsActorBeingDestroyed() && Candidates.Contains(TWeakObjectPtr<AActor>(Target));
+	};
+
+	if (bLockOn && IsCandidate(CurrentTarget))
+		return CurrentTarget;
+
+	// 같은 갱신에서 자동 선정으로 복귀하되, 진행 중인 한 타의 대상은 새로 지정하지 않는다.
+	bLockOn = false;
+	if (IsCandidate(AttackTarget)) return AttackTarget;
+	return IsCandidate(AutoTarget) ? AutoTarget : nullptr;
 }

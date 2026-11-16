@@ -8,7 +8,7 @@ class ALMBaseCharacter;
 class UAnimMontage;
 class UGameplayAbility;
 
-// 평타 접근과 강공격 왕복 이동을 기존 캐릭터 충돌에 맞춰 처리한다.
+// 평타 접근·특수 관통·강공격 왕복 이동을 기존 캐릭터 충돌에 맞춰 처리한다.
 UCLASS()
 class LUMIA_API ULMPlayerMeleeMovementComponent : public UCharacterMovementComponent
 {
@@ -21,7 +21,10 @@ public:
     // 적 몸체를 통과하는 왕복 공격의 안전한 준비·전진·복귀 목표를 등록한다.
     bool BeginRoundTripMove(UGameplayAbility* _MoveOwner, UAnimMontage* _MoveMontage, const FVector& Direction, float Distance, float WindupDistance);
 
-    // 자신이 시작한 공격 이동을 종료하고 왕복 이동이었다면 몸체 충돌도 복구한다.
+    // 원본 돌진 모션을 유지하며 이번 타 동안 적 몸체만 통과하게 한다.
+    bool BeginPassMove(UGameplayAbility* _MoveOwner, UAnimMontage* _MoveMontage, ALMBaseCharacter* Target);
+
+    // 자신이 시작한 공격 이동을 종료하고 변경했던 몸체 충돌도 복구한다.
     void EndAttackMove(const UGameplayAbility* Requester);
     
     // 공격 이동의 소유권과 대상 상실을 확인한 뒤 엔진의 이동 처리를 실행한다.
@@ -34,23 +37,25 @@ protected:
     // 왕복 공격 중 새로 나타난 구조물을 계단처럼 올라타지 않는다.
     virtual bool CanStepUp(const FHitResult& Hit) const override;
 
-    // 평타의 적 접촉과 강공격의 벽 접촉에서 불필요한 접선 이동을 제한한다.
+    // 평타의 적 접촉과 왕복의 벽 접촉에서 불필요한 접선 이동을 제한한다.
     virtual float SlideAlongSurface(const FVector& Delta, float Time, const FVector& Normal, FHitResult& Hit, bool bHandleImpact) override;
 
     // 원본 루트 모션 속도를 적용한 뒤 적 앞 간격을 침범하는 수평 이동만 줄인다.
     virtual void ApplyRootMotionToVelocity(float DeltaTime) override;
 
 private:
-    // 평타·왕복 중 하나만 이동을 소유하며 능력과 몽타주의 수명은 연장하지 않는다.
+    // 평타·관통·왕복 중 하나만 이동을 소유하며 능력과 몽타주의 수명은 연장하지 않는다.
     TWeakObjectPtr<UGameplayAbility> MoveOwner;
     TWeakObjectPtr<UAnimMontage> MoveMontage;
     bool bRoundTripMove = false;
+    // 특수 공격의 임시 적 몸체 무시를 종료·취소에서 복구하기 위해 기억한다.
+    bool bPassMove = false;
     ECollisionResponse SavedEnemyResponse = ECR_Block;
 
     // 현재 공격 이동의 능력·Avatar·몽타주 연결이 아직 유효한지 확인한다.
     bool OwnsAttackMove() const;
 
-    // 실제 캡슐과 현재 충돌 응답으로 한 방향의 안전 이동 거리를 구한다.
+    // 왕복 공격의 실제 캡슐 충돌 응답으로 한 방향의 안전 이동 거리를 구한다.
     float FindSafeTravel(const FVector& Direction, float Distance) const;
 
     // 소유자가 이미 무효여도 이 컴포넌트가 변경한 상태를 정확히 한 번 복구한다.

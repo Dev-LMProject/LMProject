@@ -70,6 +70,14 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "LM|Focus Camera", meta = (ClampMin = "0.0"))
 	float AttackFocusSpeed = 6.0f;
 
+	// 수동 고정에서 목표 구도를 따라가는 보간 속도다.
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Lock Camera", meta = (ClampMin = "0.0"))
+	float LockFocusSpeed = 6.0f;
+
+	// 1이면 적의 표적점, 0이면 플레이어 시점 위치를 목표로 삼는다.
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Lock Camera", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockTargetWeight = 0.8f;
+
 	// 큰 각도 차이에서도 한 축이 초당 이 각도보다 빠르게 돌아가지 않게 제한한다.
 	UPROPERTY(EditDefaultsOnly, Category = "LM|Focus Camera", meta = (ClampMin = "0.0"))
 	float MaxFocusTurnRate = 180.0f;

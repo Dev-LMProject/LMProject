@@ -41,6 +41,9 @@ private:
 	float FocusRange = 0.0f;
 	float SwitchMargin = 0.0f;
 
+	// 선택 변경 콜백이 즉시 갱신을 다시 요청해도 재귀 검색하지 않게 한다.
+	bool bUpdatingFocus = false;
+
 	// 현재 프레임의 후보와 선택을 계산해 Controller에 전달한다.
 	void UpdateFocus();
 

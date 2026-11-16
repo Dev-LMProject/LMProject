@@ -40,8 +40,14 @@ void ALMBaseCharacter::PostInitializeComponents()
 	/* BP의 예전 Pawn 기본값보다 전투 몸체 분류를 우선한다.
 	 * ASC 재연결 때 호출하지 않아 강공격 중의 임시 Ignore를 덮어쓰지 않는다. */
 	GetCapsuleComponent()->SetCollisionObjectType(CombatTeam == ELMCombatTeam::Enemy ? ECC_GameTraceChannel4 : ECC_Pawn); // LMEnemyBody
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Block);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Overlap); // LMCombatHit
+
+	// BP에 저장된 메시 응답이 캡슐과 별개로 관통 이동이나 검 판정을 막지 않게 한다.
+	GetMesh()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Ignore); // LMCombatHit
 }
 
 /** 캐릭터가 참조 중인 ASC를 GAS 인터페이스로 제공한다. */
