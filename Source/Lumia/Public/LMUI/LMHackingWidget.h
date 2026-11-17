@@ -10,6 +10,7 @@
 
 class ULMHackingComponent;
 class ULMHackingPuzzleData;
+class UWidgetAnimation;
 
 // 퍼즐 UI 입력과 세션 표시를 관리한다.
 UCLASS()
@@ -39,6 +40,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|Hacking")
 	void RequestRetry();
 protected:
+	// Anim_Cleared 종료 시 성공 상태의 해킹 세션을 확정한다.
+	virtual void OnAnimationFinished_Implementation(const UWidgetAnimation* Animation) override;
 	// 자식 버튼에 포커스가 있어도 ESC 입력을 처리한다.
 	virtual FReply NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 	// 디자이너에서 지정한 퍼즐 데이터로 그리드 미리보기를 갱신한다.
@@ -56,11 +59,16 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Hacking")
 	void OnPuzzleUpdated(const TArray<uint8>& Values, int32 RemainingMoves, ELMHackingPhase Phase, const FText& ResultText);
 
-	// 1에서 0으로 바뀐 영역을 BP가 전파 순서대로 연출하도록 알린다.
+	// 정화와 F 확정 영역을 BP가 전파 순서대로 연출하도록 알린다.
 	UFUNCTION(BlueprintNativeEvent, Category = "LM|Hacking")
 	void OnMovePropagationStarted(const TArray<int32>& AffectedCellIndices);
 	// BP 이벤트를 구현하지 않은 화면의 기본 갱신 동작을 제공한다.
 	virtual void OnMovePropagationStarted_Implementation(const TArray<int32>& AffectedCellIndices);
+
+	// 완료 연출은 WBP의 같은 이름의 애니메이션에 자동 연결된다.
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Animations", meta = (BindWidgetAnimOptional))
+	TObjectPtr<UWidgetAnimation> Anim_Cleared = nullptr;
+
 private:
 	// 위젯 디자이너에서 보드 모양을 확인할 퍼즐 데이터.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Hacking|Preview", meta = (AllowPrivateAccess = "true", DesignerRebuild))
@@ -70,12 +78,14 @@ private:
 
 	// 파동 연출 중 전체 값 갱신이 셀 글리치를 덮어쓰지 않도록 막는다.
 	bool bIsMovePresentationActive = false;
+	// 완료 연출의 중복 재생과 재생 중 조기 닫기를 막는다.
+	bool bIsClearPresentationActive = false;
 
-	// 연결된 세션의 보드·횟수·단계 표시를 갱신한다.
+	// 연결된 세션을 표시하고 성공 연출을 시작한다.
 	UFUNCTION()
 	void RefreshPuzzle();
 
-	// 컴포넌트가 전달한 변경 셀 중 1에서 0으로 정화되는 조작만 BP에 전달한다.
+	// 컴포넌트가 전달한 정화와 F 확정 조작을 BP에 전달한다.
 	UFUNCTION()
 	void HandleMoveResolved(uint8 OriginalValue, uint8 NewValue, const TArray<int32>& AffectedCellIndices);
 };

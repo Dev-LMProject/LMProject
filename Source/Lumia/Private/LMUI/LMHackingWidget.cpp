@@ -2,6 +2,7 @@
 
 
 #include "LMUI/LMHackingWidget.h"
+#include "Animation/WidgetAnimation.h"
 #include "Input/Events.h"
 #include "Input/Reply.h"
 #include "InputCoreTypes.h"
@@ -79,11 +80,12 @@ void ULMHackingWidget::ClearSession()
 	}
 
 	bIsMovePresentationActive = false;
+	bIsClearPresentationActive = false;
 	HackingComponent.Reset();
 }
 
 
-// 연결된 세션의 보드·횟수·단계 표시를 갱신한다.
+// 연결된 세션을 표시하고 성공 연출을 시작한다.
 void ULMHackingWidget::RefreshPuzzle()
 {
 	ULMHackingComponent* Component = HackingComponent.Get();
@@ -93,6 +95,24 @@ void ULMHackingWidget::RefreshPuzzle()
 	}
 
 	OnPuzzleUpdated(Component->GetCellValues(), Component->GetRemainingMoves(), Component->GetPhase(), Component->GetResultText());
+
+	// 화면 갱신 중 세션이 바뀌었거나 아직 성공하지 않았다면 완료 연출을 시작하지 않는다.
+	if (Component != HackingComponent.Get() || !IsValid(Component) || Component->GetPhase() != ELMHackingPhase::AwaitingConfirmation || bIsClearPresentationActive)
+	{
+		return;
+	}
+
+	if (!IsValid(Anim_Cleared))
+	{
+		// 애니메이션이 없는 위젯도 성공 세션을 정상적으로 정리한다.
+		UE_LOG(LogTemp, Warning, TEXT("%s: Widget animation Anim_Cleared was not bound."), *GetPathName());
+		RequestClose();
+		return;
+	}
+
+	// 성공 상태 갱신이 반복되어도 완료 연출은 한 번만 재생한다.
+	bIsClearPresentationActive = true;
+	PlayAnimation(Anim_Cleared);
 }
 
 // BP의 파동 연출이 끝난 뒤 컴포넌트의 최종 보드와 진행 상태를 다시 표시한다.
@@ -102,6 +122,20 @@ void ULMHackingWidget::FinishMovePresentation()
 
 	bIsMovePresentationActive = false;
 	RefreshPuzzle();
+}
+
+// WBP 애니메이션 종료 중 Anim_Cleared만 해킹 성공 확정으로 연결한다.
+void ULMHackingWidget::OnAnimationFinished_Implementation(const UWidgetAnimation* Animation)
+{
+	Super::OnAnimationFinished_Implementation(Animation);
+
+	// 위젯 진입 애니메이션 등 다른 시퀀스가 끝났을 때는 성공 처리하지 않는다.
+	if (!bIsClearPresentationActive) return;
+	if (Animation != Anim_Cleared.Get()) return;
+
+	// 완료 애니메이션이 끝난 현재 성공 세션을 컨트롤러 경로로 닫는다.
+	bIsClearPresentationActive = false;
+	RequestClose();
 }
 
 // BP 이벤트를 구현하지 않은 화면은 다음 OnPuzzleChanged에서 최종 값을 갱신한다.
@@ -143,7 +177,9 @@ void ULMHackingWidget::RequestClose()
 		break;
 
 	case ELMHackingPhase::AwaitingConfirmation:
-		Component->ConfirmHacking(this);
+		// 성공 파동과 완료 애니메이션을 끝까지 보여준 뒤에만 확정한다.
+		if (!bIsMovePresentationActive && !bIsClearPresentationActive)
+			Component->ConfirmHacking(this);
 		break;
 
 	default:
@@ -154,7 +190,7 @@ void ULMHackingWidget::RequestClose()
 // 클릭한 셀 인덱스와 선택 숫자를 현재 해킹 세션에 전달한다.
 bool ULMHackingWidget::RequestMove(int32 CellIndex, uint8 NewValue)
 {
-	// 정화 파동이 진행되는 동안 중복 입력으로 연출과 실제 보드가 어긋나지 않게 막는다.
+	// 셀 파동이 진행되는 동안 중복 입력으로 연출과 실제 보드가 어긋나지 않게 막는다.
 	if (bIsMovePresentationActive) return false;
 
 	ULMHackingComponent* Component = HackingComponent.Get();
