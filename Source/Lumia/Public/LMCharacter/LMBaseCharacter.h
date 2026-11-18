@@ -53,6 +53,7 @@ public:
 	bool CanReceiveAttackFrom(const ALMBaseCharacter* Attacker) const;
 	
 	/** 현재 몸체의 ASC·체력·사망 상태를 확인한다. */
+	UFUNCTION(BlueprintPure, Category = "LM|Combat")
 	bool IsAliveForCombat() const;
 
 protected:
