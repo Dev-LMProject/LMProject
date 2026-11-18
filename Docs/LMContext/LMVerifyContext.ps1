@@ -56,7 +56,7 @@ function Bind-Task([string]$Session, [string]$Id) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $dir "$key.plan"), $Id, $utf8)
 }
-function Run-Hook([string]$Event, [string]$Session='qa-a', [string]$Source='startup', [string]$WorkDir=$fixture, [bool]$Disabled=$false, [string]$Pin='') {
+function Run-Hook([string]$Event, [string]$Session='qa-a', [string]$Source='startup', [string]$WorkDir=$fixture, [bool]$Disabled=$false, [string]$Pin='', [string]$Prompt='design a combat system') {
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
     $start.Arguments = $command.Substring($command.IndexOf(' ') + 1)
@@ -72,7 +72,7 @@ function Run-Hook([string]$Event, [string]$Session='qa-a', [string]$Source='star
     if ($Disabled) { $start.EnvironmentVariables['PLANNING_DISABLED']='1' }
     if ($Pin) { $start.EnvironmentVariables['PLAN_ID']=$Pin }
     $process = [Diagnostics.Process]::Start($start)
-    $payload = @{hook_event_name=$Event;session_id=$Session;cwd=$WorkDir;source=$Source;trigger='manual';tool_name='apply_patch';stop_hook_active=$false} | ConvertTo-Json -Compress
+    $payload = @{hook_event_name=$Event;prompt=$Prompt;session_id=$Session;cwd=$WorkDir;source=$Source;trigger='manual';tool_name='apply_patch';stop_hook_active=$false} | ConvertTo-Json -Compress
     $process.StandardInput.Write($payload)
     $process.StandardInput.Close()
     $stdout = $process.StandardOutput.ReadToEnd()
@@ -93,7 +93,8 @@ foreach ($source in @('startup','resume','compact','fork')) {
 Check ($context.Contains('private local working memory') -and $context.Contains('Docs/LMContext/Team/')) 'Bound recovery distinguishes private records from reviewed team knowledge'
 $contextB = (Run-Hook -Event UserPromptSubmit -Session 'qa-b' | ConvertFrom-Json).hookSpecificOutput.additionalContext
 Check ($contextB.Contains('NEXT-task-b') -and -not $contextB.Contains('NEXT-task-a')) 'Concurrent conversation uses its own task'
-$unbound = Run-Hook -Event SessionStart -Session 'qa-unbound'
+Check ([string]::IsNullOrEmpty((Run-Hook -Event SessionStart -Session 'qa-unbound'))) 'Unbound startup does not force planning'
+$unbound = Run-Hook -Event UserPromptSubmit -Session 'qa-unbound'
 Check ($unbound.Contains('No task is bound') -and -not $unbound.Contains('NEXT-task')) 'Unbound conversation never guesses a task'
 Check ($unbound.Contains('private local working memory') -and $unbound.Contains('never add them to Git or Perforce')) 'Unbound task creation defaults to private records'
 $invalid = Run-Hook -Event SessionStart -Pin '../task-a'
