@@ -187,4 +187,7 @@ private:
 
 	int64 RunCombatId = 0;
 	int64 RunAttackId = 0;
+	
+	//플레이어 주시용 함수
+	void UpdateCombatFocus();
 };

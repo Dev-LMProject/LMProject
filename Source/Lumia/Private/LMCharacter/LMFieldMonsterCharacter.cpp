@@ -53,7 +53,11 @@ bool ALMFieldMonsterCharacter::RegisterCombatArea(ALMCombatArea* _CombatArea)
     }
     if (IsValid(CombatArea)&&CombatArea!=_CombatArea)return false;
     //파괴된 이전 영역의 대상이 새 영역등록에 남지 않도록 함
-    if (CombatArea!=_CombatArea)TargetPlayer.Reset();
+    if (CombatArea!=_CombatArea)
+    {
+        TargetPlayer.Reset();
+        UpdateCombatFocus();
+    }
 
     CombatArea=_CombatArea;
     return true;
@@ -68,7 +72,20 @@ void ALMFieldMonsterCharacter::UnregisterCombatArea(ALMCombatArea* _CombatArea)
     SetTargetPlayer(_CombatArea, nullptr);
     CombatArea = nullptr;
 }
+void ALMFieldMonsterCharacter::UpdateCombatFocus()
+{
+    AAIController* LMAIController = Cast<AAIController>(GetController());
+    if (!IsValid(LMAIController)) return;
 
+    ALMPlayerCharacter* FocusPlayer = GetTargetPlayer();
+    if (IsValid(FocusPlayer) && !FocusPlayer->IsActorBeingDestroyed() && !bIsDead && !bEndingPlay)
+    {
+        LMAIController->SetFocus(FocusPlayer, EAIFocusPriority::Gameplay);
+        return;
+    }
+
+    LMAIController->ClearFocus(EAIFocusPriority::Gameplay);
+}
 // 소속 영역의 대상 변경을 추격 또는 복귀 상태에 반영한다.
 bool ALMFieldMonsterCharacter::SetTargetPlayer(ALMCombatArea* SourceArea, ALMPlayerCharacter* _TargetPlayer)
 {
@@ -81,6 +98,7 @@ bool ALMFieldMonsterCharacter::SetTargetPlayer(ALMCombatArea* SourceArea, ALMPla
             bReturning = true;
 
         TargetPlayer.Reset();
+        UpdateCombatFocus();
         StopAttack();
         return true;
     }
@@ -92,6 +110,7 @@ bool ALMFieldMonsterCharacter::SetTargetPlayer(ALMCombatArea* SourceArea, ALMPla
 
     // 복귀 중이라도 새 대상을 전달받으면 추격 상태로 전환한다.
     TargetPlayer = _TargetPlayer;
+    UpdateCombatFocus();
     bReturning = false;
     return true;
 }
@@ -173,6 +192,7 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
     {
         // 재진입 전에 상태를 확정하고 피격 제한을 풀기 전에 사망 제한을 세운다.
         bIsDead = true;
+        UpdateCombatFocus();
         bOwnsDeadTag = true;
         AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Dead);
 
@@ -364,6 +384,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     {
         TargetPlayer.Reset();
         bReturning = !bIsDead && !bEndingPlay;
+        UpdateCombatFocus();
         StopAttack();
     }
 
@@ -410,6 +431,7 @@ void ALMFieldMonsterCharacter::FinishReturn()
 void ALMFieldMonsterCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     bEndingPlay = true;
+    UpdateCombatFocus();
     StopAttack();
     
     if (IsValid(CombatAttributes.Get()))
