@@ -1,0 +1,307 @@
+{
+  "name": "planning-with-files",
+  "version": "3.27.0",
+  "commit": "b6580cd24af1d8a95ab268794456e05608a1afd3",
+  "tagObject": "533b05d88938a021986e513871554cd9f7abfc62",
+  "repository": "https://github.com/OthmanAdi/planning-with-files",
+  "archiveUrl": "https://github.com/OthmanAdi/planning-with-files/archive/refs/tags/v3.27.0.zip",
+  "archiveSha256": "a3c1a3f306d5bac7669b11948e812cfff62623ccec7f9f570c6cf84e674edc70",
+  "license": "MIT",
+  "retrieved": "2026-11-02",
+  "files": [
+    {
+      "path": ".agents/skills/planning-with-files/examples.md",
+      "sourceSha256": "450355fac69e0fac93453b6c7383c8fb9ba3470662f6c8291080028f73ce00dc",
+      "installedSha256": "450355fac69e0fac93453b6c7383c8fb9ba3470662f6c8291080028f73ce00dc",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/plan-inventory.md",
+      "sourceSha256": "2fd0804984a12a63a52d272ac9d11343dc6d57c26876535161afd5f119bb921d",
+      "installedSha256": "2fd0804984a12a63a52d272ac9d11343dc6d57c26876535161afd5f119bb921d",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/reference.md",
+      "sourceSha256": "8f7d9cfe1971c5a32f3e5edb63ddfad73a11cc7de19d5065a6ec75fd118c0fdb",
+      "installedSha256": "8f7d9cfe1971c5a32f3e5edb63ddfad73a11cc7de19d5065a6ec75fd118c0fdb",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/SKILL.md",
+      "sourceSha256": "ff7bb3ab01545a975d24ec1a5d6ae17fd8b5a4c40f30787ce8f2e10bfb43991b",
+      "installedSha256": "ff7bb3ab01545a975d24ec1a5d6ae17fd8b5a4c40f30787ce8f2e10bfb43991b",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/attest-plan.ps1",
+      "sourceSha256": "290380786906513e86546b5db3dce2b3e178fc4d8809627345945acaeae74654",
+      "installedSha256": "290380786906513e86546b5db3dce2b3e178fc4d8809627345945acaeae74654",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/attest-plan.sh",
+      "sourceSha256": "4ec2159e6b09d4e5e85082f8491eb8cd2e1addb79e96ad931aa97d51e4f48320",
+      "installedSha256": "4ec2159e6b09d4e5e85082f8491eb8cd2e1addb79e96ad931aa97d51e4f48320",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/check-complete.ps1",
+      "sourceSha256": "c3b3d3a6067c1781647526d0d4367a04bdacf9f8165940cb6d699fb194d794cd",
+      "installedSha256": "c3b3d3a6067c1781647526d0d4367a04bdacf9f8165940cb6d699fb194d794cd",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/check-complete.sh",
+      "sourceSha256": "1b051cfad0e03a207322989fff4b620799bd2463c62c03ebef350fce1d4e1b08",
+      "installedSha256": "1b051cfad0e03a207322989fff4b620799bd2463c62c03ebef350fce1d4e1b08",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/gate-stop.sh",
+      "sourceSha256": "ed4f138ccd9ec727ccc5d966a523c8f8506779d93a30ec0329282b23c511c0e6",
+      "installedSha256": "ed4f138ccd9ec727ccc5d966a523c8f8506779d93a30ec0329282b23c511c0e6",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/init-session.ps1",
+      "sourceSha256": "6e5935cf51d435be418e9453d32a6aabc2e78e31f5b34d523fd0ef73f1b54c33",
+      "installedSha256": "6e5935cf51d435be418e9453d32a6aabc2e78e31f5b34d523fd0ef73f1b54c33",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/init-session.sh",
+      "sourceSha256": "5e1fad55b3623e2d5d726094002999598337911ab919265c60d7efbd321562e2",
+      "installedSha256": "5e1fad55b3623e2d5d726094002999598337911ab919265c60d7efbd321562e2",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/inject-plan.py",
+      "sourceSha256": "89233f24eb693592123889af9c9fa030c001b3b3be2d3c4840ddc3040e844b2e",
+      "installedSha256": "89233f24eb693592123889af9c9fa030c001b3b3be2d3c4840ddc3040e844b2e",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/inject-plan.sh",
+      "sourceSha256": "c925c072977f5de2db5f91dd060d712e7f0457b03b6b62e3d3cd4bc7ae5562d5",
+      "installedSha256": "c925c072977f5de2db5f91dd060d712e7f0457b03b6b62e3d3cd4bc7ae5562d5",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/ledger-append.ps1",
+      "sourceSha256": "d88796090a234f78ae07131e7dfe7ca6de0987d6fd5a4588fffa89bdb1d569c7",
+      "installedSha256": "d88796090a234f78ae07131e7dfe7ca6de0987d6fd5a4588fffa89bdb1d569c7",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/ledger-append.sh",
+      "sourceSha256": "d918315f8b73a2a1e1dddef1c76798d1fd72f5f99644ff34115d0e7ac7e69290",
+      "installedSha256": "d918315f8b73a2a1e1dddef1c76798d1fd72f5f99644ff34115d0e7ac7e69290",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/ledger-summary.ps1",
+      "sourceSha256": "eea1e8f5e4a6b5fabc1acac22c94fae9ccac6c01a5dbf726503b64125a1acd62",
+      "installedSha256": "eea1e8f5e4a6b5fabc1acac22c94fae9ccac6c01a5dbf726503b64125a1acd62",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/ledger-summary.sh",
+      "sourceSha256": "064486ba5c0519eb9df7e5fb2f8c98e121b9d4b454ccaa1550bab6dffb047839",
+      "installedSha256": "064486ba5c0519eb9df7e5fb2f8c98e121b9d4b454ccaa1550bab6dffb047839",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/phase-status.ps1",
+      "sourceSha256": "14af4ffbbbb11295839cffe3fbc1970dc131d26b5e3eecf0e9775315341b9473",
+      "installedSha256": "14af4ffbbbb11295839cffe3fbc1970dc131d26b5e3eecf0e9775315341b9473",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/phase-status.sh",
+      "sourceSha256": "364fa7568fb93efcb485468ae47033f1350c1e0a8bfb00f5857d3e07424c82a9",
+      "installedSha256": "364fa7568fb93efcb485468ae47033f1350c1e0a8bfb00f5857d3e07424c82a9",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/plan-doctor.sh",
+      "sourceSha256": "5a4ef77e2889469f7d1172acde7edb6bf65134d70455aa632f405fea8dbf772d",
+      "installedSha256": "5a4ef77e2889469f7d1172acde7edb6bf65134d70455aa632f405fea8dbf772d",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/resolve-plan-dir.ps1",
+      "sourceSha256": "fc47c52f30aab6d2cb24714526d83792c315f591abc9c26ddc8be17eb15aeeab",
+      "installedSha256": "fc47c52f30aab6d2cb24714526d83792c315f591abc9c26ddc8be17eb15aeeab",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/resolve-plan-dir.sh",
+      "sourceSha256": "3a4cbbefb518147a34081f747e677ce228b80eca886e849c132990362314a65d",
+      "installedSha256": "3a4cbbefb518147a34081f747e677ce228b80eca886e849c132990362314a65d",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/session-catchup.py",
+      "sourceSha256": "ce8e81ff88748185d6afc82860cdfa37bf5134d92ceb7db674585e1db1a4003d",
+      "installedSha256": "ce8e81ff88748185d6afc82860cdfa37bf5134d92ceb7db674585e1db1a4003d",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/set-active-plan.ps1",
+      "sourceSha256": "388d5ac06e94cb2fc8200b0718fdc99ae3cba5b00a4f3566a71f9e3ff63e6c5d",
+      "installedSha256": "388d5ac06e94cb2fc8200b0718fdc99ae3cba5b00a4f3566a71f9e3ff63e6c5d",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/set-active-plan.sh",
+      "sourceSha256": "cd21d07c4a6827d4248886caacfde03dbd73ea9008eb8ab80fe346c9366c5606",
+      "installedSha256": "cd21d07c4a6827d4248886caacfde03dbd73ea9008eb8ab80fe346c9366c5606",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/scripts/skill-hook.sh",
+      "sourceSha256": "94222927ed8a8f9f4cade8cf8911059dd40fa5090b8728fde007bfbee7782cb9",
+      "installedSha256": "94222927ed8a8f9f4cade8cf8911059dd40fa5090b8728fde007bfbee7782cb9",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/templates/analytics_findings.md",
+      "sourceSha256": "cd46495d0a7d59f150f1ecc7f9528bb1b0856bec73a2d04e06f48cdb6798ec0f",
+      "installedSha256": "cd46495d0a7d59f150f1ecc7f9528bb1b0856bec73a2d04e06f48cdb6798ec0f",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/templates/analytics_task_plan.md",
+      "sourceSha256": "c58c0cff7148117a0728c136462faf256848f1e5ef9a7ed528b4f60b7a831ff9",
+      "installedSha256": "c58c0cff7148117a0728c136462faf256848f1e5ef9a7ed528b4f60b7a831ff9",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/templates/findings.md",
+      "sourceSha256": "bb9237ccbf08148d7f7f23ad58fbc9bd7c879c6d0cbca1d533b5b5f21c26c529",
+      "installedSha256": "bb9237ccbf08148d7f7f23ad58fbc9bd7c879c6d0cbca1d533b5b5f21c26c529",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/templates/loop.md",
+      "sourceSha256": "cb13b5f1030a015442a981da69fa0dc910f78f4782ebfa2fd0eac00d6e71a143",
+      "installedSha256": "cb13b5f1030a015442a981da69fa0dc910f78f4782ebfa2fd0eac00d6e71a143",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/templates/progress.md",
+      "sourceSha256": "28fc357000ed2b18910c4e436f0f2e02f4abf0acd29cce370a2670640974f31c",
+      "installedSha256": "28fc357000ed2b18910c4e436f0f2e02f4abf0acd29cce370a2670640974f31c",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/templates/task_plan_autonomous.md",
+      "sourceSha256": "5a93e639a15a3d0e4f89d915199cf09cdd211441547eba86bed34164edc25891",
+      "installedSha256": "5a93e639a15a3d0e4f89d915199cf09cdd211441547eba86bed34164edc25891",
+      "modification": null
+    },
+    {
+      "path": ".agents/skills/planning-with-files/templates/task_plan.md",
+      "sourceSha256": "3c4b61444270f689c3dab81b7113467fb87e9705175aea9c3a3b970bd4e777a3",
+      "installedSha256": "3c4b61444270f689c3dab81b7113467fb87e9705175aea9c3a3b970bd4e777a3",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/codex_hook_adapter.py",
+      "sourceSha256": "eae2f447f8f674f6664a0511195f3aeaa9583c2c85d316c744f3ba9157b0b914",
+      "installedSha256": "eae2f447f8f674f6664a0511195f3aeaa9583c2c85d316c744f3ba9157b0b914",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/context_frame.py",
+      "sourceSha256": "e391bb3f4007db1dc455e2ba6d6dc6a31057336e24bbcf8471c220f503f31147",
+      "installedSha256": "e391bb3f4007db1dc455e2ba6d6dc6a31057336e24bbcf8471c220f503f31147",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/permission_request.py",
+      "sourceSha256": "38e0fb6ea5bbd9f51653b6d1b88ebf806cd46eb5edace1b82d44a1392c3229b0",
+      "installedSha256": "38e0fb6ea5bbd9f51653b6d1b88ebf806cd46eb5edace1b82d44a1392c3229b0",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/plugin_dispatch.py",
+      "sourceSha256": "9ed9c3e0e2ee3ee62899abc4bff791e2ab4d886ea8e4c2deac34249e9ec6743c",
+      "installedSha256": "9ed9c3e0e2ee3ee62899abc4bff791e2ab4d886ea8e4c2deac34249e9ec6743c",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/post_tool_use.py",
+      "sourceSha256": "1b15bcde9aed4ebed31286e1949cee0aea950ed079d47b0b2452bc51db84e45b",
+      "installedSha256": "1b15bcde9aed4ebed31286e1949cee0aea950ed079d47b0b2452bc51db84e45b",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/post-tool-use.sh",
+      "sourceSha256": "4298278f3422b2f720f370c2fbc58d50ba993771e644ef8b1f038210381eb2b7",
+      "installedSha256": "4298278f3422b2f720f370c2fbc58d50ba993771e644ef8b1f038210381eb2b7",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/pre_tool_use.py",
+      "sourceSha256": "1aa3f59d401249ff9ac98acf72f5331d57a3691dcc43b3659e9f1d81d0480778",
+      "installedSha256": "1aa3f59d401249ff9ac98acf72f5331d57a3691dcc43b3659e9f1d81d0480778",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/pre-compact.sh",
+      "sourceSha256": "f24bef12e0a0288b5d6431014fc8b1bc37fa3b01c0621e46eafee363ecabb2f2",
+      "installedSha256": "f24bef12e0a0288b5d6431014fc8b1bc37fa3b01c0621e46eafee363ecabb2f2",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/pre-tool-use.sh",
+      "sourceSha256": "07adf56808f48e7ecabf27e372a9b0e828cbff66d4d4ff8686323838e8e77dac",
+      "installedSha256": "07adf56808f48e7ecabf27e372a9b0e828cbff66d4d4ff8686323838e8e77dac",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/pwf-hook.cmd",
+      "sourceSha256": "3cb29c79355906ec6adbfe6403fd49a6083ae11d23cb182898bac8d282e23c2a",
+      "installedSha256": "3cb29c79355906ec6adbfe6403fd49a6083ae11d23cb182898bac8d282e23c2a",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/resolve-plan-dir.sh",
+      "sourceSha256": "07a26a02c50c5654798805696e3191557675357cb19d9d9c46acffd8f456218f",
+      "installedSha256": "87aa96669df1bf9980ca204a60b9edcbbf75209d651c3165503d7272c41371db",
+      "modification": "Resolve the canonical skill in .agents/skills instead of the legacy .codex/skills path."
+    },
+    {
+      "path": ".codex/hooks/run_sh.py",
+      "sourceSha256": "2d46219ad1ca9c4dedcd6f6f1d8c29114dc2f9df63668800a1d31ed54c608083",
+      "installedSha256": "2d46219ad1ca9c4dedcd6f6f1d8c29114dc2f9df63668800a1d31ed54c608083",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/session-start.sh",
+      "sourceSha256": "5ad94573b70e86a106a6d50ed41321a16c21141ab74d87ecc87054b09c41c2b7",
+      "installedSha256": "6cb13b1d2498f6c7747218323a70212a99abcabec14ccbffdb0560ff9fbff02e",
+      "modification": "Resolve the canonical skill in .agents/skills instead of the legacy .codex/skills path."
+    },
+    {
+      "path": ".codex/hooks/stop.py",
+      "sourceSha256": "7fe23d40db9ed691bbeb1c5cd89af16a4431661e2bdcbf311443f5d1c406af64",
+      "installedSha256": "7fe23d40db9ed691bbeb1c5cd89af16a4431661e2bdcbf311443f5d1c406af64",
+      "modification": null
+    },
+    {
+      "path": ".codex/hooks/stop.sh",
+      "sourceSha256": "d91f1ddf4eaec6158607ef44fe172b2131a28ec716b583c89c3610118919f313",
+      "installedSha256": "7db6230dac47c41ac1cd6af1a4fbdc8479dea593452d16efe8419663c6d7d972",
+      "modification": "Resolve the canonical skill in .agents/skills instead of the legacy .codex/skills path."
+    },
+    {
+      "path": ".codex/hooks/user-prompt-submit.sh",
+      "sourceSha256": "eed4d9b3cf9224f9b2f282650f0449a7b8fb781608360776cc4586109231dcc4",
+      "installedSha256": "eed4d9b3cf9224f9b2f282650f0449a7b8fb781608360776cc4586109231dcc4",
+      "modification": null
+    }
+  ]
+}

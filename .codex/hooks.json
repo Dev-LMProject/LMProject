@@ -1,0 +1,96 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 .codex/hooks/run_sh.py session-start.sh",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAZAAgAD0AIABHAGUAdAAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgAC4ACgB3AGgAaQBsAGUAIAAoACQAZAApACAAewAKACAAIAAgACAAJABzACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABkAC4ARgB1AGwAbABOAGEAbQBlACAAJwAuAGMAbwBkAGUAeAAvAGgAbwBvAGsAcwAvAEwATQBJAG4AdgBvAGsAZQBQAGwAYQBuAG4AaQBuAGcALgBwAHMAMQAnAAoAIAAgACAAIABpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAkAHMAIAAtAFAAYQB0AGgAVAB5AHAAZQAgAEwAZQBhAGYAKQAgAHsAIAAmACAAJABzADsAIABiAHIAZQBhAGsAIAB9AAoAIAAgACAAIAAkAGQAIAA9ACAAJABkAC4AUABhAHIAZQBuAHQACgB9AAoA",
+            "statusMessage": "Loading planning context",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 .codex/hooks/run_sh.py user-prompt-submit.sh",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAZAAgAD0AIABHAGUAdAAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgAC4ACgB3AGgAaQBsAGUAIAAoACQAZAApACAAewAKACAAIAAgACAAJABzACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABkAC4ARgB1AGwAbABOAGEAbQBlACAAJwAuAGMAbwBkAGUAeAAvAGgAbwBvAGsAcwAvAEwATQBJAG4AdgBvAGsAZQBQAGwAYQBuAG4AaQBuAGcALgBwAHMAMQAnAAoAIAAgACAAIABpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAkAHMAIAAtAFAAYQB0AGgAVAB5AHAAZQAgAEwAZQBhAGYAKQAgAHsAIAAmACAAJABzADsAIABiAHIAZQBhAGsAIAB9AAoAIAAgACAAIAAkAGQAIAA9ACAAJABkAC4AUABhAHIAZQBuAHQACgB9AAoA",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|exec_command|apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 .codex/hooks/pre_tool_use.py",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAZAAgAD0AIABHAGUAdAAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgAC4ACgB3AGgAaQBsAGUAIAAoACQAZAApACAAewAKACAAIAAgACAAJABzACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABkAC4ARgB1AGwAbABOAGEAbQBlACAAJwAuAGMAbwBkAGUAeAAvAGgAbwBvAGsAcwAvAEwATQBJAG4AdgBvAGsAZQBQAGwAYQBuAG4AaQBuAGcALgBwAHMAMQAnAAoAIAAgACAAIABpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAkAHMAIAAtAFAAYQB0AGgAVAB5AHAAZQAgAEwAZQBhAGYAKQAgAHsAIAAmACAAJABzADsAIABiAHIAZQBhAGsAIAB9AAoAIAAgACAAIAAkAGQAIAA9ACAAJABkAC4AUABhAHIAZQBuAHQACgB9AAoA",
+            "statusMessage": "Checking plan before tool use",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 .codex/hooks/permission_request.py",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAZAAgAD0AIABHAGUAdAAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgAC4ACgB3AGgAaQBsAGUAIAAoACQAZAApACAAewAKACAAIAAgACAAJABzACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABkAC4ARgB1AGwAbABOAGEAbQBlACAAJwAuAGMAbwBkAGUAeAAvAGgAbwBvAGsAcwAvAEwATQBJAG4AdgBvAGsAZQBQAGwAYQBuAG4AaQBuAGcALgBwAHMAMQAnAAoAIAAgACAAIABpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAkAHMAIAAtAFAAYQB0AGgAVAB5AHAAZQAgAEwAZQBhAGYAKQAgAHsAIAAmACAAJABzADsAIABiAHIAZQBhAGsAIAB9AAoAIAAgACAAIAAkAGQAIAA9ACAAJABkAC4AUABhAHIAZQBuAHQACgB9AAoA",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|exec_command|apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 .codex/hooks/post_tool_use.py",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAZAAgAD0AIABHAGUAdAAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgAC4ACgB3AGgAaQBsAGUAIAAoACQAZAApACAAewAKACAAIAAgACAAJABzACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABkAC4ARgB1AGwAbABOAGEAbQBlACAAJwAuAGMAbwBkAGUAeAAvAGgAbwBvAGsAcwAvAEwATQBJAG4AdgBvAGsAZQBQAGwAYQBuAG4AaQBuAGcALgBwAHMAMQAnAAoAIAAgACAAIABpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAkAHMAIAAtAFAAYQB0AGgAVAB5AHAAZQAgAEwAZQBhAGYAKQAgAHsAIAAmACAAJABzADsAIABiAHIAZQBhAGsAIAB9AAoAIAAgACAAIAAkAGQAIAA9ACAAJABkAC4AUABhAHIAZQBuAHQACgB9AAoA",
+            "statusMessage": "Reviewing changes against plan",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 .codex/hooks/run_sh.py pre-compact.sh",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAZAAgAD0AIABHAGUAdAAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgAC4ACgB3AGgAaQBsAGUAIAAoACQAZAApACAAewAKACAAIAAgACAAJABzACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABkAC4ARgB1AGwAbABOAGEAbQBlACAAJwAuAGMAbwBkAGUAeAAvAGgAbwBvAGsAcwAvAEwATQBJAG4AdgBvAGsAZQBQAGwAYQBuAG4AaQBuAGcALgBwAHMAMQAnAAoAIAAgACAAIABpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAkAHMAIAAtAFAAYQB0AGgAVAB5AHAAZQAgAEwAZQBhAGYAKQAgAHsAIAAmACAAJABzADsAIABiAHIAZQBhAGsAIAB9AAoAIAAgACAAIAAkAGQAIAA9ACAAJABkAC4AUABhAHIAZQBuAHQACgB9AAoA",
+            "statusMessage": "Preparing planning context before compact",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 .codex/hooks/stop.py",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAZAAgAD0AIABHAGUAdAAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgAC4ACgB3AGgAaQBsAGUAIAAoACQAZAApACAAewAKACAAIAAgACAAJABzACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABkAC4ARgB1AGwAbABOAGEAbQBlACAAJwAuAGMAbwBkAGUAeAAvAGgAbwBvAGsAcwAvAEwATQBJAG4AdgBvAGsAZQBQAGwAYQBuAG4AaQBuAGcALgBwAHMAMQAnAAoAIAAgACAAIABpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAkAHMAIAAtAFAAYQB0AGgAVAB5AHAAZQAgAEwAZQBhAGYAKQAgAHsAIAAmACAAJABzADsAIABiAHIAZQBhAGsAIAB9AAoAIAAgACAAIAAkAGQAIAA9ACAAJABkAC4AUABhAHIAZQBuAHQACgB9AAoA",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "LMProject 일일보고"
+  short_description: "기존 템플릿과 게임 사이클 우선순위에 맞춘 팀원별 일일보고"
+  default_prompt: "$lm-daily-report로 오늘 진행한 내용을 기존 일일보고 형식에 맞춰 Notion에 바로 작성해줘."
