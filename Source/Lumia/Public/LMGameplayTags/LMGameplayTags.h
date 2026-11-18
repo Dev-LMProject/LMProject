@@ -90,4 +90,7 @@ namespace LMGameplayTags
 	
 	// 대상 태그를 유지하면서 해당 Actor만 일시적으로 오토포커싱에서 제외한다.
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Focus_Disabled);
+	
+	// 검 보유 여부를 공격 사용 조건으로 확인한다.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Unlock_Weapon_Sword);
 }
