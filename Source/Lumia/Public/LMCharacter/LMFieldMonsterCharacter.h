@@ -174,7 +174,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")
 	TSubclassOf<ULMAttackAbility> AttackAbilityClass;
 
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|AI")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|AI", meta = (AllowPrivateAccess = "true"))
 	bool bAttackRunning = false;
 
 private:
