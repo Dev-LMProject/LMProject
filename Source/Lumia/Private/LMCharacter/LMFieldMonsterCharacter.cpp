@@ -267,9 +267,16 @@ void ALMFieldMonsterCharacter::FinishHitReaction()
 // 실제 활성화 전에 현재 공격권을 보관하고 정확한 GA 종료 관찰을 연결한다.
 bool ALMFieldMonsterCharacter::PrepareAttack()
 {
-    if (bEndingPlay || bAttackRunning || !IsValid(AbilitySystemComponent.Get()))
-        return false;
+    // 이미 실행 중인 공격은 기존 종료 콜백이 정리한다.
+    if (bAttackRunning) return false;
 
+    // 실행을 준비할 수 없으면 접근 중에 받은 공격권도 정리한다.
+    if (bEndingPlay || !IsValid(AbilitySystemComponent.Get()))
+    {
+        StopAttack();
+        return false;
+    }
+    
     ALMCombatArea* Area = GetCombatArea();
     int64 Combat = 0;
     int64 Turn = 0;
