@@ -63,6 +63,7 @@ try {
     }
 
     $sessionId = [string]$payload.session_id
+    $key = $null
     $bindingRelative = $null
     if ($sessionId) {
         $sha = [Security.Cryptography.SHA256]::Create()
@@ -82,8 +83,64 @@ try {
     if ($env:PLAN_ID -and $env:PLAN_ID -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9._-]*$') {
         throw 'PLAN_ID must be one plain task-folder name, with no path separators.'
     }
+    . (Join-Path $PSScriptRoot 'LMDesignLoading.ps1')
+    $state = Get-LMLoadingState $root $key
+    $request = if ($eventName -eq 'UserPromptSubmit') { Get-LMPlanningRequest ([string]$payload.prompt) } else { 'ordinary' }
+    $loadContext = $false
+    if ($eventName -eq 'UserPromptSubmit') {
+        $wasActive = $state.active
+        $state.active = ($request -in @('design','newdesign','recover')) -or ($request -eq 'continue' -and $wasActive)
+        $state.nudged = $false
+        if (-not $state.active) {
+            if ($wasActive) { Save-LMLoadingState $state }
+            exit 0
+        }
+        $loadContext = $request -eq 'recover' -or -not $env:PLAN_ID -or $state.loadedPlan -cne $env:PLAN_ID
+        if ($request -eq 'newdesign' -and $env:PLAN_ID -and (-not $state.loadedPlan -or $state.loadedPlan -ceq $env:PLAN_ID)) {
+            $state.active = $false
+            if (-not $state.pendingNew) {
+                $state.pendingNew = $true
+                Save-LMLoadingState $state
+                Emit-Context $eventName '[LMContext] A new design was requested. Select a distinct PLAN_ID and update this conversation binding before loading it; do not reuse or overwrite the previous design. No old plan was injected.'
+            }
+            exit 0
+        }
+        if ($env:PLAN_ID -and -not $loadContext) {
+            $stamp = Get-LMPlanStamp $root $env:PLAN_ID
+            if ($state.stamp -cne $stamp) {
+                $state.stamp = $stamp
+                Emit-Context $eventName '[LMContext] Selected design records changed. Read only the relevant changed record/section; do not reload unchanged skill bodies or restart the same design. Explicit recovery still reloads the full selected context.'
+            }
+            Save-LMLoadingState $state
+            exit 0
+        }
+    } elseif ($eventName -eq 'SessionStart') {
+        # A previously selected task is recoverable even before this policy created receipts.
+        if (-not $env:PLAN_ID) {
+            if ($state.prompted) { $state.prompted = $false; $state.active = $false; Save-LMLoadingState $state }
+            exit 0
+        }
+        $loadContext = $true
+        $state.active = $true
+    } elseif ($eventName -eq 'PreToolUse') {
+        # Never repeat a plan before every shell/read/edit operation.
+        exit 0
+    } elseif ($eventName -eq 'PreCompact') {
+        if (-not $env:PLAN_ID -or $state.loadedPlan -cne $env:PLAN_ID) { exit 0 }
+    } else {
+        if (-not $env:PLAN_ID -or -not $state.active -or $state.loadedPlan -cne $env:PLAN_ID) { exit 0 }
+        if ($eventName -eq 'PostToolUse') {
+            if ($state.nudged) { exit 0 }
+            $state.nudged = $true
+            Save-LMLoadingState $state
+            @{hookSpecificOutput=@{hookEventName='PostToolUse'; additionalContext='[LMContext] Keep the selected design progress and next action current after meaningful changes; do not reread unchanged skill or plan bodies.'}} | ConvertTo-Json -Compress
+            exit 0
+        }
+    }
     if (-not $env:PLAN_ID) {
-        if ($eventName -in @('SessionStart', 'UserPromptSubmit')) {
+        if ($loadContext -and (-not $state.prompted -or $request -eq 'recover')) {
+            $state.prompted = $true
+            Save-LMLoadingState $state
             $hint = if ($bindingRelative) { "Bind this conversation by writing ONLY its chosen PLAN_ID to $bindingRelative (relative to the project root)." } else { 'Set PLAN_ID in the environment before starting the Codex host.' }
             Emit-Context $eventName "[LMContext] No task is bound; no plan has been selected or injected. Read Docs/LMContext/README.ko.md and .agents/skills/planning-with-files/SKILL.md. Reuse the task explicitly requested by the user, or initialize a new named plan. All .planning records are private local working memory: never add them to Git or Perforce. Read Docs/LMContext/SHARING.ko.md; share only reviewed team summaries in Docs/LMContext/Team/. $hint Do not choose another person's plan. Then read that task's task_plan.md, findings.md and progress.md. Project root: $root"
         }
@@ -110,8 +167,15 @@ try {
         if (-not $output) { throw 'The planning hook returned no context. Check Git for Windows and task/session selection.' }
         $result = ($output -join "`n") | ConvertFrom-Json
         if (-not $result.hookSpecificOutput.additionalContext) { throw 'The planning hook returned no additionalContext.' }
-        $result.hookSpecificOutput.additionalContext += "`n[LMContext] Selected task: .planning/$($env:PLAN_ID)/. Read all three files before continuing; injected excerpts are partial. Update next action and verification evidence during work, not only before compact. Keep .planning as private local working memory, excluded from Git and Perforce. Read Docs/LMContext/SHARING.ko.md and any relevant reviewed handoff in Docs/LMContext/Team/. Promote only necessary team rules, decisions and handoffs; never copy raw personal notes, transcripts or machine-specific state."
+        $result.hookSpecificOutput.additionalContext += "`n[LMContext] Selected task: .planning/$($env:PLAN_ID)/. Read all three files once for this context recovery or newly selected design; injected excerpts are partial. Do not reread unchanged skill/plan bodies during the same design. Update next action and verification evidence during work, not only before compact. Keep .planning as private local working memory, excluded from Git and Perforce. Read Docs/LMContext/SHARING.ko.md and any relevant reviewed handoff in Docs/LMContext/Team/. Promote only necessary team rules, decisions and handoffs; never copy raw personal notes, transcripts or machine-specific state."
         if ($bindingRelative) { $result.hookSpecificOutput.additionalContext += "`nLocal conversation binding: $bindingRelative (never share)." }
+        if ($result.hookSpecificOutput.additionalContext -match 'ACTIVE PLAN') {
+            $state.loadedPlan = $env:PLAN_ID
+            $state.prompted = $false
+            $state.pendingNew = $false
+            $state.stamp = Get-LMPlanStamp $root $env:PLAN_ID
+            Save-LMLoadingState $state
+        }
         $result | ConvertTo-Json -Depth 10 -Compress
     } elseif ($output) { $output }
 } catch {
