@@ -55,6 +55,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove);
 
+	// 이번 이동 갱신의 전투 위치와 도착 여부를 읽고 대기 준비 상태를 보고한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	bool ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove);
+	
 	// 대상이 없는 복귀 성공에서만 최초 방향을 복원하고 복귀를 완료한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	void FinishReturn();

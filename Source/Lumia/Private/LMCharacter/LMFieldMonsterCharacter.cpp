@@ -418,6 +418,58 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     return IsValid(_TargetPlayer);
 }
 
+// 이번 이동 갱신의 결과를 먼저 확정하고 같은 교전과 대기 번호로 준비 상태를 보고한다.
+bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove)
+{
+    // 조회 실패 시 이전 위치와 도착 결과가 남지 않도록 초기화한다.
+    CombatLocation = FVector::ZeroVector;
+    CombatDistance = 0.0;
+    bAtCombatLocation = false;
+    bNeedMove = false;
+
+    ALMCombatArea* QueueArea = GetCombatArea();
+    if (!IsValid(QueueArea)) return false;
+
+    // 보고 중 새 공격권이 배정되어도 이번 조회의 판정과 번호는 유지한다.
+    const int64 SavedCombat = QueueArea->GetCombatId();
+    const int64 SavedWait = WaitId;
+    const bool bHasTurn = bHasAttackTurn;
+    const bool bAllowed = bAttackAllowed;
+    const bool bMoveReady = !bAttackRunning && bCanWork;
+    const ALMPlayerCharacter* CombatPlayer = GetTargetPlayer();
+    const bool bHasTarget = IsValid(CombatPlayer) && !CombatPlayer->IsActorBeingDestroyed();
+
+    // 공격 실행 중이거나 중단 중인 공격권을 가진 경우에는 이동 위치를 요청하지 않는다.
+    const bool bCanReadPlace = bMoveReady && bHasTarget && !bReturning && !IsActorBeingDestroyed() && (!bHasTurn || bAllowed);
+    bool bHasLocation = false;
+    FVector MoveLocation = FVector::ZeroVector;
+
+    if (bCanReadPlace && QueueArea->ReadCombatLocation(this, bAllowed, MoveLocation))
+    {
+        // 거리 계산은 유지하고 도착 여부는 기존 경로 이동 기준으로 판단한다.
+        CombatLocation = MoveLocation;
+        CombatDistance = FVector::Dist(GetNavAgentLocation(), MoveLocation);
+        bAtCombatLocation = QueueArea->IsAtPlace(this, MoveLocation);
+        bHasLocation = true;
+    }
+
+    // 공격 위치 접근과 공격 후 외부 위치 복귀에는 도착까지의 이동을 요구한다.
+    bNeedMove = bHasLocation && !bAtCombatLocation && (bAllowed || (SavedWait > 0 && !bHasTurn));
+
+    // 위치 조회 성공에 이동 가능·대상 유효·복귀 아님 조건이 이미 포함되어 있다.
+    const bool bReady = bHasLocation && bAtCombatLocation && !bHasTurn;
+
+    // 이동 불가나 위치 조회 실패도 보고하여 이전 준비 완료 상태를 남기지 않는다.
+    if (SavedWait > 0)
+        QueueArea->ReportWaitReady(this, SavedCombat, SavedWait, bReady);
+
+    // 보고 중 종료 콜백이 실행될 수 있으므로 영역의 수명을 다시 확인한다.
+    if (bHasLocation && IsValid(QueueArea))
+        QueueArea->FillAttackSlots();
+
+    return bHasLocation;
+}
+
 // 복귀 이동에 성공했고 여전히 대상이 없을 때만 최초 방향과 대기를 복원한다.
 void ALMFieldMonsterCharacter::FinishReturn()
 {
