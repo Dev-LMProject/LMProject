@@ -54,4 +54,7 @@ namespace LMGameplayTags
 	
 	// 에디터와 코드가 같은 이름으로 대상의 일시적인 제외 상태를 검사하게 한다.
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Focus_Disabled, "LM.Focus.Disabled", "오토포커싱 대상에서 일시적으로 제외");
+	
+	// 검을 획득한 플레이어가 보유하는 태그를 등록한다.
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Unlock_Weapon_Sword, "LM.Unlock.Weapon.Sword", "검 보유");
 }
