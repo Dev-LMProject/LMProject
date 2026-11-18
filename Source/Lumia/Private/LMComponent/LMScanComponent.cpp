@@ -1,7 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
-
-
-#include "LMComponent/LMScanComponent.h"
+﻿#include "LMComponent/LMScanComponent.h"
 #include "LMComponent/LMInteractionComponent.h"
 #include "LMCamera/LMPostProcessCameraModifier.h"
 #include "Engine/World.h"
@@ -142,6 +139,12 @@ void ULMScanComponent::HighlightActor(AActor* Target)
 	{
 		return;
 	}
+	
+	// 장치에 색 번호가 지정되어 있으면 그 값을 쓰고, 나머지는 기존 스캔 색을 쓴다.
+	const ULMInteractionComponent* Interaction = Target->FindComponentByClass<ULMInteractionComponent>();
+	int32 TargetStencilValue = ScanStencilValue;
+	if (IsValid(Interaction) && Interaction->ScanColorId >= 1 && Interaction->ScanColorId <= 255)
+		TargetStencilValue = Interaction->ScanColorId;
 
 	TArray<UMeshComponent*> Meshes;
 	Target->GetComponents<UMeshComponent>(Meshes);
@@ -164,7 +167,8 @@ void ULMScanComponent::HighlightActor(AActor* Target)
 		State.WriteMask = Mesh->CustomDepthStencilWriteMask;
 
 		Mesh->SetCustomDepthStencilWriteMask(ERendererStencilMask::ERSM_Default);
-		Mesh->SetCustomDepthStencilValue(ScanStencilValue);
+		// 이번 대상에 선택된 스캔 색상 번호를 메시에 적용한다.
+		Mesh->SetCustomDepthStencilValue(TargetStencilValue);
 		Mesh->SetRenderCustomDepth(true);
 	}
 }

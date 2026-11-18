@@ -80,6 +80,10 @@ public:
     // BP 감지 콜리전을 연결하고 충돌 설정·겹침 이벤트·현재 감지를 갱신한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
     void SetDetectionCollision(UPrimitiveComponent* InCollision);
+	
+	// 스캔 시 이 대상의 강조 색상을 고르는 번호이며, 0이면 LMScanComponent의 기본 스캔 번호를 사용한다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction|Scan", meta = (ClampMin = "0", ClampMax = "255"))
+	int32 ScanColorId = 0;
 
     // 연결된 유효한 감지 콜리전을 반환한다.
     UPrimitiveComponent* GetDetectionCollision() const;
