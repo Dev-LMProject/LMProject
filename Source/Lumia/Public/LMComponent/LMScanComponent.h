@@ -13,6 +13,7 @@ class ULMPostProcessCameraModifier;
 //스캔된 객체의 태두리를 따기 위한 메시 정보 구조체
 struct FLMScanMeshState
 {
+	// 메시와 스캔 전용 글자의 원래 렌더링 설정을 수명을 늘리지 않고 기억한다.
 	TWeakObjectPtr<UMeshComponent> Mesh;
 
 	bool bRenderCustomDepth = false;
