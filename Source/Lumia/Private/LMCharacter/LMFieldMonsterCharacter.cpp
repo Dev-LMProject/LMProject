@@ -13,6 +13,10 @@
 #include "TimerManager.h"
 #include "LMCharacter/LMPlayerCharacter.h"
 #include "LMCombat/LMCombatArea.h"
+#include "AIController.h"
+#include "Abilities/GameplayAbilityTypes.h"
+#include "GameplayAbilitySpec.h"
+#include "LMCombat/LMAttackAbility.h"
 
 /** 몬스터의 실제 체력과 표시 객체를 각 인스턴스에 독립적으로 생성한다. */
 ALMFieldMonsterCharacter::ALMFieldMonsterCharacter()
@@ -77,6 +81,7 @@ bool ALMFieldMonsterCharacter::SetTargetPlayer(ALMCombatArea* SourceArea, ALMPla
             bReturning = true;
 
         TargetPlayer.Reset();
+        StopAttack();
         return true;
     }
 
@@ -107,6 +112,10 @@ void ALMFieldMonsterCharacter::BeginPlay()
         return;
     }
 
+    // ASC 초기화 뒤 이 몬스터가 소유할 기본공격을 한 번 부여한다.
+    if (HasAuthority() && AttackAbilityClass)
+        AttackAbilityHandle = AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(AttackAbilityClass, 1, INDEX_NONE, this));
+    
     UE_LOG(LogTemp, Display, TEXT("[LMCombat] %s Health=%.1f MaxHealth=%.1f"), *GetName(), CombatAttributes->GetHealth(), CombatAttributes->GetMaxHealth());
 
     // UI 설정이 빠져도 피해 반응 경로는 별도로 준비한다.
@@ -158,7 +167,8 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
     {
         return;
     }
-
+    
+    StopAttack();
     if (_bIsDead)
     {
         // 재진입 전에 상태를 확정하고 피격 제한을 풀기 전에 사망 제한을 세운다.
@@ -234,7 +244,119 @@ void ALMFieldMonsterCharacter::FinishHitReaction()
         CombatArea->FillAttackSlots();
 }
 
-// 현재 이동 데이터를 제공하고 약한 대상 참조의 자연 소멸도 복귀로 처리한다.
+// 실제 활성화 전에 현재 공격권을 보관하고 정확한 GA 종료 관찰을 연결한다.
+bool ALMFieldMonsterCharacter::PrepareAttack()
+{
+    if (bEndingPlay || bAttackRunning || !IsValid(AbilitySystemComponent.Get()))
+        return false;
+
+    ALMCombatArea* Area = GetCombatArea();
+    int64 Combat = 0;
+    int64 Turn = 0;
+    int64 Wait = 0;
+    bool bStop = false;
+
+    if (!IsValid(Area) || !Area->ReadAttackTurn(this, Combat, Turn, bStop, Wait))
+        return false;
+
+    // BP가 실행할 능력과 이번 공격권을 종료 알림보다 먼저 확정한다.
+    const TWeakObjectPtr<ALMCombatArea> SavedArea(Area);
+    const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
+
+    RunArea = SavedArea;
+    RunCombatId = Combat;
+    RunAttackId = Turn;
+    bAttackRunning = true;
+
+    const auto OnEnded = [this, SavedArea, SavedHandle, Combat, Turn](const FAbilityEndedData& Data)
+    {
+        if (Data.AbilitySpecHandle == SavedHandle)
+            FinishAttack(SavedArea, Combat, Turn);
+    };
+
+    AttackEndedHandle = AbilitySystemComponent->OnAbilityEnded.AddWeakLambda(this, OnEnded);
+
+    // 이동 중단 이벤트 이후의 현재 상태를 다시 검사한다.
+    const ALMPlayerCharacter* Player = GetTargetPlayer();
+    const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
+    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
+
+    if (bStop || !bReady || !IsValid(Player) || !Player->IsAliveForCombat() || !Spec || Spec->IsActive())
+    {
+        StopAttack();
+        return false;
+    }
+
+    return true;
+}
+// 중단 의도를 기록하고 이동을 멈춘 뒤 실제 GA 종료를 기다린다.
+void ALMFieldMonsterCharacter::StopAttack()
+{
+    const bool bHadRun = bAttackRunning;
+    const TWeakObjectPtr<ALMCombatArea> SavedArea = bHadRun ? RunArea : TWeakObjectPtr<ALMCombatArea>(GetCombatArea());
+
+    int64 Combat = bHadRun ? RunCombatId : 0;
+    int64 Turn = bHadRun ? RunAttackId : 0;
+    int64 Wait = 0;
+    bool bStop = false;
+
+    if (!bHadRun && (!SavedArea.IsValid() || !SavedArea->ReadAttackTurn(this, Combat, Turn, bStop, Wait)))
+        return;
+
+    if (SavedArea.IsValid())
+        SavedArea->RequestStopAttackTurn(this, Combat, Turn);
+
+    if (AAIController* LMAIController = Cast<AAIController>(GetController()))
+        LMAIController->StopMovement();
+
+    GetCharacterMovement()->StopMovementImmediately();
+
+    // GA 실행 전의 접근만 진행 중이었다면 이동 중단 후 반납한다.
+    if (!bHadRun)
+    {
+        if (SavedArea.IsValid())
+            SavedArea->FinishAttackTurn(this, Combat, Turn, !bEndingPlay && !bIsDead && IsAliveForCombat());
+
+        return;
+    }
+
+    // 이동 종료 이벤트에서 이미 정리된 실행을 다시 취소하지 않는다.
+    if (!bAttackRunning || RunArea != SavedArea || RunCombatId != Combat || RunAttackId != Turn)
+        return;
+
+    const FGameplayAbilitySpec* Spec = IsValid(AbilitySystemComponent.Get()) ? AbilitySystemComponent->FindAbilitySpecFromHandle(AttackAbilityHandle) : nullptr;
+
+    if (Spec && Spec->IsActive())
+    {
+        // 취소 요청만으로 반납하지 않고 실제 종료 알림을 기다린다.
+        AbilitySystemComponent->CancelAbilityHandle(AttackAbilityHandle);
+        return;
+    }
+
+    FinishAttack(SavedArea, Combat, Turn);
+}
+
+// 같은 실행의 종료만 반영하고 해당 공격권을 한 번 반납한다.
+void ALMFieldMonsterCharacter::FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunArea, int64 _RunCombatId, int64 _RunAttackId)
+{
+    if (!bAttackRunning || !RunArea.HasSameIndexAndSerialNumber(_RunArea) || RunCombatId != _RunCombatId || RunAttackId != _RunAttackId)
+        return;
+
+    if (IsValid(AbilitySystemComponent.Get()))
+        AbilitySystemComponent->OnAbilityEnded.Remove(AttackEndedHandle);
+
+    AttackEndedHandle.Reset();
+
+    // 영역이 다음 공격권을 배정하기 전에 이전 실행 기록부터 비운다.
+    bAttackRunning = false;
+    RunArea.Reset();
+    RunCombatId = 0;
+    RunAttackId = 0;
+
+    if (ALMCombatArea* Area = _RunArea.Get())
+        Area->FinishAttackTurn(this, _RunCombatId, _RunAttackId, !bEndingPlay && !bIsDead && IsAliveForCombat());
+}
+// 이동과 행동 유지 판정을 함께 제공하고 대상의 자연 소멸도 복귀로 처리한다.
 bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove)
 {
     // 명시적으로 해제되기 전에 대상이 파괴되어도 복귀를 시작한다.
@@ -242,6 +364,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     {
         TargetPlayer.Reset();
         bReturning = !bIsDead && !bEndingPlay;
+        StopAttack();
     }
 
     // BP와 StateTree가 몬스터의 같은 대상 저장소를 읽도록 한다.
@@ -258,6 +381,11 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     bAttackStopping = false;
     WaitId = 0;
     bHasAttackTurn = IsValid(CombatArea.Get()) && CombatArea->ReadAttackTurn(this, AttackCombatId, AttackId, bAttackStopping, WaitId);
+
+    // BP에서는 여러 조건을 다시 조합하지 않고 현재 판정 결과만 읽는다.
+    bAttackAllowed = bHasAttackTurn && !bAttackStopping && AttackCombatId == CombatArea->GetCombatId();
+    bCanWork = (!bAttackRunning && _bCanMove)
+        || (bAttackRunning && bAttackAllowed && IsValid(_TargetPlayer) && !bReturning && !bIsDead && !bIsHitReacting && _TargetPlayer->IsAliveForCombat());
 
     return IsValid(_TargetPlayer);
 }
@@ -278,30 +406,12 @@ void ALMFieldMonsterCharacter::FinishReturn()
     bReturning = false;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /** 자신의 구독과 태그를 정리하고 기존 Base의 GAS 연결 해제를 실행한다. */
 void ALMFieldMonsterCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     bEndingPlay = true;
-
+    StopAttack();
+    
     if (IsValid(CombatAttributes.Get()))
     {
         CombatAttributes->OnDamageApplied.Remove(DamageAppliedHandle);
@@ -319,9 +429,27 @@ void ALMFieldMonsterCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
     FinishHitReaction();
 
-    // 기존 Avatar 실행을 먼저 정리한 뒤 이 몸체가 추가한 사망 태그를 회수한다.
+    // Base가 능력을 취소하는 동안 종료 관찰을 유지한다.
+    const TWeakObjectPtr<ALMCombatArea> SavedArea = RunArea;
+    const int64 SavedCombat = RunCombatId;
+    const int64 SavedTurn = RunAttackId;
+
     Super::EndPlay(EndPlayReason);
 
+    // Avatar 연결 해제 이후 남은 실행 기록을 정리한다.
+    FinishAttack(SavedArea, SavedCombat, SavedTurn);
+
+    if (IsValid(AbilitySystemComponent.Get()))
+    {
+        AbilitySystemComponent->OnAbilityEnded.Remove(AttackEndedHandle);
+
+        if (AttackAbilityHandle.IsValid())
+            AbilitySystemComponent->ClearAbility(AttackAbilityHandle);
+    }
+
+    AttackEndedHandle.Reset();
+    AttackAbilityHandle = FGameplayAbilitySpecHandle();
+    
     if (bOwnsDeadTag)
     {
         bOwnsDeadTag = false;
