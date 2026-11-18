@@ -178,10 +178,10 @@ void ALMCombatArea::BeginCombat()
 	AttackQueue.Reset();
 	const FVector EncounterPlayerPos = TargetPlayer->GetNavAgentLocation();
 
-	// 고정 명단 중 현재 전투 박스 안의 생존 몬스터만 최초 큐에 넣는다.
+	// 복귀 중인 몬스터도 새 교전 대상을 받도록 고정 명단의 생존 몬스터를 큐에 넣는다.
 	for (ALMFieldMonsterCharacter* Monster : RegisteredMonsters)
 	{
-		if (IsQueueMember(Monster) && CombatBounds->IsOverlappingComponent(Monster->GetCapsuleComponent()))
+		if (IsQueueMember(Monster))
 		{
 			const int32 OldTurn = FindAttackTurn(Monster);
 			AttackQueue.Add({Monster, OldTurn == INDEX_NONE ? 0 : ActiveAttacks[OldTurn].AttackId, OldTurn != INDEX_NONE});
