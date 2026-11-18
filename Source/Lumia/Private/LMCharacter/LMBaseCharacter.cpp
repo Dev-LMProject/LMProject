@@ -185,9 +185,23 @@ void ALMBaseCharacter::OnAbilitySystemReady()
 	ensureMsgf(Capsule->GetCollisionResponseToChannel(ECC_GameTraceChannel3) == ECR_Overlap, TEXT("%s: Capsule LMCombatHit must be Overlap."), *GetName());
 
 	// 충돌 검사를 사용하는 메시만 확인하여 몸체 캡슐과의 중복 충돌을 방지한다.
-	const bool bMeshValid = !CharacterMesh->IsQueryCollisionEnabled() || (CharacterMesh->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Ignore && CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel4) == ECR_Ignore && CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel3) == ECR_Ignore);
+	//ECC_GameTraceChannel3 = LMCombatHit
+	//ECC_GameTraceChannel4 = LMEnemyBody
+	
+	// Query 충돌을 사용하는 메시만 채널별로 검사한다.
+	if (CharacterMesh->IsQueryCollisionEnabled())
+	{
+		const ECollisionResponse PawnResponse = CharacterMesh->GetCollisionResponseToChannel(ECC_Pawn);
+		const ECollisionResponse EnemyBodyResponse = CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel4);
+		const ECollisionResponse CombatHitResponse = CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel3);
 
-	ensureMsgf(bMeshValid, TEXT("%s: Query-enabled mesh must ignore Pawn, LMEnemyBody and LMCombatHit."), *GetName());
+		// 이동 충돌은 캡슐이 담당하므로 메시의 몸체 채널은 Ignore여야 한다.
+		ensureMsgf(PawnResponse == ECR_Ignore, TEXT("%s: Mesh [Pawn] must be Ignore. Actual=%d"), *GetName(), static_cast<int32>(PawnResponse));
+		ensureMsgf(EnemyBodyResponse == ECR_Ignore, TEXT("%s: Mesh [LMEnemyBody] must be Ignore. Actual=%d"), *GetName(), static_cast<int32>(EnemyBodyResponse));
+
+		// 메시 피격을 위한 Overlap은 허용하되 전투 Trace를 막는 Block은 금지한다.
+		ensureMsgf(CombatHitResponse == ECR_Ignore || CombatHitResponse == ECR_Overlap, TEXT("%s: Mesh [LMCombatHit] must be Ignore or Overlap. Actual=%d"), *GetName(), static_cast<int32>(CombatHitResponse));
+	}
 }
 
 /** 연결·태그 변경을 각 캐릭터의 행동 정책에 반영할 파생 클래스의 확장 지점이다. */

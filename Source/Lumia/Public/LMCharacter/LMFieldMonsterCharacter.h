@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "LMCharacter/LMBaseCharacter.h"
+#include "GameplayAbilitySpecHandle.h"
 #include "LMFieldMonsterCharacter.generated.h"
 
 class ALMPlayerCharacter;
@@ -11,7 +12,8 @@ class UWidgetComponent;
 class UAnimSequence;
 struct FOnAttributeChangeData;
 class ALMCombatArea;
-class ALMPlayerCharacter;
+class ULMAttackAbility;
+
 /** 
  * 본인 ASC와 전투 속성을 소유하는 일반 몬스터의 기반 몸체다. 
  * 자체 ASC와 체력, 임시 HP UI, 일반 몬스터의 피격·소진 반응을 관리한다.
@@ -46,16 +48,46 @@ public:
 	// ASC 준비 여부와 구분하여 확정된 사망 상태를 반환한다.
 	// 준비되지 않은 몬스터를 사망한 몬스터로 취급하지 않는다.
 	FORCEINLINE bool IsDead() const{return bIsDead;}
-
-	// 현재 이동 판단에 필요한 값을 읽고 소멸한 대상의 복귀 상태를 정리한다.
+	
+	FORCEINLINE bool IsHitReacting() const{return bIsHitReacting;}
+	
+	// 이동 값을 읽고 BP가 사용할 공격 허가와 행동 유지 판정을 함께 갱신한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove);
 
+	// 이번 이동 갱신의 전투 위치와 도착 여부를 읽고 대기 준비 상태를 보고한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	bool ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove);
+	
 	// 대상이 없는 복귀 성공에서만 최초 방향을 복원하고 복귀를 완료한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	void FinishReturn();
 
 protected:
+	// 아래 값은 ReadMoveData에서 갱신하는 스냅샷이며 실제 허가는 CombatArea가 소유한다.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	bool bHasAttackTurn = false;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	int64 AttackCombatId = 0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	int64 AttackId = 0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	bool bAttackStopping = false;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	int64 WaitId = 0;
+
+	// 현재 교전에서 사용할 수 있는 공격권인지 나타낸다.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
+	bool bAttackAllowed = false;
+
+	// 경로 이동 또는 유효한 공격을 계속할 수 있는지 나타낸다.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|AI")
+	bool bCanWork = false;
+
 	/** 플레이 시작 시 ASC를 몸체에 연결하고 체력 초기화를 확인한다. */
 	virtual void BeginPlay() override;
 	
@@ -85,6 +117,7 @@ protected:
 	/** 일반 몬스터의 HP 소진 상태다. 보스의 공통 사망 정책으로 사용하지 않는다. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "LM|Reaction")
 	bool bIsDead = false;
+	
 
 
 private:
@@ -126,4 +159,39 @@ private:
 	// 실제 교전 대상이 해제된 뒤 최초 위치로 돌아가는 동안 유지한다.
 	UPROPERTY(VisibleInstanceOnly, Transient, Category = "LM|AI")
 	bool bReturning = false;
+	
+//GA
+public:
+	// BP가 GA를 실행하기 전에 공격권과 종료 감시를 준비한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	bool PrepareAttack();
+
+	// 이동과 기본공격을 중단하며 실제 GA 종료까지 공격권을 유지한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	void StopAttack();
+
+protected:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")
+	TSubclassOf<ULMAttackAbility> AttackAbilityClass;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|AI", meta = (AllowPrivateAccess = "true"))
+	bool bAttackRunning = false;
+
+private:
+	// 같은 실행의 실제 종료만 반영하고 해당 공격권을 한 번 반납한다.
+	void FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunArea, int64 _RunCombatId, int64 _RunAttackId);
+	
+	// 현재 공격권으로 기본공격 GA를 한 번 실행한다.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|Attack", meta = (AllowPrivateAccess = "true"))
+	FGameplayAbilitySpecHandle AttackAbilityHandle;
+	FDelegateHandle AttackEndedHandle;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<ALMCombatArea> RunArea;
+
+	int64 RunCombatId = 0;
+	int64 RunAttackId = 0;
+	
+	//플레이어 주시용 함수
+	void UpdateCombatFocus();
 };

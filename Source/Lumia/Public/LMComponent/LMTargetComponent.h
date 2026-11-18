@@ -22,4 +22,10 @@ public:
 	// Actor Tags와 별개의 Gameplay Tag 저장소다. 에디터에서 사용할 대상마다 태그를 지정한다.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="LM|Target", meta=(Categories="LM.Focus"))
 	FGameplayTagContainer TargetTags;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="LM|Target")
+	float HeightOffset=0.f;
+protected:
+	UPROPERTY(EditAnywhere,BlueprintReadWrite,Category="LM|Target")
+	TWeakObjectPtr<UPrimitiveComponent> CapsuleComp;
 };
