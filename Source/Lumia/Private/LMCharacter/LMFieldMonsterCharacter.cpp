@@ -2,8 +2,10 @@
 
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSequence.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
@@ -264,7 +266,48 @@ void ALMFieldMonsterCharacter::FinishHitReaction()
         CombatArea->FillAttackSlots();
 }
 
-// 실제 활성화 전에 현재 공격권을 보관하고 정확한 GA 종료 관찰을 연결한다.
+// 캡슐 중심 거리와 발 높이를 확인하고 몸체 사이를 막는 구조물이 있는지 검사한다.
+bool ALMFieldMonsterCharacter::CanStartAttack() const
+{
+    const ALMPlayerCharacter* AttackPlayer = GetTargetPlayer();
+    const UWorld* AttackWorld = GetWorld();
+    if (!IsValid(AttackPlayer) || AttackPlayer->IsActorBeingDestroyed() || !AttackPlayer->IsAliveForCombat() || !AttackWorld)
+        return false;
+    if (!FMath::IsFinite(AttackDistance) || AttackDistance <= 0.0f || !FMath::IsFinite(AttackHeight) || AttackHeight < 0.0f)
+        return false;
+
+    const UCapsuleComponent* SelfCapsule = GetCapsuleComponent();
+    const UCapsuleComponent* PlayerCapsule = AttackPlayer->GetCapsuleComponent();
+    if (!IsValid(SelfCapsule) || !IsValid(PlayerCapsule))
+        return false;
+
+    const FVector SelfCenter = SelfCapsule->GetComponentLocation();
+    const FVector PlayerCenter = PlayerCapsule->GetComponentLocation();
+
+    // 공격 거리는 수평으로 비교하고 키가 다른 캐릭터의 높이는 발 위치로 비교한다.
+    if (FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance))
+        return false;
+
+    const double SelfFoot = SelfCenter.Z - SelfCapsule->GetScaledCapsuleHalfHeight();
+    const double PlayerFoot = PlayerCenter.Z - PlayerCapsule->GetScaledCapsuleHalfHeight();
+    if (FMath::Abs(SelfFoot - PlayerFoot) > AttackHeight)
+        return false;
+
+    // 기존 지상 평타와 같은 LMCombatHit 채널로 검사하고 양쪽 무기·첨부물은 무시한다.
+    FCollisionQueryParams WallQuery(SCENE_QUERY_STAT(LMMonsterAttackStart), false, this);
+    WallQuery.AddIgnoredActor(AttackPlayer);
+
+    TArray<AActor*> AttachedActors;
+    GetAttachedActors(AttachedActors, true, true);
+    WallQuery.AddIgnoredActors(AttachedActors);
+    AttachedActors.Reset();
+    AttackPlayer->GetAttachedActors(AttachedActors, true, true);
+    WallQuery.AddIgnoredActors(AttachedActors);
+
+    return !AttackWorld->LineTraceTestByChannel(SelfCenter, PlayerCenter, ECC_GameTraceChannel3, WallQuery);
+}
+
+// 현재 공격권과 사거리를 확인하고 정확한 GA 종료 관찰을 연결한다.
 bool ALMFieldMonsterCharacter::PrepareAttack()
 {
     // 이미 실행 중인 공격은 기존 종료 콜백이 정리한다.
@@ -308,7 +351,8 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
     const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
     const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
 
-    if (bStop || !bReady || !IsValid(Player) || !Player->IsAliveForCombat() || !Spec || Spec->IsActive())
+    // 상태 선택 뒤 대상이나 거리가 바뀌어도 GA 시작 직전 같은 조건으로 다시 확인한다.
+    if (bStop || Combat != Area->GetCombatId() || !bReady || !IsValid(Player) || !Player->IsAliveForCombat() || !Spec || Spec->IsActive() || !CanStartAttack())
     {
         StopAttack();
         return false;
@@ -418,7 +462,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     return IsValid(_TargetPlayer);
 }
 
-// 이번 이동 갱신의 결과를 먼저 확정하고 같은 교전과 대기 번호로 준비 상태를 보고한다.
+// 공격 사거리와 외부 슬롯 도착을 구분하고 같은 교전과 대기 번호로 준비 상태를 보고한다.
 bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove)
 {
     // 조회 실패 시 이전 위치와 도착 결과가 남지 않도록 초기화한다.
@@ -446,12 +490,16 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
 
     if (bCanReadPlace && QueueArea->ReadCombatLocation(this, bAllowed, MoveLocation))
     {
-        // 거리 계산은 유지하고 도착 여부는 기존 경로 이동 기준으로 판단한다.
+        // 공격은 실제 시작 조건으로 판단하고 바깥 복귀는 기존 경로 도착 기준을 유지한다.
         CombatLocation = MoveLocation;
-        CombatDistance = FVector::Dist(GetNavAgentLocation(), MoveLocation);
-        bAtCombatLocation = QueueArea->IsAtPlace(this, MoveLocation);
+        CombatDistance = bAllowed ? FVector::Dist2D(GetNavAgentLocation(), MoveLocation) : FVector::Dist(GetNavAgentLocation(), MoveLocation);
+        bAtCombatLocation = bAllowed ? CanStartAttack() : QueueArea->IsAtPlace(this, MoveLocation);
         bHasLocation = true;
     }
+
+    // 접근 목표 자체를 잃으면 GA 시작 전의 공격권을 기존 종료 경로로 반납한다.
+    if (bCanReadPlace && !bHasLocation && bAllowed)
+        StopAttack();
 
     // 공격 위치 접근과 공격 후 외부 위치 복귀에는 도착까지의 이동을 요구한다.
     bNeedMove = bHasLocation && !bAtCombatLocation && (bAllowed || (SavedWait > 0 && !bHasTurn));

@@ -55,7 +55,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove);
 
-	// 이번 이동 갱신의 전투 위치와 도착 여부를 읽고 대기 준비 상태를 보고한다.
+	// 공격 사거리 또는 외부 슬롯 도착 여부를 읽고 대기 준비 상태를 보고한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove);
 	
@@ -174,10 +174,21 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")
 	TSubclassOf<ULMAttackAbility> AttackAbilityClass;
 
+	// 캡슐 중심 사이의 수평 거리로 판단하는 기본공격 시작 사거리다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack", meta = (ClampMin = "1.0", Units = "cm"))
+	float AttackDistance = 200.0f;
+
+	// 지상 기본공격에서 허용하는 두 캡슐 발 위치의 높이 차이다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack", meta = (ClampMin = "0.0", Units = "cm"))
+	float AttackHeight = 80.0f;
+
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|AI", meta = (AllowPrivateAccess = "true"))
 	bool bAttackRunning = false;
 
 private:
+	// 현재 대상이 사거리와 발 높이·벽 조건을 만족하는지 같은 기준으로 검사한다.
+	bool CanStartAttack() const;
+
 	// 같은 실행의 실제 종료만 반영하고 해당 공격권을 한 번 반납한다.
 	void FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunArea, int64 _RunCombatId, int64 _RunAttackId);
 	

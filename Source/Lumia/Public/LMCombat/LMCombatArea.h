@@ -37,13 +37,13 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LM|CombatArea")
     void EndCombat();
 	
-	// 배정된 슬롯을 읽고 무효해졌으면 같은 링의 빈 슬롯으로 옮긴다.
+	// 공격권 소유자는 플레이어 위치를 읽고 나머지는 외부 대기 슬롯을 읽는다.
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "LM|CombatArea")
 	bool ReadCombatLocation(ALMFieldMonsterCharacter* Monster, bool bAttack, FVector& Location);
 
-	// 플레이어를 중심으로 지정한 링과 슬롯 번호의 위치를 계산한다.
+	// 플레이어를 중심으로 외부 대기 슬롯의 위치를 계산한다.
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "LM|CombatPlace")
-	bool GetSlotLocation(ALMFieldMonsterCharacter* Monster, bool bAttack, int32 SlotIndex, FVector& Location) const;
+	bool GetSlotLocation(ALMFieldMonsterCharacter* Monster, int32 SlotIndex, FVector& Location) const;
 	
 	// 실제 경로 이동과 같은 반경·높이 기준으로 도착 여부를 조회한다.
 	UFUNCTION(BlueprintPure, Category = "LM|CombatPlace")
@@ -103,14 +103,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "1"))
 	int32 WaitSlotCount = 12;
 
-	// 내부 공격 링의 반경이다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
-	float AttackDistance = 200.0f;
-
-	// 내부 공격 링의 슬롯 개수다. 실제 공격 인원은 MaxAttackers가 제한한다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "1"))
-	int32 AttackSlotCount = 4;
-	
 	// 전투 위치에 도착했다고 판단하는 거리다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
 	float MoveReach = 50.0f;
@@ -178,9 +170,6 @@ private:
 		//개별 공격 허가 번호
 		int64 AttackId = 0;
 		bool bStopping = false;
-		
-		// 실제 종료 전까지 점유하는 내부 공격 슬롯 번호다.
-		int32 SlotIndex = INDEX_NONE;
 	};
 
 	// 고정 명단에 속한 살아 있는 몬스터인지 확인한다.
@@ -199,6 +188,6 @@ private:
 	int64 CombatId = 0;
 	int64 NextAttackId = 0;
 	
-	// 같은 링의 빈 유효 슬롯 중 현재 몬스터와 가장 가까운 번호를 찾는다.
-	int32 FindFreeSlot(ALMFieldMonsterCharacter* Monster, bool bAttack, FVector& Location) const;
+	// 외부 대기 링의 빈 슬롯 중 현재 몬스터와 가장 가까운 번호를 찾는다.
+	int32 FindFreeSlot(ALMFieldMonsterCharacter* Monster, FVector& Location) const;
 };
