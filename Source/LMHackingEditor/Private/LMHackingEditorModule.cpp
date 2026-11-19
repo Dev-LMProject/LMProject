@@ -13,6 +13,7 @@ public:
         PropertyEditor.RegisterCustomClassLayout("LMHackingPuzzleData", FOnGetDetailCustomizationInstance::CreateStatic(&FLMHackingPuzzleDetails::MakeInstance));
         PropertyEditor.NotifyCustomizationModuleChanged();
 
+        // 모듈이 도구를 소유해 종료 시 입력 등록까지 함께 정리한다.
         PlayTestTools = MakeShared<FLMPlayTestTools>();
         PlayTestTools->Start();
     }
@@ -20,6 +21,7 @@ public:
     // 종료 중 내려간 모듈을 다시 로드하지 않고 등록을 해제한다.
     virtual void ShutdownModule() override
     {
+        // Slate의 소유 참조와 델리게이트를 먼저 해제한 뒤 도구를 내려놓는다.
         PlayTestTools->Stop();
         PlayTestTools.Reset();
 

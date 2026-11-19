@@ -15,6 +15,7 @@
 // 게임에서 획득한 상태도 같은 스위치에 표시하도록 ASC를 직접 참조한다.
 void SLMPlayTestMenu::Construct(const FArguments& InArgs)
 {
+    // 화면이 플레이어 수명을 늘리지 않도록 ASC는 약한 참조로 보관한다.
     AbilitySystem = InArgs._AbilitySystem;
     OnClose = InArgs._OnClose;
 
