@@ -21,6 +21,7 @@ ULMInteractInputAbility::ULMInteractInputAbility()
     ActivationBlockedTags.AddTag(LMGameplayTags::State_Input_Blocked);
 }
 
+// 플레이어가 목록에서 고른 장치 또는 근처에서 직접 조작할 장치에 상호작용을 한 번 요청한다.
 void ULMInteractInputAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
     const uint64 ThisActivation = ++ActivationSerial;
@@ -29,7 +30,12 @@ void ULMInteractInputAbility::ActivateAbility(const FGameplayAbilitySpecHandle H
     const TWeakObjectPtr<ALMPlayerController> RequestController(Cast<ALMPlayerController>(ActorInfo ? ActorInfo->PlayerController.Get() : nullptr));
     const TWeakObjectPtr<UAbilitySystemComponent> RequestASC(ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr);
     const TWeakObjectPtr<ULMInteractorComponent> Interactor(RequestPawn.IsValid() ? RequestPawn->FindComponentByClass<ULMInteractorComponent>() : nullptr);
-    const TWeakObjectPtr<AActor> Target(RequestController.IsValid() ? RequestController->GetSelectedInteractionActor() : nullptr);
+
+    // 명시적으로 선택한 장치를 우선하고, 선택이 비어 있을 때만 가장 가까운 숨은 장치를 찾는다.
+    AActor* InputTarget = RequestController.IsValid() ? RequestController->GetSelectedInteractionActor() : nullptr;
+    if (!IsValid(InputTarget) && Interactor.IsValid())
+        InputTarget = Interactor->FindClosestHiddenTarget();
+    const TWeakObjectPtr<AActor> Target(InputTarget);
 
     // 같은 인스턴스가 재활성화됐으면 이전 요청의 후속 처리를 중단한다.
     const auto IsCurrentActivation = [WeakThis, ThisActivation]()

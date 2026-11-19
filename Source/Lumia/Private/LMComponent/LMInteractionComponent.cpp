@@ -11,6 +11,9 @@ ULMInteractionComponent::ULMInteractionComponent()
     PrimaryComponentTick.bStartWithTickEnabled = false;
     InteractionId = FGuid::NewGuid();
     bIsBusy = false;
+    
+    // 개별 이름을 지정하기 전에도 목록에 읽을 수 있는 문구를 표시한다.
+    InteractionName = NSLOCTEXT("LMInteraction", "DefaultInteractionName", "상호작용");
 }
 
 void ULMInteractionComponent::BeginPlay()
@@ -206,6 +209,13 @@ void ULMInteractionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 bool ULMInteractionComponent::MatchesInteractionTags(const FGameplayTagContainer& ActionTags) const
 {
     return ActionTags.IsValid() && HasTagContainer.HasAny(ActionTags);
+}
+
+// 장치의 표시 설정을 읽어 스캔 색상과 상호작용 가능 상태를 독립적으로 유지한다.
+bool ULMInteractionComponent::IsPromptHidden() const
+{
+    static const FName HidePromptTag(TEXT("LM.HideInteractionPrompt"));
+    return ComponentHasTag(HidePromptTag);
 }
 
 void ULMInteractionComponent::SetInteractionTags(FGameplayTagContainer InTags)
