@@ -52,6 +52,7 @@ void ULMInteractionHUDWidget::BindInteractor(APawn* Pawn)
     RefreshTargets();
 }
 
+// 감지된 장치 중 근접 UI에 표시할 대상만 모아 목록과 휠 선택을 갱신한다.
 void ULMInteractionHUDWidget::RefreshTargets()
 {
     for (const TWeakObjectPtr<ULMInteractionComponent>& Observed : ObservedInteractions)
@@ -71,10 +72,9 @@ void ULMInteractionHUDWidget::RefreshTargets()
         for (AActor* Target : CurrentInteractor->GetInteractionTargets())
         {
             ULMInteractionComponent* Interaction = Target->FindComponentByClass<ULMInteractionComponent>();
-            if (!IsValid(Interaction))
-            {
+            // 직접 조작하는 장치는 감지 목록에 남겨 두고 HUD의 행과 선택에서 제외한다.
+            if (!IsValid(Interaction) || Interaction->IsPromptHidden())
                 continue;
-            }
 
             ObservedInteractions.Add(TWeakObjectPtr<ULMInteractionComponent>(Interaction));
             Interaction->InteractionTagsChanged.AddUObject(this, &ThisClass::RefreshTargets);

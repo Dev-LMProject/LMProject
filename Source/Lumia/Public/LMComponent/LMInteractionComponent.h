@@ -56,6 +56,9 @@ public:
     // 요청 태그가 비어 있지 않고 대상의 태그에 모두 포함되는지 반환한다.
     bool MatchesInteractionTags(const FGameplayTagContainer& ActionTags) const;
 
+    // 근접 UI에서 숨기고 상호작용 키로 직접 조작하는 장치인지 반환한다.
+    bool IsPromptHidden() const;
+
     // 대상이 가진 상호작용 태그의 복사본을 반환한다.
     UFUNCTION(BlueprintGetter, Category="Interaction|GameplayTags")
     FGameplayTagContainer GetInteractionTags() const { return HasTagContainer; }
@@ -84,6 +87,10 @@ public:
 	// 스캔 시 이 대상의 강조 색상을 고르는 번호이며, 0이면 LMScanComponent의 기본 스캔 번호를 사용한다.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction|Scan", meta = (ClampMin = "0", ClampMax = "255"))
 	int32 ScanColorId = 0;
+	
+	// 플레이어가 가까이 갔을 때 상호작용 목록에 표시할 이름이다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|UI")
+	FText InteractionName;
 
     // 연결된 유효한 감지 콜리전을 반환한다.
     UPrimitiveComponent* GetDetectionCollision() const;

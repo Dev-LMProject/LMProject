@@ -57,4 +57,6 @@ namespace LMGameplayTags
 	
 	// 검을 획득한 플레이어가 보유하는 태그를 등록한다.
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Unlock_Weapon_Sword, "LM.Unlock.Weapon.Sword", "검 보유");
+	// 특수기 해금 보상에서 지급할 태그를 등록한다.
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Unlock_Attack_Special, "LM.Unlock.Attack.Special", "특수기 해금");
 }

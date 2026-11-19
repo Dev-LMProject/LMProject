@@ -93,4 +93,6 @@ namespace LMGameplayTags
 	
 	// 검 보유 여부를 공격 사용 조건으로 확인한다.
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Unlock_Weapon_Sword);
+	// 플레이어가 특수기를 배웠는지 확인할 때 사용한다.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Unlock_Attack_Special);
 }
