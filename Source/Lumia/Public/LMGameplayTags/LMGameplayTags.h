@@ -14,6 +14,7 @@ namespace LMGameplayTags
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Special);
 	/** 상호작용 입력 액션과 입력 능력을 연결한다. */
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Interact);
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Dash);
 
 	
 	/** 능력이나 루트 모션이 일반 이동 대신 캐릭터 이동을 담당하는 상태. */
