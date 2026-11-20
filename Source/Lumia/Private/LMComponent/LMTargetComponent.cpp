@@ -7,6 +7,12 @@ ULMTargetComponent::ULMTargetComponent()
 {
 	// 대상 검색과 선정은 기존 오토포커싱 GA의 Task에서 한 번에 처리한다.
 	PrimaryComponentTick.bCanEverTick = false;
+	if (CapsuleComp!=nullptr)
+	{
+		HeightOffset=CapsuleComp.Get()->GetCollisionShape().GetCapsuleHalfHeight();
+	}
+	auto NewLoc=GetRelativeLocation();
+	SetRelativeLocation(FVector(NewLoc.X,NewLoc.Y+HeightOffset,NewLoc.Z));
 }
 
 // 이 Actor가 오토포커싱 후보 검사를 받을 수 있는 상태인지 반환한다.

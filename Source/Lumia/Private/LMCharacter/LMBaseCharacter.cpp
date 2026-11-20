@@ -15,6 +15,7 @@ ALMBaseCharacter::ALMBaseCharacter(const FObjectInitializer& ObjectInitializer) 
 {
 	// 실제 이동을 막는 몸체를 캡슐로 통일한다.
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Block); // LMEnemyBody
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Overlap);
 
@@ -24,8 +25,29 @@ ALMBaseCharacter::ALMBaseCharacter(const FObjectInitializer& ObjectInitializer) 
 
 	// 메시의 여러 물리 바디가 추가 이동 장애물이 되지 않게 한다.
 	GetMesh()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore); // LMEnemyBody
 	GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Ignore);
+}
+
+// 진영을 기준으로 몸체를 분류하여 기존 BP와 새 보스에도 같은 통과 규칙을 적용한다.
+void ALMBaseCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	if (CombatTeam == ELMCombatTeam::Neutral) return;
+
+	/* BP의 예전 Pawn 기본값보다 전투 몸체 분류를 우선한다.
+	 * ASC 재연결 때 호출하지 않아 강공격 중의 임시 Ignore를 덮어쓰지 않는다. */
+	GetCapsuleComponent()->SetCollisionObjectType(CombatTeam == ELMCombatTeam::Enemy ? ECC_GameTraceChannel4 : ECC_Pawn); // LMEnemyBody
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Block);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Overlap); // LMCombatHit
+
+	// BP에 저장된 메시 응답이 캡슐과 별개로 관통 이동이나 검 판정을 막지 않게 한다.
+	GetMesh()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Ignore); // LMCombatHit
 }
 
 /** 캐릭터가 참조 중인 ASC를 GAS 인터페이스로 제공한다. */
@@ -155,16 +177,31 @@ void ALMBaseCharacter::OnAbilitySystemReady()
 	}
 
 	// 자식 BP가 부모 설정을 덮어썼을 때 어느 캐릭터가 잘못됐는지 알린다.
-	const bool bBodyValid = Capsule->IsQueryCollisionEnabled() && Capsule->GetCollisionObjectType() == ECC_Pawn && Capsule->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block && Capsule->CanCharacterStepUpOn == ECB_No && Capsule->GetWalkableSlopeOverride().WalkableSlopeBehavior == WalkableSlope_Unwalkable;
+	const ECollisionChannel BodyChannel = CombatTeam == ELMCombatTeam::Enemy ? ECC_GameTraceChannel4 : ECC_Pawn; // LMEnemyBody
+	const bool bBodyValid = Capsule->IsQueryCollisionEnabled() && Capsule->GetCollisionObjectType() == BodyChannel && Capsule->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block && Capsule->CanCharacterStepUpOn == ECB_No && Capsule->GetWalkableSlopeOverride().WalkableSlopeBehavior == WalkableSlope_Unwalkable;
 
-	ensureMsgf(bBodyValid, TEXT("%s: Capsule needs query collision, Pawn object/block, No Step Up, Unwalkable."), *GetName());
+	ensureMsgf(bBodyValid, TEXT("%s: Capsule needs its team body channel, query collision, Pawn block, No Step Up, Unwalkable."), *GetName());
 
 	ensureMsgf(Capsule->GetCollisionResponseToChannel(ECC_GameTraceChannel3) == ECR_Overlap, TEXT("%s: Capsule LMCombatHit must be Overlap."), *GetName());
 
 	// 충돌 검사를 사용하는 메시만 확인하여 몸체 캡슐과의 중복 충돌을 방지한다.
-	const bool bMeshValid = !CharacterMesh->IsQueryCollisionEnabled() || (CharacterMesh->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Ignore && CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel3) == ECR_Ignore);
+	//ECC_GameTraceChannel3 = LMCombatHit
+	//ECC_GameTraceChannel4 = LMEnemyBody
+	
+	// Query 충돌을 사용하는 메시만 채널별로 검사한다.
+	if (CharacterMesh->IsQueryCollisionEnabled())
+	{
+		const ECollisionResponse PawnResponse = CharacterMesh->GetCollisionResponseToChannel(ECC_Pawn);
+		const ECollisionResponse EnemyBodyResponse = CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel4);
+		const ECollisionResponse CombatHitResponse = CharacterMesh->GetCollisionResponseToChannel(ECC_GameTraceChannel3);
 
-	ensureMsgf(bMeshValid, TEXT("%s: Query-enabled mesh must ignore Pawn and LMCombatHit."), *GetName());
+		// 이동 충돌은 캡슐이 담당하므로 메시의 몸체 채널은 Ignore여야 한다.
+		ensureMsgf(PawnResponse == ECR_Ignore, TEXT("%s: Mesh [Pawn] must be Ignore. Actual=%d"), *GetName(), static_cast<int32>(PawnResponse));
+		ensureMsgf(EnemyBodyResponse == ECR_Ignore, TEXT("%s: Mesh [LMEnemyBody] must be Ignore. Actual=%d"), *GetName(), static_cast<int32>(EnemyBodyResponse));
+
+		// 메시 피격을 위한 Overlap은 허용하되 전투 Trace를 막는 Block은 금지한다.
+		ensureMsgf(CombatHitResponse == ECR_Ignore || CombatHitResponse == ECR_Overlap, TEXT("%s: Mesh [LMCombatHit] must be Ignore or Overlap. Actual=%d"), *GetName(), static_cast<int32>(CombatHitResponse));
+	}
 }
 
 /** 연결·태그 변경을 각 캐릭터의 행동 정책에 반영할 파생 클래스의 확장 지점이다. */

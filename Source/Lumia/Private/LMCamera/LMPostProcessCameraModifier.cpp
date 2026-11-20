@@ -11,8 +11,7 @@ ULMPostProcessCameraModifier::ULMPostProcessCameraModifier()
 	bDisabled = true;
 
 	// 기존 연결을 기본값으로 유지하며 Modifier BP에서 머테리얼이나 MI로 교체할 수 있다.
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultScanMaterial(
-		TEXT("/Game/Material/M_LM_ScanHighlight.M_LM_ScanHighlight"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultScanMaterial(TEXT("/Game/_BP/LMPuzzle/LMItem/LMArmory/M_LM_ScanHighlight.M_LM_ScanHighlight"));
 	ScanMaterial = DefaultScanMaterial.Object;
 }
 

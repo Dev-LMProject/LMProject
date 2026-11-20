@@ -6,6 +6,8 @@
 #include "LMAttackAbility.generated.h"
 
 class ACharacter;
+class ALMBaseCharacter;
+class ALMBreakableWall;
 class UAnimMontage;
 class ULMAttackData;
 class ULMAbilityTaskWeaponHitTrace;
@@ -87,6 +89,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Approach")
 	TArray<FName> MeleeApproachSections;
 
+	// 지정한 섹션에서는 원본 돌진 모션을 유지하며 적 몸체만 통과한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Pass Move")
+	TArray<FName> PassMoveSections;
+
+	// 특수 대기에서는 포커스를 유지한 채 이번 타의 임시 충돌만 복구한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Attack")
+	void EndAttackTravel();
+
+	// 강공격의 준비 후퇴·전진·복귀를 환경 충돌에 맞춰 보정한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Round Trip")
+	bool bUseRoundTripMove = false;
+
+	// 공격 시작 위치에서 가장 멀리 전진할 거리다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Round Trip", meta = (ClampMin = "0.0", Units = "cm"))
+	float RoundTripDistance = 623.428f;
+
+	// 원본 모션의 준비 후퇴 거리이며 뒤쪽 장애물에도 맞춰 줄인다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Round Trip", meta = (ClampMin = "0.0", Units = "cm"))
+	float RoundTripWindupDistance = 140.893f;
+
 private:
 	/** 몽타주가 끝까지 재생되면 공격을 정상 종료한다. */
 	UFUNCTION()
@@ -119,10 +141,13 @@ private:
 
 	/** 피격 콜백에서 같은 능력이 재시작되어도 이전 범위 검사를 이어가지 않게 한다. */
 	uint32 LandingDamageRun = 0;
-	
-	/** 평타 섹션이면 접근을 시작하고 다른 섹션이면 정리한다. */
-	void PrepareMeleeApproach(UAnimMontage* Montage, FName SectionName);
 
-	/** 이 공격이 소유한 접근 상태를 해제한다. */
-	void FinishMeleeApproach();
+	// 같은 특수 연속 공격의 복귀 방향에만 쓴다. 현재 포커스 후보로 강제 등록하지 않는다.
+	TWeakObjectPtr<ALMBaseCharacter> PassReturnTarget;
+
+	// 공격 종류에 맞는 이동과 공통 포커스를 준비하며 왕복 준비 실패를 알린다.
+	bool PrepareAttackMovement(UAnimMontage* Montage, FName SectionName);
+
+	// 이 공격이 소유한 접근·왕복 이동·공통 포커스를 해제한다.
+	void FinishAttackMovement();
 };

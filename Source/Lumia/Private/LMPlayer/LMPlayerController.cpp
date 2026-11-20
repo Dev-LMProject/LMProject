@@ -3,9 +3,11 @@
 #include "Engine/LocalPlayer.h"
 #include "Components/InputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputCoreTypes.h"
 #include "LMCamera/LMPlayerCameraManager.h"
+#include "LMCamera/LMTargetQueryLibrary.h"
 #include "LMComponent/LMHackingComponent.h"
 #include "LMUI/LMHackingWidget.h"
 #include "LMUI/LMInteractionHUDWidget.h"
@@ -15,6 +17,10 @@
 #include "LMPlayer/LMPlayerState.h"
 #include "LMPlayer/LMInputConfig.h"
 #include "UObject/StrongObjectPtr.h"
+#include "Abilities/GameplayAbility.h"
+#include "LMCharacter/LMBaseCharacter.h"
+#include "LMComponent/LMTargetComponent.h"
+#include "LMGameplayTags/LMGameplayTags.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -48,16 +54,15 @@ void ALMPlayerController::SetupInputComponent()
 	}
 	
 	BindAbilityInputs();
+
+	// Started에만 연결하여 버튼을 누르는 동안 고정 상태가 반복해서 바뀌지 않게 한다.
+	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(InputComponent);
+	if (ensureMsgf(EnhancedInput && LockOnAction, TEXT("Assign LockOnAction in the PlayerController Blueprint.")))
+		EnhancedInput->BindAction(LockOnAction, ETriggerEvent::Started, this, &ThisClass::ToggleLockOn);
 	
-	// 휠·방향키는 HUD의 선택만 이동하고, E 요청은 GAS 입력 경로에서 처리한다.
-	InputComponent->BindKey(EKeys::Up, IE_Pressed,
-		this, &ThisClass::SelectPreviousInteractionTarget).bConsumeInput = true;
-	InputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed,
-		this, &ThisClass::SelectPreviousInteractionTarget).bConsumeInput = true;
-	InputComponent->BindKey(EKeys::Down, IE_Pressed,
-		this, &ThisClass::SelectNextInteractionTarget).bConsumeInput = true;
-	InputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed,
-		this, &ThisClass::SelectNextInteractionTarget).bConsumeInput = true;
+	// 휠은 캐릭터의 공통 축 입력에서 처리하여 대상 전환과 줌이 중복 실행되지 않게 한다.
+	InputComponent->BindKey(EKeys::Up, IE_Pressed, this, &ThisClass::SelectPreviousInteractionTarget).bConsumeInput = true;
+	InputComponent->BindKey(EKeys::Down, IE_Pressed, this, &ThisClass::SelectNextInteractionTarget).bConsumeInput = true;
 	
 	ULocalPlayer* LocalPlayer = GetLocalPlayer();
 	if (!LocalPlayer)
@@ -89,6 +94,11 @@ void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	// 종료 중 새 포커스 갱신이 실행되지 않도록 먼저 막는다.
 	bIsEndingPlay = true;
 	ClearFocus();
+	
+	// Controller 종료 시에는 공격 소유 정보까지 모두 비운다.
+	AttackFocusOwner.Reset();
+	AttackFocusTarget.Reset();
+	
 	OnFocusFrame.Clear();
 
 	ReleaseHackingWidget();
@@ -449,7 +459,7 @@ void ALMPlayerController::UpdateCameraManager(float DeltaSeconds)
 	// 검색 결과가 반영된 다음 현재 선택의 표식 위치를 갱신한다.
 	// 선택이 그대로여도 카메라나 대상이 움직일 수 있으므로 매 프레임 호출한다.
 	if (UserHUD)
-		UserHUD->UpdateFocusMarker(GetFocusTarget());
+		UserHUD->UpdateFocusMarker(GetFocusTarget(), IsLockOn());
 }
 
 // 게임이 멈추면 카메라 갱신도 멈출 수 있으므로 여기서 표식까지 비운다.
@@ -542,13 +552,36 @@ void ALMPlayerController::SetFocusResult(const TArray<TWeakObjectPtr<AActor>>& _
 
 	// 이전 선택을 먼저 지우고 새 후보 안에 있는 대상만 다시 선택한다.
 	FocusTarget.Reset();
-
+	
+	// 새로 선정된 대상이 후보 목록에 있을 때 현재 포커스로 저장한다.
 	const TWeakObjectPtr<AActor> NewTarget(_FocusTarget);
 	if (IsValid(_FocusTarget) && FocusCandidates.Contains(NewTarget))
 		FocusTarget = NewTarget;
 
-	// 이 검사가 활성화된 빌드에서 '선택은 후보 안에 있어야 한다'는 규칙을 확인한다.
+	// 수동 고정 대상을 잃으면 새 자동 선정 결과가 있어도 고정 상태는 다시 켜지지 않는다.
+	if (bLockOn && !CanLockTarget(FocusTarget.Get()))
+		StopLockOn();
+
+	// 공격 보조 대상의 상실이 카메라의 자동 선정을 지우지 않게 별도로 검증한다.
+	if (IsAttackFocusActive())
+	{
+		if (CanChangeAttackTarget())
+		{
+			// 특수 스킬의 복귀 대상·이번 타의 이동 방향은 유지하고 포커스 보조 대상만 갱신한다.
+			AttackFocusTarget = CanLockTarget(FocusTarget.Get()) ? FocusTarget : TWeakObjectPtr<AActor>();
+		}
+		else if (!CanLockTarget(AttackFocusTarget.Get()))
+			AttackFocusTarget.Reset();
+	}
+	else
+	{
+		AttackFocusOwner.Reset();
+		AttackFocusTarget.Reset();
+	}
+
+	// 수동 선택과 이번 타의 적은 달라도 되지만 둘 다 현재 감지 후보 안에 있어야 한다.
 	checkSlow(!FocusTarget.IsValid() || FocusCandidates.Contains(FocusTarget));
+	checkSlow(!AttackFocusTarget.IsValid() || FocusCandidates.Contains(AttackFocusTarget));
 
 	// Get() 결과만 비교하면 파괴된 이전 대상과 새 nullptr이 같아 보일 수 있다.
 	// 약한 참조 자체를 비교해 그 경우에도 선택 해제 알림을 보낸다.
@@ -559,6 +592,7 @@ void ALMPlayerController::SetFocusResult(const TArray<TWeakObjectPtr<AActor>>& _
 // 대상이 없는 검색 결과를 저장하고 화면에 남아 있는 표식을 숨긴다.
 void ALMPlayerController::ClearFocus()
 {
+	StopLockOn();
 	const TArray<TWeakObjectPtr<AActor>> EmptyCandidates;
 
 	// 빈 목록과 nullptr도 같은 갱신 함수를 사용해 변경 알림 규칙을 유지한다.
@@ -567,4 +601,200 @@ void ALMPlayerController::ClearFocus()
 	// 일시정지나 종료 중에는 다음 카메라 프레임이 없을 수 있어 즉시 숨긴다.
 	if (UserHUD)
 		UserHUD->UpdateFocusMarker(nullptr);
+}
+
+// 이번 공격의 보조 대상을 등록하되 사용자의 유효한 수동 선택은 덮어쓰지 않는다.
+void ALMPlayerController::BeginAttackFocus(UGameplayAbility* _AttackFocusOwner, AActor* _AttackFocusTarget)
+{
+    if (!IsValid(_AttackFocusOwner) || !_AttackFocusOwner->IsActive() || _AttackFocusOwner->GetAvatarActorFromActorInfo() != GetPawn())
+    {
+        return;
+    }
+
+    // nullptr도 저장하여 대상 없이 시작한 평타가 도중에 다른 적에게 접근하지 않게 한다.
+    AttackFocusOwner = _AttackFocusOwner;
+    AttackFocusTarget = CanLockTarget(_AttackFocusTarget) ? _AttackFocusTarget : nullptr;
+
+    // 접근할 수 없었던 공격이 유효한 락온이나 일반 포커스까지 지우지 않게 한다.
+    if (!bLockOn && AttackFocusTarget.IsValid())
+    {
+        const TArray<TWeakObjectPtr<AActor>> SavedCandidates = FocusCandidates;
+        SetFocusResult(SavedCandidates, AttackFocusTarget.Get());
+    }
+}
+
+// 자신이 시작한 공격의 보관 상태만 해제하고, 일반 포커스 선정은 다음 Task 갱신에 맡긴다.
+void ALMPlayerController::EndAttackFocus(const UGameplayAbility* _AttackFocusOwner)
+{
+    if (!_AttackFocusOwner) return;
+    if (AttackFocusOwner.Get() != _AttackFocusOwner) return;
+
+    AttackFocusOwner.Reset();
+    AttackFocusTarget.Reset();
+}
+
+// 이미 끝난 GA나 다른 캐릭터의 GA를 공격 중인 상태로 취급하지 않는다.
+bool ALMPlayerController::IsAttackFocusActive() const
+{
+    const UGameplayAbility* OwnerAbility = AttackFocusOwner.Get();
+
+    return OwnerAbility && OwnerAbility->IsActive() && OwnerAbility->GetAvatarActorFromActorInfo() == GetPawn();
+}
+
+// 기존 특수 상태 태그로 재선정 정책을 구분하고 별도 태그나 컴포넌트는 만들지 않는다.
+bool ALMPlayerController::CanChangeAttackTarget() const
+{
+    const ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent();
+    return IsAttackFocusActive() && ASC && ASC->HasMatchingGameplayTag(LMGameplayTags::State_Attack_Special);
+}
+
+// 현재 수동 선택과 달라도 유효한 이번 타의 적은 기존 접근 보조에 제공한다.
+AActor* ALMPlayerController::GetAttackFocusTarget() const
+{
+    if (!IsAttackFocusActive()) return nullptr;
+    AActor* Target = AttackFocusTarget.Get();
+    return CanLockTarget(Target) ? Target : nullptr;
+}
+
+// Actor 참조와 별도로 보관한 수동 고정 여부를 반환한다.
+bool ALMPlayerController::IsLockOn() const
+{
+    return bLockOn;
+}
+
+// 대상 선정 중에도 재귀 검색 없이 수동 고정만 해제한다.
+void ALMPlayerController::StopLockOn()
+{
+    bLockOn = false;
+}
+
+// 휠 클릭과 회전에 같은 생존·입력 차단 규칙을 적용한다.
+bool ALMPlayerController::CanUseFocusInput() const
+{
+    const ALMBaseCharacter* PlayerCharacter = Cast<ALMBaseCharacter>(GetPawn());
+    const ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent();
+    return CanUpdateFocus() && PlayerCharacter && PlayerCharacter->IsAliveForCombat() && ASC && !ASC->HasMatchingGameplayTag(LMGameplayTags::State_Input_Blocked);
+}
+
+// 중요 오브젝트와 전투 가능한 적을 구분하고 현재 감지 목록에 포함됐는지 확인한다.
+bool ALMPlayerController::CanLockTarget(AActor* Target) const
+{
+    if (!CanUpdateFocus() || !IsValid(Target)) return false;
+    const ALMBaseCharacter* PlayerCharacter = Cast<ALMBaseCharacter>(GetPawn());
+    const ALMBaseCharacter* Enemy = Cast<ALMBaseCharacter>(Target);
+    const ULMTargetComponent* Point = Target->FindComponentByClass<ULMTargetComponent>();
+    if (!PlayerCharacter || !Enemy || !FocusCandidates.Contains(TWeakObjectPtr<AActor>(Target)))
+    {
+        return false;
+    }
+
+    return Point && Point->CanFocus() && !Target->IsHidden() && Enemy->CanBeAttackTargetFor(PlayerCharacter);
+}
+
+// 감지된 적을 화면 좌표로 비교하여 배열 순서와 관계없이 원하는 방향의 적을 고른다.
+AActor* ALMPlayerController::FindLockTarget(int32 Direction) const
+{
+    int32 Width = 0;
+    int32 Height = 0;
+    GetViewportSize(Width, Height);
+    if (Width <= 0 || Height <= 0) return nullptr;
+
+    FVector2D Origin(Width * 0.5, Height * 0.5);
+    AActor* CurrentTarget = GetFocusTarget();
+    if (Direction != 0 && (!CurrentTarget || !ProjectWorldLocationToScreen(ULMTargetQueryLibrary::GetFocusPoint(CurrentTarget), Origin, false)))
+    {
+        return nullptr;
+    }
+
+    AActor* BestTarget = nullptr;
+    double BestScore = TNumericLimits<double>::Max();
+    for (const TWeakObjectPtr<AActor>& Candidate : FocusCandidates)
+    {
+        AActor* Target = Candidate.Get();
+        if (!CanLockTarget(Target)) continue;
+        if (Direction != 0 && Target == CurrentTarget) continue;
+
+        FVector2D ScreenPoint;
+        if (!ProjectWorldLocationToScreen(ULMTargetQueryLibrary::GetFocusPoint(Target), ScreenPoint, false))
+            continue;
+
+        const FVector2D Offset = ScreenPoint - Origin;
+        if (Direction != 0 && Offset.X * Direction <= 1.0)
+            continue;
+
+        const double Score = Offset.SizeSquared();
+        if (Score < BestScore)
+        {
+            BestScore = Score;
+            BestTarget = Target;
+        }
+    }
+
+    return BestTarget;
+}
+
+// 입력 직전 후보를 갱신하고 사용자가 클릭했을 때만 수동 고정을 시작한다.
+void ALMPlayerController::ToggleLockOn()
+{
+	// 사망·일시정지·UI 입력 차단 등으로 사용할 수 없으면 처리하지 않는다.
+	if (!CanUseFocusInput()) return;
+
+	// 이미 고정 중이면 고정을 풀고 기존 오토포커싱에 즉시 갱신을 요청한다.
+	if (bLockOn)
+	{
+		StopLockOn();
+		OnFocusFrame.Broadcast();
+		return;
+	}
+
+	// 기존 오토포커싱 Task를 호출하여 클릭 순간의 최신 후보를 확인한다.
+	OnFocusFrame.Broadcast();
+
+	// 갱신 중 UI가 열리거나 플레이어가 사망했을 수 있으므로 다시 검사한다.
+	if (!CanUseFocusInput()) return;
+
+	// 현재 포커스가 적이면 사용하고, 그렇지 않으면 화면 중앙에 가까운 적을 찾는다.
+	AActor* Target = GetFocusTarget();
+	if (!CanLockTarget(Target))
+		Target = FindLockTarget(0);
+	if (!Target) return;
+
+	// SetFocusResult가 내부 목록을 교체하므로 전달할 후보를 먼저 복사한다.
+	const TArray<TWeakObjectPtr<AActor>> SavedCandidates = FocusCandidates;
+
+	// 사용자의 클릭으로만 수동 고정 상태를 시작한다.
+	bLockOn = true;
+	SetFocusResult(SavedCandidates, Target);
+}
+
+// 고정 대상이 아직 유효할 때만 최신 후보에서 화면상 이전·다음 적으로 전환한다.
+void ALMPlayerController::SwitchLockTarget(int32 Direction)
+{
+    if (!bLockOn || !CanUseFocusInput()) return;
+    OnFocusFrame.Broadcast();
+    if (!bLockOn || !CanUseFocusInput()) return;
+
+    AActor* Target = FindLockTarget(Direction);
+    if (!Target) return;
+
+    const TArray<TWeakObjectPtr<AActor>> SavedCandidates = FocusCandidates;
+    SetFocusResult(SavedCandidates, Target);
+}
+
+// 락온 전환·상호작용 선택·줌 중 하나만 한 번의 휠 입력을 사용하게 한다.
+bool ALMPlayerController::HandleMouseWheel(float WheelInput)
+{
+    if (!FMath::IsFinite(WheelInput)) return true;
+    if (FMath::IsNearlyZero(WheelInput)) return true;
+    if (!CanUseFocusInput()) return true;
+
+    const int32 Direction = WheelInput > 0.0f ? -1 : 1;
+    if (bLockOn)
+    {
+        SwitchLockTarget(Direction);
+        return true;
+    }
+
+    // 상호작용 목록이 비었으면 캐릭터의 기존 줌으로 입력을 넘긴다.
+    return InteractionHUD && InteractionHUD->MoveSelection(Direction);
 }

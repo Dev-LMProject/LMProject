@@ -176,6 +176,43 @@ TArray<AActor*> ULMInteractorComponent::GetInteractionTargets() const
 	return Targets;
 }
 
+// 상호작용 키를 눌렀을 때 현재 겹친 장치의 감지 박스 중심까지 거리를 비교한다.
+AActor* ULMInteractorComponent::FindClosestHiddenTarget() const
+{
+    const AActor* PlayerActor = GetOwner();
+    if (bIsEndingPlay || !IsValid(PlayerActor)) return nullptr;
+
+    const FVector PlayerLocation = PlayerActor->GetActorLocation();
+    double ClosestDistanceSquared = TNumericLimits<double>::Max();
+    AActor* ClosestTarget = nullptr;
+    for (const TWeakObjectPtr<AActor>& DetectedTarget : InteractionTargets)
+    {
+        AActor* NearbyActor = DetectedTarget.Get();
+        if (!NearbyActor)
+            continue;
+
+        // 목록에서 선택하는 일반 장치와 현재 요청 태그가 맞지 않는 장치는 건너뛴다.
+        const ULMInteractionComponent* NearbyInteraction = NearbyActor->FindComponentByClass<ULMInteractionComponent>();
+        if (!IsValid(NearbyInteraction) || !NearbyInteraction->IsPromptHidden() ||
+            !NearbyInteraction->MatchesInteractionTags(InteractionActionTags))
+        {
+            continue;
+        }
+
+        const UPrimitiveComponent* TargetSensor = NearbyInteraction->GetDetectionCollision();
+        if (!TargetSensor)
+            continue;
+
+        const double DistanceSquared = FVector::DistSquared(PlayerLocation, TargetSensor->GetComponentLocation());
+        if (DistanceSquared < ClosestDistanceSquared)
+        {
+            ClosestDistanceSquared = DistanceSquared;
+            ClosestTarget = NearbyActor;
+        }
+    }
+    return ClosestTarget;
+}
+
 FLMInteractionResult ULMInteractorComponent::TryInteract(AActor* TargetActor)
 {
     FLMInteractionResult Result;

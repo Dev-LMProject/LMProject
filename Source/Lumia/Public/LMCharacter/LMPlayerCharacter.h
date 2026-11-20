@@ -60,6 +60,12 @@ public:
      */
     ALMPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
+    // 캐릭터의 현재 이동 정책에서 시점 조작을 허용하는지 반환한다.
+    bool IsLookAllowed() const
+    {
+        return MovementPolicy.AllowLook;
+    }
+    
     /** 점프 요청을 검사하고 허용된 카메라 줌을 갱신한다. */
     virtual void Tick(float DeltaSeconds) override;
 

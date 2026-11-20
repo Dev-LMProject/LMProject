@@ -17,8 +17,8 @@ ULMInteractionHUDWidget* ULMUserHUDWidget::GetInteractionHUD() const
 	return InteractionHUD.Get();
 }
 
-// 선택 대상의 표적점을 화면에 투영하고 표식의 Canvas 위치를 변경한다.
-void ULMUserHUDWidget::UpdateFocusMarker(AActor* FocusTarget)
+// 같은 Actor의 고정 여부가 달라진 경우도 기존 위치 갱신에서 함께 표시한다.
+void ULMUserHUDWidget::UpdateFocusMarker(AActor* FocusTarget, bool bLocked)
 {
 	// Designer에 FocusMarker가 없으면 움직일 표식 자체가 없다.
 	if (!FocusMarker) return;
@@ -82,6 +82,9 @@ void ULMUserHUDWidget::UpdateFocusMarker(AActor* FocusTarget)
 	// 아래 에디터 설정에서 앵커는 좌상단, Alignment는 중앙으로 맞춘다.
 	// 그러면 이 위치에 표식의 중심이 놓인다.
 	CanvasSlot->SetPosition(LocalPosition);
+
+	// 새 Tick이나 위젯을 만들지 않고 기존 표식의 색으로 수동 고정을 구분한다.
+	FocusMarker->SetColorAndOpacity(bLocked ? FLinearColor(1.0f, 0.25f, 0.1f, 1.0f) : FLinearColor::White);
 
 	// 표식은 보이되 자신과 자식 위젯이 마우스 입력을 가로채지 않게 한다.
 	FocusMarker->SetVisibility(ESlateVisibility::HitTestInvisible);

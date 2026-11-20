@@ -52,6 +52,9 @@ public:
     UFUNCTION(BlueprintPure, Category="Interaction")
     TArray<AActor*> GetInteractionTargets() const;
 
+    // 현재 감지된 장치 중 근접 UI가 숨겨져 있고 요청 태그가 맞는 가장 가까운 대상을 찾는다.
+    AActor* FindClosestHiddenTarget() const;
+
     // 선택 액터의 유효성과 목록 포함 여부를 검사하고 보유한 태그로 상호작용을 요청한다.
     UFUNCTION(BlueprintCallable, Category="Interaction")
     FLMInteractionResult TryInteract(AActor* TargetActor);

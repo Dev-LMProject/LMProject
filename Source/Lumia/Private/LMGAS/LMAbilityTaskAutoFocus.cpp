@@ -4,6 +4,7 @@
 #include "LMCamera/LMTargetQueryLibrary.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "LMPlayer/LMPlayerController.h"
+#include "Templates/UnrealTemplate.h"
 
 // GA가 소유하는 Task를 만들고 에디터에서 설정한 값을 Task에 복사한다.
 ULMAbilityTaskAutoFocus* ULMAbilityTaskAutoFocus::CreateAutoFocus(UGameplayAbility* OwningAbility, float _FocusRange, float _SwitchMargin)
@@ -60,14 +61,18 @@ void ULMAbilityTaskAutoFocus::Activate()
 	FocusController = Controller;
 	FocusPawn = Pawn;
 
-	// Controller가 카메라 계산을 끝낸 뒤 Broadcast하면 UpdateFocus가 호출된다.
-	// 일반 Task Tick은 사용하지 않으므로 같은 프레임에 검색이 두 번 실행되지 않는다.
+	/* Controller의 카메라 계산 뒤에 검사하며 일반 Task Tick은 쓰지 않는다.
+	 * 특수 타 시작이나 수동 고정 입력도 같은 알림으로 최신 후보를 확인한다. */
 	Controller->OnFocusFrame.AddUObject(this, &ThisClass::UpdateFocus);
 }
 
 // 현재 플레이 상태를 확인하고 이번 프레임의 후보와 선택을 다시 계산한다.
 void ULMAbilityTaskAutoFocus::UpdateFocus()
 {
+	// OnFocusChanged 안에서 특수 입력이 실행돼도 같은 검색에 다시 진입하지 않는다.
+	if (bUpdatingFocus) return;
+	TGuardValue<bool> UpdateGuard(bUpdatingFocus, true);
+
 	// 소유 GA가 이미 끝났다면 이 Task도 더 이상 결과를 전달하지 않는다.
 	if (!ShouldBroadcastAbilityTaskDelegates())
 	{
@@ -101,13 +106,22 @@ void ULMAbilityTaskAutoFocus::UpdateFocus()
 		return;
 	}
 
-	// 이번 검색 결과를 담을 임시 배열이다. 이전 프레임 후보를 그대로 이어 쓰지 않는다.
+	// 공격 중에도 매번 새로 검색해야 시야·거리 밖으로 나간 대상이 후보에서 즉시 빠진다.
 	TArray<TWeakObjectPtr<AActor>> Candidates;
 
-	// Query 함수가 검사에 통과한 Actor들을 Candidates에 넣고 선택한 Actor 하나를 반환한다.
-	AActor* Target = ULMTargetQueryLibrary::FindFocusTargets(Controller, FocusRange, SwitchMargin, Controller->GetFocusTarget(), Candidates);
+	const bool bCanChangeTarget = Controller->CanChangeAttackTarget();
+	AActor* Target = ULMTargetQueryLibrary::FindFocusTargets(Controller, FocusRange, SwitchMargin, Controller->GetFocusTarget(), Candidates, bCanChangeTarget);
 
-	// 목록과 선택을 같은 호출에서 교체해 서로 다른 프레임의 결과가 섞이지 않게 한다.
+	/* 수동 대상 상실 뒤에는 이번 타가 끝나기를 기다리지 않고 자동 선정으로 복귀한다.
+	 * 공격 보조의 대상은 Controller가 별도로 검증하므로 새 적에게 현재 평타를 돌리지 않는다. */
+	bool bKeepLock = Controller->IsLockOn();
+	AActor* CurrentTarget = Controller->GetFocusTarget();
+	AActor* LockedTarget = Controller->CanLockTarget(CurrentTarget) ? CurrentTarget : nullptr;
+	Target = ULMTargetQueryLibrary::ChooseFocusTarget(Candidates, Target, LockedTarget, Controller->GetAttackFocusTarget(), bKeepLock);
+	if (!bKeepLock)
+		Controller->StopLockOn();
+
+	// 후보 목록과 표식 대상을 함께 갱신한다.
 	Controller->SetFocusResult(Candidates, Target);
 }
 
