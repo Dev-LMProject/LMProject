@@ -57,6 +57,7 @@ bool ALMFieldMonsterCharacter::RegisterCombatArea(ALMCombatArea* _CombatArea)
     //파괴된 이전 영역의 대상이 새 영역등록에 남지 않도록 함
     if (CombatArea!=_CombatArea)
     {
+        SetSlowFollow(false);
         TargetPlayer.Reset();
         UpdateCombatFocus();
     }
@@ -109,6 +110,10 @@ bool ALMFieldMonsterCharacter::SetTargetPlayer(ALMCombatArea* SourceArea, ALMPla
     {
         return false;
     }
+
+    // 새 대상에게는 이전 추적 속도를 이어받지 않는다.
+    if (TargetPlayer.Get() != _TargetPlayer)
+        SetSlowFollow(false);
 
     // 복귀 중이라도 새 대상을 전달받으면 추격 상태로 전환한다.
     TargetPlayer = _TargetPlayer;
@@ -266,6 +271,85 @@ void ALMFieldMonsterCharacter::FinishHitReaction()
         CombatArea->FillAttackSlots();
 }
 
+// 공격을 허용하는 수평 반경을 실제로 벗어났는지 확인한다.
+bool ALMFieldMonsterCharacter::IsOutsideAttackDistance() const
+{
+    const ALMPlayerCharacter* Player = GetTargetPlayer();
+    if (!IsValid(Player) || Player->IsActorBeingDestroyed() || !FMath::IsFinite(AttackDistance) || AttackDistance <= 0.0f)
+        return false;
+
+    const FVector SelfCenter = GetCapsuleComponent()->GetComponentLocation();
+    const FVector PlayerCenter = Player->GetCapsuleComponent()->GetComponentLocation();
+    return FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance);
+}
+
+// 대기 이동에 들어갈 때의 속도를 기억해 이후 공격이나 복귀에 남기지 않는다.
+void ALMFieldMonsterCharacter::SetSlowFollow(bool _bSlowFollowing)
+{
+    if (!_bSlowFollowing)
+    {
+        // 다음 대기에서 이전 교전이나 공격 직전의 원호를 이어 쓰지 않는다.
+        bClosingWaitDistance = false;
+        bWaitArcRight = true;
+        WaitArcOffset = FVector::ZeroVector;
+    }
+
+    if (bSlowFollowing == _bSlowFollowing) return;
+
+    UCharacterMovementComponent* Movement = GetCharacterMovement();
+    if (!IsValid(Movement)) return;
+
+    if (_bSlowFollowing)
+    {
+        // 대기 이동 진입 시의 속도 상한을 저장해 Reader가 속도 배율을 누적하지 않게 한다.
+        SavedWalkSpeed = Movement->MaxWalkSpeed;
+        Movement->MaxWalkSpeed = SavedWalkSpeed * FMath::Clamp(FollowSpeedScale, 0.01f, 1.0f);
+    }
+    else
+        Movement->MaxWalkSpeed = SavedWalkSpeed;
+
+    bSlowFollowing = _bSlowFollowing;
+}
+
+// 멀어지면 저속 추적하고 가까워지면 플레이어를 중심으로 원호를 왕복한다.
+bool ALMFieldMonsterCharacter::ReadWaitMoveLocation(const ALMCombatArea& QueueArea, const ALMPlayerCharacter& CombatPlayer, FVector& Location)
+{
+    const FVector PlayerCenter = CombatPlayer.GetCapsuleComponent()->GetComponentLocation();
+    const FVector Offset = GetCapsuleComponent()->GetComponentLocation() - PlayerCenter;
+    const double Distance = Offset.Size2D();
+    const float MinimumRadius = AttackDistance + RetreatClearance;
+    const float StopDistance = FMath::Max(QueueArea.WaitDistance, MinimumRadius);
+    const float StartDistance = FMath::Max(QueueArea.FollowDistance, StopDistance);
+
+    // 거리 보정과 원호 이동이 서로 다른 두 임계값을 사용해 경계에서 반복 전환하지 않는다.
+    bClosingWaitDistance = Distance > (bClosingWaitDistance ? StopDistance : StartDistance);
+    if (bClosingWaitDistance)
+    {
+        WaitArcOffset = FVector::ZeroVector;
+        Location = CombatPlayer.GetNavAgentLocation();
+        return true;
+    }
+
+    // 플레이어가 접근해 원호를 유지할 수 없으면 공격 반경 바깥부터 확보한다.
+    if (Distance <= AttackDistance)
+    {
+        WaitArcOffset = FVector::ZeroVector;
+        return QueueArea.ReadRetreatLocation(*this, CombatPlayer, AttackDistance, RetreatClearance, Location);
+    }
+
+    // 반경과 기준 방향을 저장해 옆걸음마다 안쪽으로 말려들거나 무한히 한 바퀴 돌지 않게 한다.
+    if (WaitArcOffset.IsNearlyZero())
+    {
+        const double Radius = FMath::Clamp(Distance, static_cast<double>(MinimumRadius), static_cast<double>(StopDistance));
+        WaitArcOffset = Offset.GetSafeNormal2D() * Radius;
+    }
+
+    if (QueueArea.ReadWaitArcLocation(*this, PlayerCenter, WaitArcOffset, AttackDistance, bWaitArcRight, Location))
+        return true;
+
+    return Distance < MinimumRadius && QueueArea.ReadRetreatLocation(*this, CombatPlayer, AttackDistance, RetreatClearance, Location);
+}
+
 // 캡슐 중심 거리와 발 높이를 확인하고 몸체 사이를 막는 구조물이 있는지 검사한다.
 bool ALMFieldMonsterCharacter::CanStartAttack() const
 {
@@ -330,6 +414,7 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
         return false;
 
     // BP가 실행할 능력과 이번 공격권을 종료 알림보다 먼저 확정한다.
+    SetSlowFollow(false);
     const TWeakObjectPtr<ALMCombatArea> SavedArea(Area);
     const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
 
@@ -363,6 +448,7 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
 // 중단 의도를 기록하고 이동을 멈춘 뒤 실제 GA 종료를 기다린다.
 void ALMFieldMonsterCharacter::StopAttack()
 {
+    SetSlowFollow(false);
     const bool bHadRun = bAttackRunning;
     const TWeakObjectPtr<ALMCombatArea> SavedArea = bHadRun ? RunArea : TWeakObjectPtr<ALMCombatArea>(GetCombatArea());
 
@@ -454,6 +540,10 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     WaitId = 0;
     bHasAttackTurn = IsValid(CombatArea.Get()) && CombatArea->ReadAttackTurn(this, AttackCombatId, AttackId, bAttackStopping, WaitId);
 
+    // Reader가 이동 출력을 읽기 전에 공격이나 복귀에는 이전 추적 속도를 복원한다.
+    if (bHasAttackTurn || !_bCanMove || bReturning || !IsValid(_TargetPlayer))
+        SetSlowFollow(false);
+
     // BP에서는 여러 조건을 다시 조합하지 않고 현재 판정 결과만 읽는다.
     bAttackAllowed = bHasAttackTurn && !bAttackStopping && AttackCombatId == CombatArea->GetCombatId();
     bCanWork = (!bAttackRunning && _bCanMove)
@@ -462,7 +552,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     return IsValid(_TargetPlayer);
 }
 
-// 공격 사거리와 외부 슬롯 도착을 구분하고 같은 교전과 대기 번호로 준비 상태를 보고한다.
+// 공격 접근, 반납 직후의 이격, 저속 추적과 원호 이동을 기존 Reader 출력으로 전달한다.
 bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove)
 {
     // 조회 실패 시 이전 위치와 도착 결과가 남지 않도록 초기화한다.
@@ -472,7 +562,11 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     bNeedMove = false;
 
     ALMCombatArea* QueueArea = GetCombatArea();
-    if (!IsValid(QueueArea)) return false;
+    if (!IsValid(QueueArea))
+    {
+        SetSlowFollow(false);
+        return false;
+    }
 
     // 보고 중 새 공격권이 배정되어도 이번 조회의 판정과 번호는 유지한다.
     const int64 SavedCombat = QueueArea->GetCombatId();
@@ -485,37 +579,69 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
 
     // 공격 실행 중이거나 중단 중인 공격권을 가진 경우에는 이동 위치를 요청하지 않는다.
     const bool bCanReadPlace = bMoveReady && bHasTarget && !bReturning && !IsActorBeingDestroyed() && (!bHasTurn || bAllowed);
-    bool bHasLocation = false;
-    FVector MoveLocation = FVector::ZeroVector;
-
-    if (bCanReadPlace && QueueArea->ReadCombatLocation(this, bAllowed, MoveLocation))
+    if (!bCanReadPlace)
     {
-        // 공격은 실제 시작 조건으로 판단하고 바깥 복귀는 기존 경로 도착 기준을 유지한다.
-        CombatLocation = MoveLocation;
-        CombatDistance = bAllowed ? FVector::Dist2D(GetNavAgentLocation(), MoveLocation) : FVector::Dist(GetNavAgentLocation(), MoveLocation);
-        bAtCombatLocation = bAllowed ? CanStartAttack() : QueueArea->IsAtPlace(this, MoveLocation);
-        bHasLocation = true;
+        SetSlowFollow(false);
+        return false;
     }
 
-    // 접근 목표 자체를 잃으면 GA 시작 전의 공격권을 기존 종료 경로로 반납한다.
-    if (bCanReadPlace && !bHasLocation && bAllowed)
-        StopAttack();
+    FVector MoveLocation = FVector::ZeroVector;
+    if (!QueueArea->ReadCombatLocation(this, bAllowed, MoveLocation))
+    {
+        SetSlowFollow(false);
+        // 접근할 대상을 잃은 공격권은 기존 공격 종료 경로로 반납한다.
+        if (bAllowed)
+            StopAttack();
+        return false;
+    }
 
-    // 공격 위치 접근과 공격 후 외부 위치 복귀에는 도착까지의 이동을 요구한다.
-    bNeedMove = bHasLocation && !bAtCombatLocation && (bAllowed || (SavedWait > 0 && !bHasTurn));
+    const FVector SelfLocation = GetNavAgentLocation();
+    bool bWaiting = false;
+    bool bRetreated = false;
+    if (bAllowed)
+    {
+        // 공격권이 있으면 1단위의 사거리·발 높이·차폐 판정으로 공격 진입을 결정한다.
+        bAtCombatLocation = CanStartAttack();
+    }
+    else if (QueueArea->NeedsRetreat(this, SavedWait))
+    {
+        // 공격권을 반납한 대기 번호에만 반경 이탈을 요구한다.
+        bRetreated = IsOutsideAttackDistance();
+        if (bRetreated)
+        {
+            // 실제 반경을 벗어나면 남은 여유 거리를 더 이동하지 않는다.
+            MoveLocation = SelfLocation;
+            bAtCombatLocation = true;
+        }
+        else if (!QueueArea->ReadRetreatLocation(*this, *CombatPlayer, AttackDistance, RetreatClearance, MoveLocation))
+        {
+            SetSlowFollow(false);
+            return false;
+        }
+    }
+    else
+    {
+        bWaiting = true;
+        if (!ReadWaitMoveLocation(*QueueArea, *CombatPlayer, MoveLocation))
+        {
+            // 양옆이 막히면 기존 이동을 끝내고 다음 Reader 갱신에서 다시 길을 읽는다.
+            MoveLocation = SelfLocation;
+            bAtCombatLocation = true;
+        }
+    }
 
-    // 위치 조회 성공에 이동 가능·대상 유효·복귀 아님 조건이 이미 포함되어 있다.
-    const bool bReady = bHasLocation && bAtCombatLocation && !bHasTurn;
+    SetSlowFollow(bWaiting);
+    CombatLocation = MoveLocation;
+    CombatDistance = FVector::Dist2D(SelfLocation, MoveLocation);
+    bNeedMove = !bAtCombatLocation;
 
-    // 이동 불가나 위치 조회 실패도 보고하여 이전 준비 완료 상태를 남기지 않는다.
-    if (SavedWait > 0)
-        QueueArea->ReportWaitReady(this, SavedCombat, SavedWait, bReady);
-
-    // 보고 중 종료 콜백이 실행될 수 있으므로 영역의 수명을 다시 확인한다.
-    if (bHasLocation && IsValid(QueueArea))
+    // 출력 확정 뒤 이격을 보고해 재발급된 공격권이 이번 대기 출력에 섞이지 않게 한다.
+    if (bRetreated)
+        QueueArea->ReportWaitReady(this, SavedCombat, SavedWait, true);
+    else
         QueueArea->FillAttackSlots();
 
-    return bHasLocation;
+    return true;
 }
 
 // 복귀 이동에 성공했고 여전히 대상이 없을 때만 최초 방향과 대기를 복원한다.

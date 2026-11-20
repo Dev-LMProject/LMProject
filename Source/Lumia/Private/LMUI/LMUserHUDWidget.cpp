@@ -7,8 +7,9 @@
 #include "Components/PanelWidget.h"
 // 월드 위치를 화면 픽셀로 투영하는 PlayerController 함수를 사용한다.
 #include "GameFramework/PlayerController.h"
-// 표식이 따라갈 대상의 표적점을 구한다.
+// 대상 컴포넌트가 없을 때 사용할 표적점을 구한다.
 #include "LMCamera/LMTargetQueryLibrary.h"
+#include "LMComponent/LMTargetComponent.h"
 #include "LMUI/LMInteractionHUDWidget.h"
 
 // 기존 Controller가 상호작용 목록 위젯을 가져갈 수 있게 반환한다.
@@ -55,7 +56,11 @@ void ULMUserHUDWidget::UpdateFocusMarker(AActor* FocusTarget, bool bLocked)
 		return;
 	}
 
-	const FVector WorldPoint = ULMTargetQueryLibrary::GetFocusPoint(FocusTarget);
+	// 마커의 로컬 위치를 월드 좌표로 바꿔 화면 투영에 사용한다.
+	const ULMTargetComponent* TargetComponent = FocusTarget->FindComponentByClass<ULMTargetComponent>();
+	const FVector WorldPoint = IsValid(TargetComponent) && TargetComponent->IsRegistered()
+		? TargetComponent->GetComponentTransform().TransformPosition(TargetComponent->MarkerLocalPosition)
+		: ULMTargetQueryLibrary::GetFocusPoint(FocusTarget);
 	FVector2D PixelPosition;
 
 	// 월드의 표적점이 게임 뷰포트의 어느 픽셀에 보이는지 계산한다.
