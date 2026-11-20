@@ -7,6 +7,7 @@
 
 class ACharacter;
 class ALMBaseCharacter;
+class ALMBreakableWall;
 class UAnimMontage;
 class ULMAttackData;
 class ULMAbilityTaskWeaponHitTrace;
