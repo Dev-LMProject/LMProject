@@ -8,7 +8,9 @@
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/HitResult.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -19,6 +21,7 @@
 #include "LMCombat/LMAttackData.h"
 #include "LMCharacter/LMPlayerMeleeMovementComponent.h"
 #include "LMPlayer/LMPlayerController.h"
+#include "LMInterface/LMBreakable.h"
 
 /** 공격 능력의 공통 실행 정책과 상태 태그를 설정한다. */
 ULMAttackAbility::ULMAttackAbility()
@@ -480,6 +483,9 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
     FCollisionObjectQueryParams ObjectQuery;
     ObjectQuery.AddObjectTypesToQuery(ECC_Pawn);
     ObjectQuery.AddObjectTypesToQuery(ECC_GameTraceChannel4); // LMEnemyBody
+	// 살아 있는 플레이어의 착지라면 환경 피격 상자도 후보로 조회한다.
+	if (Attacker->IsPlayerControlled() && Attacker->IsAliveForCombat())
+		ObjectQuery.AddObjectTypesToQuery(ECC_WorldDynamic);
     FCollisionQueryParams Query(SCENE_QUERY_STAT(LMLandingAreaDamage), false, Attacker);
 
     // 자신에게 부착된 무기가 자신의 충격파를 가리지 않게 한다.
@@ -495,6 +501,9 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
         DrawDebugCylinder(World, Origin - FVector::UpVector * HalfHeight, Origin + FVector::UpVector * HalfHeight, Radius, 48, FColor::Cyan, false, 1.0f, 0, 2.0f);
 
     TSet<TWeakObjectPtr<AActor>> ProcessedReceivers;
+	
+	// 이번 착지에서 물체마다 한 번씩, 당시 맞은 부품과 접점을 함께 기억한다.
+	TMap<TWeakObjectPtr<AActor>, FHitResult> PendingBreakHits;
 
     // 바닥 자체에 선이 막히지 않도록 접점보다 조금 높은 위치에서 검사한다.
     const float SightHeight = FMath::Min(20.0f, HalfHeight * 0.5f);
@@ -507,6 +516,33 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
         {
             break;
         }
+    	
+    	AActor* HitActor = Overlap.GetActor();
+    	UPrimitiveComponent* HitBody = Overlap.GetComponent();
+
+    	// 플레이어가 살아 있고 이번 오버랩이 지정된 피격 상자에서 나온 것인지 확인한다.
+    	if (Attacker->IsPlayerControlled() && Attacker->IsAliveForCombat() && ILMBreakable::IsHitBody(HitActor, HitBody, WallChannel))
+    	{
+    		// 직접 디딘 상자라면 착지 이벤트의 실제 접점을 그대로 사용한다.
+    		const bool bLandedOnBody = LandingHit->GetActor() == HitActor && LandingHit->GetComponent() == HitBody;
+    		FVector Surface = Origin;
+    		if (!bLandedOnBody && HitBody->GetClosestPointOnCollision(VisibilityStart, Surface) <= 0.0f)
+    			continue;
+
+    		// 첫 오버랩은 큰 박스로 후보만 모은다. 실제 착지 반경과 높이를 둘 다 만족해야 한다.
+    		if (FVector::DistSquared2D(Origin, Surface) > FMath::Square(static_cast<double>(Radius)) || FMath::Abs(Surface.Z - Origin.Z) > HalfHeight)
+    			continue;
+
+    		// 목표 상자만 이번 가림선에서 제외한다. 다른 문이나 벽이 앞에 있으면 충격이 닿지 않는다.
+    		FCollisionQueryParams CoverQuery = Query;
+    		CoverQuery.AddIgnoredComponent(HitBody);
+    		if (World->LineTraceTestByChannel(VisibilityStart, Surface, WallChannel, CoverQuery))
+    			continue;
+
+    		// 여기서 바로 문을 열면 뒤쪽 적의 가림 판정이 달라지므로 접점만 저장한다.
+    		PendingBreakHits.Add(TWeakObjectPtr<AActor>(HitActor), FHitResult(HitActor, HitBody, Surface, FVector::ZeroVector));
+    		continue;
+    	}
 
         ALMBaseCharacter* Receiver = Cast<ALMBaseCharacter>(Overlap.GetActor());
         if (!IsValid(Receiver) || Receiver == Attacker || ProcessedReceivers.Contains(TWeakObjectPtr<AActor>(Receiver)))
@@ -559,4 +595,21 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
         // 바닥 충돌을 적의 피격점으로 전달하지 않고 기존 GAS 피해 접수만 재사용한다.
         Receiver->ReceiveCombatDamage(Attacker, LandingData, FHitResult());
     }
+	
+	// 적 판정이 끝난 뒤에만 환경 물체를 부숴 같은 충격이 열린 통로 너머로 새지 않게 한다.
+	for (const auto& Pair : PendingBreakHits)
+	{
+		// 이전 대상의 반응으로 공격이 끝났거나 공격자가 사망했으면 남은 이벤트를 보내지 않는다.
+		if (!IsActive() || bIsAbilityEnding || LandingDamageRun != CurrentRun || GetAvatarActorFromActorInfo() != Attacker || !IsValid(Attacker) || !Attacker->IsAliveForCombat())
+			break;
+
+		AActor* HitActor = Pair.Key.Get();
+		const FHitResult& SavedHit = Pair.Value;
+
+		// 다른 반응으로 물체가 사라졌거나 피격 상자가 이미 꺼졌을 수 있다.
+		if (!ILMBreakable::IsHitBody(HitActor, SavedHit.GetComponent(), WallChannel))
+			continue;
+
+		ILMBreakable::Execute_ReceiveBreakHit(HitActor, Origin, SavedHit.ImpactPoint);
+	}
 }

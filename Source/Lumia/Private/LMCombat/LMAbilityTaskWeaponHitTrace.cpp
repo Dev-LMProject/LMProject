@@ -9,6 +9,7 @@
 #include "CollisionShape.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -17,6 +18,7 @@
 #include "LMCombat/LMAnimNotifyStateAttackHitWindow.h"
 #include "LMCombat/LMAttackData.h"
 #include "LMCombat/LMCombatAttributeSet.h"
+#include "LMInterface/LMBreakable.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "Templates/UnrealTemplate.h"
 
@@ -429,9 +431,58 @@ bool ULMAbilityTaskWeaponHitTrace::TraceWeaponMovement(FLMWeaponHitWindowState& 
                 return false;
             }
 
-            // 검 궤적 검사와 별도로 두 몸체 사이의 벽을 확인하여 벽 너머 피해를 막는다.
-            // 공통 부모 타입으로 검사하여 일반 몬스터와 보스를 함께 처리한다.
+            // 이번 검 검사에서 닿은 액터와 그 액터의 충돌 부품을 가져온다.
+            AActor* HitActor = Hit.GetActor();
+            UPrimitiveComponent* HitBody = Hit.GetComponent();
 
+            // 플레이어의 검이 파괴 가능한 물체의 피격 상자에 닿았다면 먼저 처리한다.
+            if (Attacker->IsPlayerControlled() && ILMBreakable::IsHitBody(HitActor, HitBody, WindowData->TraceChannel))
+            {
+                // 같은 물체인지 비교할 수 있도록 액터를 기록용 키로 만든다.
+                const TWeakObjectPtr<AActor> HitKey(HitActor);
+
+                // 같은 베기에서 이미 맞힌 물체라면 다음 검사 결과로 넘어간다.
+                if (Window.ProcessedReceivers.Contains(HitKey))
+                    continue;
+
+                // 공격자 위치는 눌릴 방향을, 접점은 자국이 남을 위치를 정하는 데 사용한다.
+                const FVector SourcePoint = Attacker->GetActorLocation();
+                FVector HitPoint = Hit.ImpactPoint;
+
+                /*
+                 * 검을 검사하는 구체가 처음부터 물체와 겹쳐 있으면 접점이 명확하지 않을 수 있다.
+                 * 그 구체의 중심에서 실제로 닿을 수 있는 표면을 다시 찾는다.
+                 */
+                if (Hit.bStartPenetrating)
+                {
+                    const float BladeGap = HitBody->GetClosestPointOnCollision(SweepStart, HitPoint);
+
+                    // 표면을 구하지 못했거나 구체의 반경 밖이라면 이번 결과는 사용하지 않는다.
+                    if (BladeGap <= 0.0f || BladeGap > Radius)
+                        continue;
+                }
+
+                /*
+                 * 공격자와 접점 사이에 다른 장애물이 있는지 검사한다.
+                 * 목표 상자 하나만 제외하므로 같은 액터의 문틀이나 다른 벽은 계속 공격을 막는다.
+                 */
+                FCollisionQueryParams CoverQuery = Query;
+                CoverQuery.AddIgnoredComponent(HitBody);
+
+                if (World->LineTraceTestByChannel(SourcePoint, HitPoint, WindowData->TraceChannel, CoverQuery))
+                    continue;
+
+                // 물체가 반응하기 전에 먼저 기록해 같은 베기에서 타수가 다시 오르지 않게 한다.
+                Window.ProcessedReceivers.Add(HitKey);
+
+                // 맞은 물체의 공통 피격 함수를 호출한다. 철문이면 철문 코드, 유리면 유리 코드가 실행된다.
+                ILMBreakable::Execute_ReceiveBreakHit(HitActor, SourcePoint, HitPoint);
+
+                // 이 결과는 처리했으므로 아래 캐릭터 검사 대신 다음 Hit로 넘어간다.
+                continue;
+            }
+
+            // 파괴 가능한 환경 물체로 처리되지 않은 대상은 기존 캐릭터 피해 경로로 검사한다.
             ALMBaseCharacter* Receiver = Cast<ALMBaseCharacter>(Hit.GetActor());
 
             // 사용할 수 없는 대상, 자기 자신, 이미 처리한 대상은 제외한다.
