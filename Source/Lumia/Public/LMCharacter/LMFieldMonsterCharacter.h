@@ -55,9 +55,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove);
 
-	// 공격 사거리 또는 외부 슬롯 도착 여부를 읽고 대기 준비 상태를 보고한다.
+	// 공격 접근과 대기 이동을 갱신하고 반납 이후의 이격 완료를 보고한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove);
+
+	// 피격 높이나 차폐와 별개로 현재 대상의 공격 허용 반경을 벗어났는지 확인한다.
+	bool IsOutsideAttackDistance() const;
 	
 	// 대상이 없는 복귀 성공에서만 최초 방향을 복원하고 복귀를 완료한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
@@ -182,12 +185,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack", meta = (ClampMin = "0.0", Units = "cm"))
 	float AttackHeight = 80.0f;
 
+	// 반납 직후 이격 목표가 도착 오차를 감안해도 공격 반경 밖에 오도록 여유를 준다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|AI", meta = (ClampMin = "1.0", Units = "cm"))
+	float RetreatClearance = 10.0f;
+
+	// 공격권 없이 플레이어를 따라갈 때 적용할 평소 이동 속도의 비율이다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|AI", meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float FollowSpeedScale = 0.4f;
+
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|AI", meta = (AllowPrivateAccess = "true"))
 	bool bAttackRunning = false;
 
 private:
 	// 현재 대상이 사거리와 발 높이·벽 조건을 만족하는지 같은 기준으로 검사한다.
 	bool CanStartAttack() const;
+
+	// 저속 추적을 시작할 때 속도를 낮추고, 끝날 때 이전 속도를 복원한다.
+	void SetSlowFollow(bool _bSlowFollowing);
+
+	bool bSlowFollowing = false;
+	float SavedWalkSpeed = 0.0f;
 
 	// 같은 실행의 실제 종료만 반영하고 해당 공격권을 한 번 반납한다.
 	void FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunArea, int64 _RunCombatId, int64 _RunAttackId);

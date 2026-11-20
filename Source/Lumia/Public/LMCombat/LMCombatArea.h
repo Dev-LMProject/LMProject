@@ -37,13 +37,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LM|CombatArea")
     void EndCombat();
 	
-	// 공격권 소유자는 플레이어 위치를 읽고 나머지는 외부 대기 슬롯을 읽는다.
+	// 공격 접근과 저속 추적에 사용할 플레이어 위치를 읽는다.
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "LM|CombatArea")
 	bool ReadCombatLocation(ALMFieldMonsterCharacter* Monster, bool bAttack, FVector& Location);
 
-	// 플레이어를 중심으로 외부 대기 슬롯의 위치를 계산한다.
-	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "LM|CombatPlace")
-	bool GetSlotLocation(ALMFieldMonsterCharacter* Monster, int32 SlotIndex, FVector& Location) const;
+	// 반납한 몬스터에게 해당 번호의 이격 이동이 아직 필요한지 확인한다.
+	bool NeedsRetreat(const ALMFieldMonsterCharacter* Monster, int64 WaitId) const;
+
+	// 공격 반경 밖의 이격 지점을 몬스터의 NavMesh에서 찾는다.
+	bool ReadRetreatLocation(const ALMFieldMonsterCharacter& Monster, const ALMPlayerCharacter& Player, float AttackRadius, float Clearance, FVector& Location) const;
 	
 	// 실제 경로 이동과 같은 반경·높이 기준으로 도착 여부를 조회한다.
 	UFUNCTION(BlueprintPure, Category = "LM|CombatPlace")
@@ -67,9 +69,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|CombatQueue")
 	bool RequestStopAttackTurn(ALMFieldMonsterCharacter* Monster, int64 _CombatId, int64 AttackId);
 
-	// 같은 교전과 같은 대기 번호의 바깥 대기 구역 도착 또는 이탈만 반영한다.
+	// 같은 교전과 대기 번호의 이격 완료를 한 번 반영한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|CombatQueue")
 	void ReportWaitReady(ALMFieldMonsterCharacter* Monster, int64 _CombatId, int64 WaitId, bool bReady);
+
+	// 저속 추적을 멈추는 플레이어와의 수평 거리다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "1.0", Units = "cm"))
+	float WaitDistance = 500.0f;
+
+	// 정지한 대기 몬스터가 저속 추적을 시작하는 수평 거리다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "1.0", Units = "cm"))
+	float FollowDistance = 600.0f;
 protected:
 
 	virtual void BeginPlay() override{ bRegistered = false; bEndingPlay = false; Super::BeginPlay();}
@@ -95,19 +105,11 @@ protected:
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatArea")
     bool bIsSight = false;
 	
-	// 외부 대기 링의 반경이다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
-	float WaitDistance = 500.0f;
-
-	// 외부 대기 링의 슬롯 개수다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "1"))
-	int32 WaitSlotCount = 12;
-
 	// 전투 위치에 도착했다고 판단하는 거리다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
 	float MoveReach = 50.0f;
 
-	// 공간 계산에 확보하고 재이동 판단에도 사용하는 여유 거리다.
+	// 기존 Reader가 전달하는 재이동 여유 거리다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
 	float PlaceReach = 100.0f;
 
@@ -115,22 +117,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
 	float PlaceShift = 40.0f;
 
-	// 캡슐과 이동 오차 외에 추가로 확보하는 간격이다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
-	float PlaceGap = 50.0f;
-
 	// NavMesh 위치 보정에 허용하는 높이 차이다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
 	float PlaceHeight = 150.0f;
 
-	// 대기 위치에서 간보기 이동을 위해 확보하는 거리다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
-	float PlaceMove = 80.0f;
-
-	// 기준 방향에서 위치 후보를 탐색할 각도다.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace")
-	TArray<float> PlaceAngles = {0.0f, 30.0f, -30.0f, 60.0f, -60.0f};
-	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatQueue", meta = (ClampMin = "1"))
 	int32 MaxAttackers = 1;
 	
@@ -147,12 +137,6 @@ private:
     bool bRegistered = false;
     bool bEndingPlay = false;
 	
-	// 개전할 때 고정 명단의 살아 있는 몬스터에게 서로 다른 방향을 배정한다.
-	void SetCombatPlaces();
-
-	// 공격 중에도 유지하는 몬스터별 외부 복귀 슬롯 번호다.
-	TMap<TWeakObjectPtr<ALMFieldMonsterCharacter>, int32> WaitSlots;
-
 	// 대기 순서와 이전 공격 이후의 복귀 조건을 보관한다.
 	struct FLMQueueEntry
 	{
@@ -187,7 +171,4 @@ private:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue", meta = (AllowPrivateAccess = "true"))
 	int64 CombatId = 0;
 	int64 NextAttackId = 0;
-	
-	// 외부 대기 링의 빈 슬롯 중 현재 몬스터와 가장 가까운 번호를 찾는다.
-	int32 FindFreeSlot(ALMFieldMonsterCharacter* Monster, FVector& Location) const;
 };
