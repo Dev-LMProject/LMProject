@@ -1,5 +1,6 @@
 #include "LMComponent/LMTargetComponent.h"
 
+#include "Components/SkeletalMeshComponent.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 
 // 대상마다 검색을 반복하지 않도록 이 컴포넌트의 Tick을 사용하지 않는다.
@@ -7,12 +8,20 @@ ULMTargetComponent::ULMTargetComponent()
 {
 	// 대상 검색과 선정은 기존 오토포커싱 GA의 Task에서 한 번에 처리한다.
 	PrimaryComponentTick.bCanEverTick = false;
-	if (CapsuleComp!=nullptr)
+}
+
+// BP에서 지정한 소켓의 로컬 좌표를 플레이 시작 시 저장한다.
+void ULMTargetComponent::BeginPlay()
+{
+	// BP의 BeginPlay 이벤트에서 읽을 수 있도록 먼저 좌표를 준비한다.
+	MarkerLocalPosition = FVector::ZeroVector;
+	if (!SocketName.IsNone() && IsValid(MarkerMesh.Get()) && MarkerMesh->DoesSocketExist(SocketName))
 	{
-		HeightOffset=CapsuleComp.Get()->GetCollisionShape().GetCapsuleHalfHeight();
+		const FVector SocketWorldPosition = MarkerMesh->GetSocketLocation(SocketName);
+		MarkerLocalPosition = GetComponentTransform().InverseTransformPosition(SocketWorldPosition);
 	}
-	auto NewLoc=GetRelativeLocation();
-	SetRelativeLocation(FVector(NewLoc.X,NewLoc.Y+HeightOffset,NewLoc.Z));
+
+	Super::BeginPlay();
 }
 
 // 이 Actor가 오토포커싱 후보 검사를 받을 수 있는 상태인지 반환한다.
