@@ -47,6 +47,9 @@ public:
 	// 공격 반경 밖의 이격 지점을 몬스터의 NavMesh에서 찾는다.
 	bool ReadRetreatLocation(const ALMFieldMonsterCharacter& Monster, const ALMPlayerCharacter& Player, float AttackRadius, float Clearance, FVector& Location) const;
 	
+	// 대기 몬스터의 원호에서 이동할 방향과 NavMesh 목적지를 찾는다.
+	bool ReadWaitArcLocation(const ALMFieldMonsterCharacter& Monster, const FVector& PlayerCenter, const FVector& ArcOffset, float AttackRadius, bool& bRight, FVector& Location) const;
+
 	// 실제 경로 이동과 같은 반경·높이 기준으로 도착 여부를 조회한다.
 	UFUNCTION(BlueprintPure, Category = "LM|CombatPlace")
 	bool IsAtPlace(ALMFieldMonsterCharacter* Monster, const FVector& Location) const;
@@ -73,13 +76,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|CombatQueue")
 	void ReportWaitReady(ALMFieldMonsterCharacter* Monster, int64 _CombatId, int64 WaitId, bool bReady);
 
-	// 저속 추적을 멈추는 플레이어와의 수평 거리다.
+	// 저속 추적에서 원호 배회로 전환하는 플레이어와의 수평 거리다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "1.0", Units = "cm"))
 	float WaitDistance = 500.0f;
 
-	// 정지한 대기 몬스터가 저속 추적을 시작하는 수평 거리다.
+	// 원호 배회 중 저속 추적을 다시 시작하는 수평 거리다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "1.0", Units = "cm"))
 	float FollowDistance = 600.0f;
+
+	// 배회를 시작한 방향에서 좌우로 이동할 최대 각도다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "15.0", ClampMax = "75.0", Units = "deg"))
+	float WaitArcAngle = 40.0f;
 protected:
 
 	virtual void BeginPlay() override{ bRegistered = false; bEndingPlay = false; Super::BeginPlay();}
@@ -125,6 +132,9 @@ protected:
 	int32 MaxAttackers = 1;
 	
 private:
+	// 후보 위치가 현재 몬스터의 NavMesh 보정 범위에 있는지 확인한다.
+	bool ProjectCombatLocation(const ALMFieldMonsterCharacter& Monster, const FVector& Candidate, FVector& Location) const;
+
 // 플레이어의 Capsule이 지정 박스와 실제로 겹치는지 확인한다.
     bool IsInside(const UBoxComponent* Box, const ALMPlayerCharacter* Player) const;
 

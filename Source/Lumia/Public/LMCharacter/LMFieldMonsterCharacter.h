@@ -189,7 +189,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|AI", meta = (ClampMin = "1.0", Units = "cm"))
 	float RetreatClearance = 10.0f;
 
-	// 공격권 없이 플레이어를 따라갈 때 적용할 평소 이동 속도의 비율이다.
+	// 공격권 없이 추적하거나 원호를 따라 이동할 때 적용할 속도 비율이다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|AI", meta = (ClampMin = "0.01", ClampMax = "1.0"))
 	float FollowSpeedScale = 0.4f;
 
@@ -200,10 +200,16 @@ private:
 	// 현재 대상이 사거리와 발 높이·벽 조건을 만족하는지 같은 기준으로 검사한다.
 	bool CanStartAttack() const;
 
-	// 저속 추적을 시작할 때 속도를 낮추고, 끝날 때 이전 속도를 복원한다.
+	// 대기 이동을 시작할 때 속도를 낮추고, 끝날 때 이전 속도를 복원한다.
 	void SetSlowFollow(bool _bSlowFollowing);
 
+	// 대기 중에는 거리를 좁히거나 플레이어 양옆의 원호로 이동한다.
+	bool ReadWaitMoveLocation(const ALMCombatArea& QueueArea, const ALMPlayerCharacter& CombatPlayer, FVector& Location);
+
 	bool bSlowFollowing = false;
+	bool bClosingWaitDistance = false;
+	bool bWaitArcRight = true;
+	FVector WaitArcOffset = FVector::ZeroVector;
 	float SavedWalkSpeed = 0.0f;
 
 	// 같은 실행의 실제 종료만 반영하고 해당 공격권을 한 번 반납한다.

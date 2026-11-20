@@ -283,9 +283,17 @@ bool ALMFieldMonsterCharacter::IsOutsideAttackDistance() const
     return FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance);
 }
 
-// 저속 추적에 들어갈 때의 속도를 기억해 이후 공격이나 복귀에 남기지 않는다.
+// 대기 이동에 들어갈 때의 속도를 기억해 이후 공격이나 복귀에 남기지 않는다.
 void ALMFieldMonsterCharacter::SetSlowFollow(bool _bSlowFollowing)
 {
+    if (!_bSlowFollowing)
+    {
+        // 다음 대기에서 이전 교전이나 공격 직전의 원호를 이어 쓰지 않는다.
+        bClosingWaitDistance = false;
+        bWaitArcRight = true;
+        WaitArcOffset = FVector::ZeroVector;
+    }
+
     if (bSlowFollowing == _bSlowFollowing) return;
 
     UCharacterMovementComponent* Movement = GetCharacterMovement();
@@ -293,7 +301,7 @@ void ALMFieldMonsterCharacter::SetSlowFollow(bool _bSlowFollowing)
 
     if (_bSlowFollowing)
     {
-        // 추적 진입 시의 속도 상한을 저장하므로 Reader가 반복 호출돼도 배율을 누적하지 않는다.
+        // 대기 이동 진입 시의 속도 상한을 저장해 Reader가 속도 배율을 누적하지 않게 한다.
         SavedWalkSpeed = Movement->MaxWalkSpeed;
         Movement->MaxWalkSpeed = SavedWalkSpeed * FMath::Clamp(FollowSpeedScale, 0.01f, 1.0f);
     }
@@ -301,6 +309,45 @@ void ALMFieldMonsterCharacter::SetSlowFollow(bool _bSlowFollowing)
         Movement->MaxWalkSpeed = SavedWalkSpeed;
 
     bSlowFollowing = _bSlowFollowing;
+}
+
+// 멀어지면 저속 추적하고 가까워지면 플레이어를 중심으로 원호를 왕복한다.
+bool ALMFieldMonsterCharacter::ReadWaitMoveLocation(const ALMCombatArea& QueueArea, const ALMPlayerCharacter& CombatPlayer, FVector& Location)
+{
+    const FVector PlayerCenter = CombatPlayer.GetCapsuleComponent()->GetComponentLocation();
+    const FVector Offset = GetCapsuleComponent()->GetComponentLocation() - PlayerCenter;
+    const double Distance = Offset.Size2D();
+    const float MinimumRadius = AttackDistance + RetreatClearance;
+    const float StopDistance = FMath::Max(QueueArea.WaitDistance, MinimumRadius);
+    const float StartDistance = FMath::Max(QueueArea.FollowDistance, StopDistance);
+
+    // 거리 보정과 원호 이동이 서로 다른 두 임계값을 사용해 경계에서 반복 전환하지 않는다.
+    bClosingWaitDistance = Distance > (bClosingWaitDistance ? StopDistance : StartDistance);
+    if (bClosingWaitDistance)
+    {
+        WaitArcOffset = FVector::ZeroVector;
+        Location = CombatPlayer.GetNavAgentLocation();
+        return true;
+    }
+
+    // 플레이어가 접근해 원호를 유지할 수 없으면 공격 반경 바깥부터 확보한다.
+    if (Distance <= AttackDistance)
+    {
+        WaitArcOffset = FVector::ZeroVector;
+        return QueueArea.ReadRetreatLocation(*this, CombatPlayer, AttackDistance, RetreatClearance, Location);
+    }
+
+    // 반경과 기준 방향을 저장해 옆걸음마다 안쪽으로 말려들거나 무한히 한 바퀴 돌지 않게 한다.
+    if (WaitArcOffset.IsNearlyZero())
+    {
+        const double Radius = FMath::Clamp(Distance, static_cast<double>(MinimumRadius), static_cast<double>(StopDistance));
+        WaitArcOffset = Offset.GetSafeNormal2D() * Radius;
+    }
+
+    if (QueueArea.ReadWaitArcLocation(*this, PlayerCenter, WaitArcOffset, AttackDistance, bWaitArcRight, Location))
+        return true;
+
+    return Distance < MinimumRadius && QueueArea.ReadRetreatLocation(*this, CombatPlayer, AttackDistance, RetreatClearance, Location);
 }
 
 // 캡슐 중심 거리와 발 높이를 확인하고 몸체 사이를 막는 구조물이 있는지 검사한다.
@@ -505,7 +552,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     return IsValid(_TargetPlayer);
 }
 
-// 공격 접근, 반납 직후의 이격, 저속 추적을 기존 Reader 출력으로 전달한다.
+// 공격 접근, 반납 직후의 이격, 저속 추적과 원호 이동을 기존 Reader 출력으로 전달한다.
 bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, double& CombatDistance, bool& bAtCombatLocation, bool& bNeedMove)
 {
     // 조회 실패 시 이전 위치와 도착 결과가 남지 않도록 초기화한다.
@@ -549,7 +596,7 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     }
 
     const FVector SelfLocation = GetNavAgentLocation();
-    bool bFollow = false;
+    bool bWaiting = false;
     bool bRetreated = false;
     if (bAllowed)
     {
@@ -574,20 +621,16 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     }
     else
     {
-        // 멈춰 있을 때는 시작 거리, 추적 중에는 정지 거리를 적용해 경계에서의 반복 전환을 막는다.
-        const double Distance = FVector::Dist2D(GetCapsuleComponent()->GetComponentLocation(), CombatPlayer->GetCapsuleComponent()->GetComponentLocation());
-        const float StopDistance = FMath::Max(QueueArea->WaitDistance, AttackDistance + RetreatClearance);
-        const float StartDistance = FMath::Max(QueueArea->FollowDistance, StopDistance);
-        bFollow = Distance > (bSlowFollowing ? StopDistance : StartDistance);
-        if (!bFollow)
+        bWaiting = true;
+        if (!ReadWaitMoveLocation(*QueueArea, *CombatPlayer, MoveLocation))
         {
-            // Vector 목적지를 자기 위치로 갱신해 진행 중인 MoveTo도 이 지점에서 끝낸다.
+            // 양옆이 막히면 기존 이동을 끝내고 다음 Reader 갱신에서 다시 길을 읽는다.
             MoveLocation = SelfLocation;
             bAtCombatLocation = true;
         }
     }
 
-    SetSlowFollow(bFollow);
+    SetSlowFollow(bWaiting);
     CombatLocation = MoveLocation;
     CombatDistance = FVector::Dist2D(SelfLocation, MoveLocation);
     bNeedMove = !bAtCombatLocation;

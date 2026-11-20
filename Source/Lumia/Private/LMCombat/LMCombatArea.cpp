@@ -269,13 +269,67 @@ bool ALMCombatArea::ReadRetreatLocation(const ALMFieldMonsterCharacter& Monster,
 	Candidate.Z = Monster.GetNavAgentLocation().Z;
 
 	// 투영으로 목적지가 안쪽으로 옮겨지면 도착 반경을 감안해도 이격할 수 없다.
+	FVector ProjectedLocation;
+	if (!ProjectCombatLocation(Monster, Candidate, ProjectedLocation) || FVector::DistSquared2D(ProjectedLocation, PlayerCenter) <= FMath::Square(MinimumDistance))
+		return false;
+
+	Location = ProjectedLocation;
+	return true;
+}
+
+// 고정한 원호에서 다음 옆걸음의 위치를 찾고, 막히면 반대쪽을 확인한다.
+bool ALMCombatArea::ReadWaitArcLocation(const ALMFieldMonsterCharacter& Monster, const FVector& PlayerCenter, const FVector& ArcOffset, float AttackRadius, bool& bRight, FVector& Location) const
+{
+	const double Radius = ArcOffset.Size2D();
+	if (Radius <= UE_KINDA_SMALL_NUMBER) return false;
+
+	const FVector SelfLocation = Monster.GetNavAgentLocation();
+	const FVector Side = (Monster.GetCapsuleComponent()->GetComponentLocation() - PlayerCenter).GetSafeNormal2D();
+	const double Angle = FMath::RadiansToDegrees(FMath::Atan2(FVector::CrossProduct(ArcOffset, Side).Z, FVector::DotProduct(ArcOffset, Side)));
+	const double Limit = FMath::Clamp(static_cast<double>(WaitArcAngle), 15.0, 75.0);
+	const double ReachAngle = FMath::RadiansToDegrees(2.0 * FMath::Asin(FMath::Clamp(MoveReach / (2.0 * Radius), 0.0, 1.0)));
+	const double Step = FMath::Clamp(2.0 * ReachAngle + 5.0, 18.0, 30.0);
+
+	// MoveTo가 도착 처리하기 전에 반대편 목표를 주어 끝에서 정지하지 않게 한다.
+	const double TurnAngle = Limit - FMath::Min(ReachAngle + 3.0, Limit * 0.5);
+	const bool bAtArcEnd = (bRight ? -Angle : Angle) >= TurnAngle;
+	const bool bFirstRight = bAtArcEnd ? !bRight : bRight;
+	for (const bool bTryRight : {bFirstRight, !bFirstRight})
+	{
+		const double NextAngle = FMath::Clamp(Angle + (bTryRight ? -Step : Step), -Limit, Limit);
+		FVector Candidate = PlayerCenter + ArcOffset.RotateAngleAxis(NextAngle, FVector::UpVector);
+		Candidate.Z = SelfLocation.Z;
+
+		FVector ProjectedLocation;
+		if (!ProjectCombatLocation(Monster, Candidate, ProjectedLocation) || FVector::DistSquared2D(SelfLocation, ProjectedLocation) <= FMath::Square(MoveReach))
+			continue;
+
+		// 두 점이 범위 밖이어도 그 사이를 가로질러 공격 반경 안으로 들어갈 수 있다.
+		const FVector2D Center(PlayerCenter);
+		const FVector2D Nearest = FMath::ClosestPointOnSegment2D(Center, FVector2D(SelfLocation), FVector2D(ProjectedLocation));
+		if (FVector2D::DistSquared(Nearest, Center) <= FMath::Square(AttackRadius))
+			continue;
+
+		FVector HitLocation;
+		if (UNavigationSystemV1::NavigationRaycast(GetWorld(), SelfLocation, ProjectedLocation, HitLocation, {}, Monster.GetController()))
+			continue;
+
+		bRight = bTryRight;
+		Location = ProjectedLocation;
+		return true;
+	}
+
+	return false;
+}
+
+// NavMesh 보정이 후보를 다른 높이나 지나치게 먼 곳으로 옮기면 사용하지 않는다.
+bool ALMCombatArea::ProjectCombatLocation(const ALMFieldMonsterCharacter& Monster, const FVector& Candidate, FVector& Location) const
+{
 	UNavigationSystemV1* NavSystem = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
 	FNavLocation Projected;
 	if (!NavSystem || !NavSystem->ProjectPointToNavigation(Candidate, Projected, FVector(PlaceShift, PlaceShift, PlaceHeight), &Monster.GetNavAgentPropertiesRef()))
 		return false;
 	if (FVector::DistSquared2D(Candidate, Projected.Location) > FMath::Square(PlaceShift) || FMath::Abs(Candidate.Z - Projected.Location.Z) > PlaceHeight)
-		return false;
-	if (FVector::DistSquared2D(Projected.Location, PlayerCenter) <= FMath::Square(MinimumDistance))
 		return false;
 
 	Location = Projected.Location;
