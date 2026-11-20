@@ -3,9 +3,13 @@
 
 #include "LMCombat/LMCombatArea.h"
 #include "AIController.h"
+#include "CollisionQueryParams.h"
+#include "CollisionShape.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
+#include "Engine/HitResult.h"
+#include "Engine/World.h"
 #include "LMCharacter/LMFieldMonsterCharacter.h"
 #include "LMCharacter/LMPlayerCharacter.h"
 #include "Perception/AIPerceptionComponent.h"
@@ -277,45 +281,80 @@ bool ALMCombatArea::ReadRetreatLocation(const ALMFieldMonsterCharacter& Monster,
 	return true;
 }
 
-// 고정한 원호에서 다음 옆걸음의 위치를 찾고, 막히면 반대쪽을 확인한다.
-bool ALMCombatArea::ReadWaitArcLocation(const ALMFieldMonsterCharacter& Monster, const FVector& PlayerCenter, const FVector& ArcOffset, float AttackRadius, bool& bRight, FVector& Location) const
+// 원호 위의 옆걸음 목적지를 찾고, 길이나 옆자리가 막히면 반대쪽을 확인한다.
+bool ALMCombatArea::ReadWaitArcLocation(const ALMFieldMonsterCharacter& Monster, const FVector& PlayerCenter, FVector& ArcOffset, float AttackRadius, bool& bRight, FVector& Location) const
 {
+	UWorld* CombatWorld = GetWorld();
+	const UCapsuleComponent* MoveCapsule = Monster.GetCapsuleComponent();
 	const double Radius = ArcOffset.Size2D();
-	if (Radius <= UE_KINDA_SMALL_NUMBER) return false;
+	if (!CombatWorld || !MoveCapsule || Radius <= UE_KINDA_SMALL_NUMBER)
+		return false;
 
 	const FVector SelfLocation = Monster.GetNavAgentLocation();
-	const FVector Side = (Monster.GetCapsuleComponent()->GetComponentLocation() - PlayerCenter).GetSafeNormal2D();
-	const double Angle = FMath::RadiansToDegrees(FMath::Atan2(FVector::CrossProduct(ArcOffset, Side).Z, FVector::DotProduct(ArcOffset, Side)));
+	const FVector CapsuleStart = MoveCapsule->GetComponentLocation();
+	const FVector Side = (CapsuleStart - PlayerCenter).GetSafeNormal2D();
+	if (Side.IsNearlyZero()) return false;
+
+	double Angle = FMath::RadiansToDegrees(FMath::Atan2(FVector::CrossProduct(ArcOffset, Side).Z, FVector::DotProduct(ArcOffset, Side)));
 	const double Limit = FMath::Clamp(static_cast<double>(WaitArcAngle), 15.0, 75.0);
 	const double ReachAngle = FMath::RadiansToDegrees(2.0 * FMath::Asin(FMath::Clamp(MoveReach / (2.0 * Radius), 0.0, 1.0)));
 	const double Step = FMath::Clamp(2.0 * ReachAngle + 5.0, 18.0, 30.0);
+
+	// 플레이어가 돌아서 좌우 후보가 같은 끝점에 잘리면 현재 방향에서 같은 반경의 원호를 다시 시작한다.
+	if (FMath::Abs(Angle) >= Limit + Step)
+	{
+		ArcOffset = Side * Radius;
+		Angle = 0.0;
+	}
 
 	// MoveTo가 도착 처리하기 전에 반대편 목표를 주어 끝에서 정지하지 않게 한다.
 	const double TurnAngle = Limit - FMath::Min(ReachAngle + 3.0, Limit * 0.5);
 	const bool bAtArcEnd = (bRight ? -Angle : Angle) >= TurnAngle;
 	const bool bFirstRight = bAtArcEnd ? !bRight : bRight;
+	const double ReachSquared = FMath::Square(static_cast<double>(MoveReach));
+	const FVector2D Center(PlayerCenter);
+
+	// 지형은 NavMesh로 판단하고, 측면 캡슐은 몬스터 몸통만 검사한다.
+	const FCollisionObjectQueryParams ProbeObjects(ECC_GameTraceChannel4); // LMEnemyBody
+	const FCollisionQueryParams ProbeQuery(SCENE_QUERY_STAT(LMWaitArcSide), false, &Monster);
+	const FCollisionShape ProbeShape = MoveCapsule->GetCollisionShape();
+	const float ProbeDistance = FMath::Max(MoveReach, MoveCapsule->GetScaledCapsuleRadius());
+	TArray<FHitResult> SideHits;
+
 	for (const bool bTryRight : {bFirstRight, !bFirstRight})
 	{
 		const double NextAngle = FMath::Clamp(Angle + (bTryRight ? -Step : Step), -Limit, Limit);
 		FVector Candidate = PlayerCenter + ArcOffset.RotateAngleAxis(NextAngle, FVector::UpVector);
+		// 기본 보폭이 도착 오차 안이면 같은 방향의 끝점까지 써 본다.
+		if (FVector::DistSquared2D(SelfLocation, Candidate) <= ReachSquared)
+			Candidate = PlayerCenter + ArcOffset.RotateAngleAxis(bTryRight ? -Limit : Limit, FVector::UpVector);
 		Candidate.Z = SelfLocation.Z;
 
-		FVector ProjectedLocation;
-		if (!ProjectCombatLocation(Monster, Candidate, ProjectedLocation) || FVector::DistSquared2D(SelfLocation, ProjectedLocation) <= FMath::Square(MoveReach))
-			continue;
+		const FVector GoalDelta = Candidate - SelfLocation;
+		if (GoalDelta.SizeSquared2D() <= ReachSquared) continue;
 
-		// 두 점이 범위 밖이어도 그 사이를 가로질러 공격 반경 안으로 들어갈 수 있다.
-		const FVector2D Center(PlayerCenter);
-		const FVector2D Nearest = FMath::ClosestPointOnSegment2D(Center, FVector2D(SelfLocation), FVector2D(ProjectedLocation));
+		// 공격 반경 안을 가로지르거나 NavMesh가 끊긴 쪽으로는 이동을 요청하지 않는다.
+		const FVector2D Nearest = FMath::ClosestPointOnSegment2D(Center, FVector2D(SelfLocation), FVector2D(Candidate));
 		if (FVector2D::DistSquared(Nearest, Center) <= FMath::Square(AttackRadius))
 			continue;
 
 		FVector HitLocation;
-		if (UNavigationSystemV1::NavigationRaycast(GetWorld(), SelfLocation, ProjectedLocation, HitLocation, {}, Monster.GetController()))
+		if (UNavigationSystemV1::NavigationRaycast(CombatWorld, SelfLocation, Candidate, HitLocation, {}, Monster.GetController()))
+			continue;
+
+		const FVector ProbeEnd = CapsuleStart + GoalDelta.GetClampedToMaxSize2D(ProbeDistance);
+		CombatWorld->SweepMultiByObjectType(SideHits, CapsuleStart, ProbeEnd, MoveCapsule->GetComponentQuat(), ProbeObjects, ProbeShape, ProbeQuery);
+		const bool bSideBlocked = SideHits.ContainsByPredicate([&GoalDelta](const FHitResult& Hit)
+		{
+			if (!Hit.GetComponent()) return false;
+			// 이미 겹쳤다면 더 파고드는 쪽만 막아, 반대 방향으로 빠져나올 수 있게 한다.
+			return !Hit.bStartPenetrating || FVector::DotProduct(GoalDelta, Hit.ImpactNormal) < -UE_KINDA_SMALL_NUMBER;
+		});
+		if (bSideBlocked)
 			continue;
 
 		bRight = bTryRight;
-		Location = ProjectedLocation;
+		Location = Candidate;
 		return true;
 	}
 

@@ -47,8 +47,8 @@ public:
 	// 공격 반경 밖의 이격 지점을 몬스터의 NavMesh에서 찾는다.
 	bool ReadRetreatLocation(const ALMFieldMonsterCharacter& Monster, const ALMPlayerCharacter& Player, float AttackRadius, float Clearance, FVector& Location) const;
 	
-	// 대기 몬스터의 원호에서 이동할 방향과 NavMesh 목적지를 찾는다.
-	bool ReadWaitArcLocation(const ALMFieldMonsterCharacter& Monster, const FVector& PlayerCenter, const FVector& ArcOffset, float AttackRadius, bool& bRight, FVector& Location) const;
+	// 원호 기준과 진행 방향을 갱신하고 대기 몬스터가 옆걸음으로 갈 위치를 찾는다.
+	bool ReadWaitArcLocation(const ALMFieldMonsterCharacter& Monster, const FVector& PlayerCenter, FVector& ArcOffset, float AttackRadius, bool& bRight, FVector& Location) const;
 
 	// 실제 경로 이동과 같은 반경·높이 기준으로 도착 여부를 조회한다.
 	UFUNCTION(BlueprintPure, Category = "LM|CombatPlace")
