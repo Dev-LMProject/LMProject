@@ -24,6 +24,9 @@ public:
     // 이번 타격을 회피로 무효화할 수 있으면 true를 반환한다.
     bool TryAvoidDamage();
 
+    // 몽타주의 이동 가능 지점을 지난 회피를 방향 입력으로 끝낸다.
+    void FinishRecoveryOnMove();
+
     // 외부 취소가 접수되면 피해 보호부터 해제한다.
     virtual void CancelAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateCancelAbility) override;
 
@@ -53,10 +56,15 @@ private:
     UFUNCTION()
     void HandleMontageStarted(UAnimMontage* StartedMontage);
 
+    // 이번 재생에서 대시 이동이 끝났다는 알림을 받는다.
+    UFUNCTION()
+    void HandleDodgeNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
+
     // 피해 판정을 닫고 구독했던 애니메이션 인스턴스에서 알림을 해제한다.
     void StopDodgeJudgment();
 
     ELMDodgeState DodgeState = ELMDodgeState::Stopped;
     TWeakObjectPtr<UAnimInstance> DodgeAnim;
     int32 DodgeMontageInstanceID = INDEX_NONE;
+    bool bCanFinishOnMove = false;
 };

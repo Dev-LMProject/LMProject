@@ -4,7 +4,17 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotifies/AnimNotify.h"
+#include "GameFramework/Pawn.h"
 #include "LMGameplayTags/LMGameplayTags.h"
+
+namespace LMDodge
+{
+    const FName Forward(TEXT("Default"));
+    const FName Back(TEXT("Dash_Back"));
+    const FName JustForward(TEXT("JustDodge_Forward"));
+    const FName JustBack(TEXT("JustDodge_Back"));
+    const FName Recovery(TEXT("LM_DodgeRecovery"));
+}
 
 // 캐릭터마다 판정 상태를 보관하고 재생 중 재활성화를 막는다.
 ULMDodgeAbility::ULMDodgeAbility()
@@ -46,6 +56,18 @@ void ULMDodgeAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
     DodgeAnim = PlayingAnim;
     DodgeMontageInstanceID = PlayingInstance->GetInstanceID();
     PlayingAnim->OnMontageStarted.AddUniqueDynamic(this, &ThisClass::HandleMontageStarted);
+    PlayingAnim->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &ThisClass::HandleDodgeNotify);
+
+    // BP가 앞 대시에서 시작한 경우, 캐릭터 뒤쪽으로 이동하는 입력은 뒤 대시로 보낸다.
+    const APawn* const Pawn = Cast<APawn>(DodgeActorInfo->AvatarActor.Get());
+    if (Pawn && PlayingInstance->GetCurrentSection() == LMDodge::Forward && PlayingMontage->IsValidSectionName(LMDodge::Back))
+    {
+        FVector MoveDirection = Pawn->GetPendingMovementInputVector();
+        if (MoveDirection.IsNearlyZero())
+            MoveDirection = Pawn->GetLastMovementInputVector();
+        if (FVector::DotProduct(MoveDirection.GetSafeNormal2D(), Pawn->GetActorForwardVector()) < -0.1f)
+            MontageJumpToSection(LMDodge::Back);
+    }
 }
 
 // 현재 몸체의 같은 몽타주 재생에서 온 판정 구간만 처리한다.
@@ -91,7 +113,38 @@ bool ULMDodgeAbility::TryAvoidDamage()
 
     // 첫 타격을 무효화하기 전에 성공을 저장해 연속 타격도 같은 결과를 보게 한다.
     DodgeState = ELMDodgeState::JustDodged;
+    UAnimInstance* const Anim = DodgeAnim.Get();
+    const FAnimMontageInstance* const Instance = Anim ? Anim->GetMontageInstanceForID(DodgeMontageInstanceID) : nullptr;
+    if (Instance && Instance->Montage && Instance->Montage == GetCurrentMontage())
+    {
+        const FName Section = Instance->GetCurrentSection();
+        const FName SuccessSection = Section == LMDodge::Back ? LMDodge::JustBack : LMDodge::JustForward;
+        if ((Section == LMDodge::Forward || Section == LMDodge::Back) && Instance->Montage->IsValidSectionName(SuccessSection))
+        {
+            // 일반 대시의 마무리와 판정 창이 겹쳐도 성공 시퀀스는 자기 마무리까지 재생한다.
+            bCanFinishOnMove = false;
+            MontageJumpToSection(SuccessSection);
+        }
+    }
     return true;
+}
+
+// 현재 몽타주 인스턴스의 마무리 알림만 이동 취소를 허용한다.
+void ULMDodgeAbility::HandleDodgeNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload)
+{
+    if (NotifyName == LMDodge::Recovery && DodgeMontageInstanceID != INDEX_NONE && DodgeMontageInstanceID == Payload.MontageInstanceID && Payload.SequenceAsset == GetCurrentMontage())
+        bCanFinishOnMove = true;
+}
+
+// 포즈가 블렌드 아웃되는 동안에도 이번 입력으로 캐릭터를 움직일 수 있게 한다.
+void ULMDodgeAbility::FinishRecoveryOnMove()
+{
+    if (!bCanFinishOnMove || !IsActive() || bIsAbilityEnding) return;
+    UAnimInstance* const Anim = DodgeAnim.Get();
+    FAnimMontageInstance* const Instance = Anim ? Anim->GetMontageInstanceForID(DodgeMontageInstanceID) : nullptr;
+    if (Instance && Instance->Montage == GetCurrentMontage())
+        Instance->PushDisableRootMotion();
+    AbortDodge();
 }
 
 // 자연 블렌드 아웃 도중에도 같은 그룹의 새 재생을 즉시 구별한다.
@@ -111,8 +164,12 @@ void ULMDodgeAbility::StopDodgeJudgment()
     // 같은 GA가 다시 사용될 때 이전 몽타주의 End를 받아들이지 않는다.
     DodgeState = ELMDodgeState::Stopped;
     DodgeMontageInstanceID = INDEX_NONE;
+    bCanFinishOnMove = false;
     if (UAnimInstance* const BoundDodgeAnim = DodgeAnim.Get())
+    {
         BoundDodgeAnim->OnMontageStarted.RemoveDynamic(this, &ThisClass::HandleMontageStarted);
+        BoundDodgeAnim->OnPlayMontageNotifyBegin.RemoveDynamic(this, &ThisClass::HandleDodgeNotify);
+    }
     DodgeAnim.Reset();
 }
 
