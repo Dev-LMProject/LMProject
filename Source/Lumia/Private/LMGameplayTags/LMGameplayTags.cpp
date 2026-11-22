@@ -6,7 +6,8 @@ namespace LMGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(InputTag_Special, "LM.InputTag.Special", "특수 스킬 입력");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(InputTag_Scan, "LM.InputTag.Scan", "스캔 입력");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(InputTag_Interact, "LM.InputTag.Interact", "선택한 대상의 상호작용 요청");
-
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(InputTag_Dash, "LM.InputTag.Dash", "대시 및 회피 입력");
+	
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Input_Blocked, "LM.State.Input.Blocked", "능력 입력 차단");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Movement_External, "LM.State.Movement.External", "능력이나 루트 모션이 이동을 담당하는 상태");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Movement_Blocked, "LM.State.Movement.Blocked", "일반 이동 차단");

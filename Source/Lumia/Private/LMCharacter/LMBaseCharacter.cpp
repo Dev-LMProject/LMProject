@@ -8,6 +8,8 @@
 #include "LMCombat/LMCombatAttributeSet.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameplayAbilitySpec.h"
+#include "LMCombat/LMDodgeAbility.h"
 
 /** 공통 GAS 연결을 관리할 캐릭터 기반을 생성한다. */
 /** 모든 캡슐형 전투 캐릭터가 같은 몸체 충돌 기본값을 사용하도록 한다. */
@@ -356,7 +358,18 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
 
     // GE가 같은 DataTag로 읽을 기본 피해를 저장한다. 이 시점에는 아직 HP를 변경하지 않는다.
     DamageSpec.Data->SetSetByCallerMagnitude(LMGameplayTags::Data_Damage, BaseDamage);
+	// 피해량이 0인 타격은 저스트 회피를 발동시키지 않는다.
+	if (BaseDamage > 0.0f)
+	{
+		for (const FGameplayAbilitySpec& DodgeSpec : ReceiverASC->GetActivatableAbilities())
+		{
+			if (!DodgeSpec.IsActive())
+				continue;
 
+			ULMDodgeAbility* const DodgeAbility = Cast<ULMDodgeAbility>(DodgeSpec.GetPrimaryInstance());
+			if (DodgeAbility && DodgeAbility->TryAvoidDamage()) return;
+		}
+	}
     // 공격 출처가 담긴 Spec을 피격자 자신에게 적용한다. HP 차감·소진 결과 알림은 AttributeSet이 담당한다.
     ReceiverASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
 }

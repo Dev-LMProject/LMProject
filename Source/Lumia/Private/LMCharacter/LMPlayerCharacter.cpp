@@ -3,6 +3,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "LMComponent/LMInteractorComponent.h"
+#include "LMCombat/LMDodgeAbility.h"
 #include "EnhancedInputComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -316,6 +317,13 @@ void ALMPlayerCharacter::RequestRecoveryCancel()
     if (ASC->HasMatchingGameplayTag(LMGameplayTags::State_Input_Blocked) || IsMovementBlockedByAbilities())
     {
         return;
+    }
+
+    // 눌러 둔 방향키도 대시 마무리에 들어간 첫 입력 프레임에 이동으로 이어진다.
+    if (HasMoveInput())
+    {
+        if (ULMDodgeAbility* const Dodge = Cast<ULMDodgeAbility>(ASC->GetAnimatingAbility()))
+            Dodge->FinishRecoveryOnMove();
     }
 
     if (!ASC->HasMatchingGameplayTag(LMGameplayTags::State_Action_Recovery))

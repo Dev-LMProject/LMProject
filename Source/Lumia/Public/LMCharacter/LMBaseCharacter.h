@@ -5,6 +5,7 @@
 #include "GameFramework/Character.h"
 #include "LMBaseCharacter.generated.h"
 
+class UAnimMontage;
 class ULMAbilitySystemComponent;
 class ULMAttackData;
 class UGameplayEffect;
@@ -55,6 +56,10 @@ public:
 	/** 현재 몸체의 ASC·체력·사망 상태를 확인한다. */
 	UFUNCTION(BlueprintPure, Category = "LM|Combat")
 	bool IsAliveForCombat() const;
+
+	// 이 캐릭터의 회피 GA가 재생할 몽타주다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Dodge")
+	TObjectPtr<UAnimMontage> DodgeMontage;
 
 protected:
 	// BP 기본값이 적용된 뒤 전투 진영에 맞는 몸체 채널을 한 번 설정한다.
