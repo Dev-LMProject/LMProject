@@ -16,6 +16,11 @@ class ULMHackingComponent;
 class ULMHackingWidget;
 class ULMAbilitySystemComponent;
 class UGameplayAbility;
+class ULMCubePanel;
+
+class ACameraActor;
+class ALMCubeRoomPuzzle;
+class ALMPlayerCharacter;
 
 // 매 프레임 카메라 계산이 끝났다는 사실을 C++ Task에 알린다.
 DECLARE_MULTICAST_DELEGATE(FLMFocusFrameDelegate);
@@ -118,6 +123,18 @@ public:
 
 	// 이번 타의 대상이 여전히 공격·포커스 대상으로 유효할 때만 반환한다.
 	AActor* GetAttackFocusTarget() const;
+	
+	// 월드를 멈추지 않고 큐브 화면과 카메라로 전환한다.
+	bool OpenCubePuzzle(ALMCubeRoomPuzzle* Puzzle, ACameraActor* Camera);
+
+	// 현재 퍼즐이 요청한 화면만 닫는다.
+	void CloseCubePuzzle(ALMCubeRoomPuzzle* Puzzle);
+
+	// 이 퍼즐의 조작 화면이 등록돼 있는지 확인한다.
+	bool IsCubePuzzleActive(const ALMCubeRoomPuzzle* Puzzle) const;
+
+	// 같은 퍼즐의 위젯에만 최신 상태를 전달한다.
+	void RefreshCubePanel(ALMCubeRoomPuzzle* Puzzle);
 
 protected:
 	// UserHUD를 생성하고 화면에 등록한다.
@@ -232,4 +249,27 @@ private:
 
 	// 최신 후보 안에서만 고정 대상을 요청한 방향으로 옮긴다.
 	void SwitchLockTarget(int32 Direction);
+	
+	// 컨트롤러 BP 기본값에서 지정할 화면이다.
+	UPROPERTY(EditDefaultsOnly, Category="LM|UI|Cube")
+	TSubclassOf<ULMCubePanel> CubePanelClass;
+
+	// 퍼즐 카메라 진입과 복귀 시간이다.
+	UPROPERTY(EditDefaultsOnly, Category="LM|UI|Cube", meta=(ClampMin="0.0"))
+	float CubeBlendTime = .5f;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ULMCubePanel> ActiveCubePanel;
+
+	TWeakObjectPtr<ALMCubeRoomPuzzle> ActiveCubePuzzle; // 화면을 연 퍼즐
+	TWeakObjectPtr<ALMPlayerCharacter> CubeBody;       // 실제로 고정한 캐릭터
+	TWeakObjectPtr<AActor> CubeOldView;               // 복귀할 시점
+
+	bool bChangingCubeView = false; // 생성·복원 중 재진입 방지
+	bool bHasCubeInput = false;     // 이 기능이 얻은 입력 잠금
+	bool bCubeMovementHeld = false; // 이 기능이 이동을 정지했는지
+	bool bCubeOldCursor = false;    // 진입 전 커서 표시
+
+	// 참조를 먼저 비운 뒤 화면과 이 기능이 얻은 잠금을 정리한다.
+	void ReleaseCubeView();
 };

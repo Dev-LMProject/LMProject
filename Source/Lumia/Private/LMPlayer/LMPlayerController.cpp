@@ -21,6 +21,11 @@
 #include "LMCharacter/LMBaseCharacter.h"
 #include "LMComponent/LMTargetComponent.h"
 #include "LMGameplayTags/LMGameplayTags.h"
+#include "LMPuzzle/LMCubeRoomPuzzle.h"
+#include "LMUI/LMCubePanel.h"
+#include "LMCharacter/LMPlayerCharacter.h"
+#include "Camera/CameraActor.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 ALMPlayerController::ALMPlayerController()
 {
@@ -93,6 +98,12 @@ void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	// 종료 중 새 포커스 갱신이 실행되지 않도록 먼저 막는다.
 	bIsEndingPlay = true;
+	
+	// 액터의 Tick·타이머·벽 표시부터 정리하고 남은 화면도 제거한다.
+	if (ALMCubeRoomPuzzle* ClosingPuzzle = ActiveCubePuzzle.Get())
+		ClosingPuzzle->ClosePuzzle();
+	ReleaseCubeView();
+	
 	ClearFocus();
 	
 	// Controller 종료 시에는 공격 소유 정보까지 모두 비운다.
@@ -169,6 +180,12 @@ bool ALMPlayerController::IsHackingWidgetSource(const ULMHackingComponent* InSes
 
 bool ALMPlayerController::OpenHackingWidget(ULMHackingComponent* InSession)
 {
+	// 큐브가 화면을 소유하거나 전환 중이면 해킹 화면을 겹쳐 열지 않는다.
+	if (bChangingCubeView || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel)
+	{
+		return false;	
+	}
+	
 	// 화면을 표시할 로컬 컨트롤러이며, 다른 화면 전환 중이 아니어야 한다.
 	if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || bIsChangingHackingWidget)
 	{
@@ -452,6 +469,21 @@ void ALMPlayerController::UpdateCameraManager(float DeltaSeconds)
 	Super::UpdateCameraManager(DeltaSeconds);
 
 	if (bIsEndingPlay) return;
+	
+	// 원래 캐릭터나 퍼즐을 잃으면 Ready 대기 중에도 즉시 정리한다.
+	if (!bChangingCubeView && !ActiveCubePuzzle.IsExplicitlyNull())
+	{
+		ALMCubeRoomPuzzle* CurrentPuzzle = ActiveCubePuzzle.Get();
+		ALMPlayerCharacter* Body = CubeBody.Get();
+
+		if (!IsValid(CurrentPuzzle) || !CurrentPuzzle->CanStayOpen() || !IsValid(Body) || Body != GetPawn() || !Body->IsAliveForCombat() || !IsCubePuzzleActive(CurrentPuzzle))
+		{
+			if (IsValid(CurrentPuzzle))
+				CurrentPuzzle->ClosePuzzle();
+
+			ReleaseCubeView();
+		}
+	}
 
 	// 구독 중인 Task의 UpdateFocus가 호출되고 Controller의 후보·선택이 교체된다.
 	OnFocusFrame.Broadcast();
@@ -488,6 +520,10 @@ bool ALMPlayerController::CanUpdateFocus() const
 
 	// 해킹 위젯이 있거나 생성·제거 중이면 일반 플레이 표식을 표시하지 않는다.
 	if (IsValid(ActiveHackingWidget) || bIsChangingHackingWidget)
+		return false;
+	
+	// 카메라 블렌드가 끝나기 전에도 일반 플레이 포커스가 켜지지 않게 한다.
+	if (bChangingCubeView || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel)
 		return false;
 
 	// 다른 Actor를 보는 카메라로 전환된 동안에는 일반 플레이 포커스를 멈춘다.
@@ -797,4 +833,194 @@ bool ALMPlayerController::HandleMouseWheel(float WheelInput)
 
     // 상호작용 목록이 비었으면 캐릭터의 기존 줌으로 입력을 넘긴다.
     return InteractionHUD && InteractionHUD->MoveSelection(Direction);
+}
+
+// 현재 요청이 소유한 화면이 뷰포트에 등록됐는지 확인한다.
+bool ALMPlayerController::IsCubePuzzleActive(const ALMCubeRoomPuzzle* Puzzle) const
+{
+	return IsValid(Puzzle) && ActiveCubePuzzle.Get() == Puzzle && IsValid(ActiveCubePanel) && ActiveCubePanel->IsInViewport();
+}
+
+// 해킹과 중복되지 않게 화면을 열고 프로젝트 입력을 정리한다.
+bool ALMPlayerController::OpenCubePuzzle(ALMCubeRoomPuzzle* Puzzle, ACameraActor* Camera)
+{
+    if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || IsPaused() || bChangingCubeView || bIsChangingHackingWidget || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel || !ActiveHackingSession.IsExplicitlyNull() || ActiveHackingWidget)
+    {
+        return false;
+    }
+
+    ALMPlayerCharacter* Body = Cast<ALMPlayerCharacter>(GetPawn());
+    ALMPlayerCameraManager* ViewManager = Cast<ALMPlayerCameraManager>(PlayerCameraManager);
+
+    if (!IsValid(Puzzle) || !Puzzle->CanStayOpen() || !IsValid(Camera) || !IsValid(ViewManager) || !CubePanelClass || !IsValid(Body) || !Body->IsAliveForCombat() || Body->GetCharacterMovement()->MovementMode != MOVE_Walking)
+    {
+        return false;
+    }
+
+    const TWeakObjectPtr<ALMCubeRoomPuzzle> OpeningPuzzle(Puzzle);
+    const TWeakObjectPtr<ALMPlayerCharacter> OpeningBody(Body);
+
+    TStrongObjectPtr<ULMCubePanel> NewPanel(nullptr);
+    bool bOpened = false;
+
+    {
+        TGuardValue<bool> ChangeGuard(bChangingCubeView, true);
+
+        ActiveCubePuzzle = OpeningPuzzle;
+        CubeBody = OpeningBody;
+
+        // BP 생성·표시와 GAS 취소 콜백 이후 같은 요청인지 다시 검사한다.
+        const auto IsRequestCurrent = [this, &OpeningPuzzle, &OpeningBody]()
+        {
+            return !bIsEndingPlay && !IsActorBeingDestroyed() && OpeningPuzzle.IsValid() && OpeningPuzzle->CanStayOpen() && ActiveCubePuzzle == OpeningPuzzle && OpeningBody.IsValid() && GetPawn() == OpeningBody.Get() && OpeningBody->IsAliveForCombat();
+        };
+
+        do
+        {
+            NewPanel.Reset(CreateWidget<ULMCubePanel>(this, CubePanelClass));
+
+            if (!IsValid(NewPanel.Get()) || !IsRequestCurrent()) break;
+
+            ActiveCubePanel = NewPanel.Get();
+            NewPanel->OpenFor(Puzzle);
+
+            if (!NewPanel->AddToPlayerScreen(100) || !IsRequestCurrent() || !NewPanel->HasAllFaces()) break;
+
+            // 기존 카메라 연출의 종료 복귀를 먼저 끝내고 복귀 시점을 저장한다.
+            ViewManager->StopCameraEffect();
+
+            if (!IsRequestCurrent()) break;
+
+            CubeOldView = GetViewTarget();
+            bCubeOldCursor = bShowMouseCursor;
+            bHasCubeInput = true;
+
+            SetIgnoreMoveInput(true);
+            SetIgnoreLookInput(true);
+
+            // 프로젝트의 능력 입력 취소도 함께 수행된다.
+            FlushPressedKeys();
+
+            if (!IsRequestCurrent()) break;
+
+            Body->CancelMoveInput();
+            Body->CancelPendingJump();
+
+            if (!IsRequestCurrent() || !Body->UsesFreeMovement() || Body->HasAnyRootMotion()) break;
+            if (Body->GetCharacterMovement()->MovementMode != MOVE_Walking) break;
+
+            Body->GetCharacterMovement()->StopMovementImmediately();
+
+            bCubeMovementHeld = true;
+            Body->GetCharacterMovement()->DisableMovement();
+
+            if (!IsRequestCurrent()) break;
+
+            FInputModeUIOnly Mode;
+            Mode.SetWidgetToFocus(NewPanel->TakeWidget());
+            SetInputMode(Mode);
+
+            if (!IsRequestCurrent()) break;
+
+            bShowMouseCursor = false;
+            NewPanel->SetUserFocus(this);
+
+            if (!IsRequestCurrent()) break;
+
+            SetViewTargetWithBlend(Camera, CubeBlendTime, VTBlend_Cubic);
+
+            bOpened = IsRequestCurrent() && IsCubePuzzleActive(Puzzle);
+        } while (false);
+    }
+
+    if (!bOpened)
+    {
+        // 생성 중 취소는 콜백을 빠져나온 여기에서 한 번만 정리한다.
+        ReleaseCubeView();
+
+        if (IsValid(NewPanel.Get()))
+        {
+            NewPanel->ClearPuzzle();
+            NewPanel->RemoveFromParent();
+        }
+    }
+
+    return bOpened;
+}
+
+// 다른 퍼즐의 늦은 종료 요청이 현재 화면을 닫지 않게 한다.
+void ALMPlayerController::CloseCubePuzzle(ALMCubeRoomPuzzle* Puzzle)
+{
+    if (!Puzzle) return;
+
+    const TWeakObjectPtr<ALMCubeRoomPuzzle> ClosingPuzzle(Puzzle);
+
+    if (!ActiveCubePuzzle.HasSameIndexAndSerialNumber(ClosingPuzzle)) return;
+
+    ReleaseCubeView();
+}
+
+// 활성 화면에만 상태를 보내고 UMG 배치나 문구에는 관여하지 않는다.
+void ALMPlayerController::RefreshCubePanel(ALMCubeRoomPuzzle* Puzzle)
+{
+    if (IsCubePuzzleActive(Puzzle))
+        ActiveCubePanel->RefreshView();
+}
+
+// 중복 정리와 사망 후 이동 재활성화를 막으면서 원래 플레이로 돌아간다.
+void ALMPlayerController::ReleaseCubeView()
+{
+    ActiveCubePuzzle.Reset();
+
+    if (bChangingCubeView) return;
+
+    TGuardValue<bool> ChangeGuard(bChangingCubeView, true);
+    TStrongObjectPtr<ULMCubePanel> ClosingPanel(ActiveCubePanel.Get());
+
+    const TWeakObjectPtr<ALMPlayerCharacter> ClosingBody = CubeBody;
+    const TWeakObjectPtr<AActor> ReturnView = CubeOldView;
+
+    const bool bReleaseInput = bHasCubeInput;
+    const bool bReleaseMovement = bCubeMovementHeld;
+    const bool bReturnCursor = bCubeOldCursor;
+
+    // BP Destruct나 입력 취소가 재진입하기 전에 소유 정보를 비운다.
+    ActiveCubePanel = nullptr;
+    CubeBody.Reset();
+    CubeOldView.Reset();
+
+    bHasCubeInput = false;
+    bCubeMovementHeld = false;
+
+    if (IsValid(ClosingPanel.Get()))
+    {
+        ClosingPanel->ClearPuzzle();
+        ClosingPanel->RemoveFromParent();
+    }
+
+    ALMPlayerCharacter* Body = ClosingBody.Get();
+
+    if (bReleaseMovement && IsValid(Body) && Body->IsAliveForCombat() && Body->UsesFreeMovement() && Body->GetCharacterMovement()->MovementMode == MOVE_None)
+    {
+        Body->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    }
+
+    if (!bReleaseInput) return;
+
+    SetIgnoreMoveInput(false);
+    SetIgnoreLookInput(false);
+
+    FlushPressedKeys();
+    bShowMouseCursor = bReturnCursor;
+    SetInputMode(FInputModeGameOnly());
+
+    if (bIsEndingPlay || IsActorBeingDestroyed()) return;
+
+    AActor* ViewTarget = ReturnView.Get();
+
+    if (!IsValid(ViewTarget) || ViewTarget->IsActorBeingDestroyed() || (ViewTarget == Body && Body != GetPawn()))
+        ViewTarget = GetPawn();
+
+    if (IsValid(ViewTarget))
+        SetViewTargetWithBlend(ViewTarget, CubeBlendTime, VTBlend_Cubic);
 }
