@@ -461,6 +461,9 @@ void ALMCubeRoomPuzzle::FinishMove(bool bFromTurn)
 
     if (bMatched)
     {
+        // 정답 연출 시간에만 기존 Tick을 유지해 문에 빛이 차오르는 화면을 갱신한다.
+        SetActorTickEnabled(true);
+
         // BP가 화면을 닫더라도 취소할 수 있게 타이머를 먼저 등록한다.
         GetWorldTimerManager().SetTimer(ResultTimer, this, &ThisClass::StartPathOpen, FMath::Max(ResultTime, .01f), false);
 
@@ -491,7 +494,7 @@ void ALMCubeRoomPuzzle::FinishMove(bool bFromTurn)
     }
 }
 
-// 작은 큐브 상승과 회전 중에만 보간하고 나머지 시간에는 Tick을 끈다.
+// 승강·회전·짧은 성공 연출 중에만 갱신하고 대기 중에는 Tick을 끈다.
 void ALMCubeRoomPuzzle::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
@@ -778,6 +781,10 @@ bool ALMCubeRoomPuzzle::IsExitAligned() const
 void ALMCubeRoomPuzzle::StartPathOpen()
 {
     if (!bSolved || Phase != ELMPhase::Result) return;
+
+    // 타이머가 마지막 Tick보다 먼저 실행돼도 완성 색을 한 번 확정한다.
+    Elapsed = FMath::Max(ResultTime, .01f);
+    DrawCubeView();
     StartPathMove(ELMCubePathMove::OpenExit);
 }
 
@@ -1006,8 +1013,13 @@ void ALMCubeRoomPuzzle::DrawCubeView()
     const bool bGuideMatches = FVector::DotProduct(CubeGuide->GetUpVector(), GuideGoal->GetUpVector()) > .9999;
     const FVector WarmTint(4.f, 1.45f, .18f);
     const FVector MatchTint(3.f, 2.75f, 2.1f);
-    DoorGoal->SetVectorParameterValueOnMaterials(TEXT("Tint"), bAtRest && bDoorMatches ? MatchTint : WarmTint);
-    GuideGoal->SetVectorParameterValueOnMaterials(TEXT("Tint"), bAtRest && bGuideMatches ? MatchTint : WarmTint);
+    // 문만 보고 풀 수 있도록 출구 방향과 위쪽 축이 모두 맞아야 정렬색을 준다.
+    DoorGoal->SetVectorParameterValueOnMaterials(TEXT("Tint"), bAtRest && bDoorMatches && bGuideMatches ? MatchTint : WarmTint);
+
+    // 실제 정답 상태만 채움과 광채를 재생하며 통로 전개 이후에는 완성 색을 유지한다.
+    const float WinRate = bSolved ? (Phase == ELMPhase::Result ? FMath::Clamp(Elapsed / FMath::Max(ResultTime, .01f), 0.f, 1.f) : 1.f) : 0.f;
+    CubeDoor->SetScalarParameterValueOnMaterials(TEXT("Win"), WinRate);
+    DoorGoal->SetScalarParameterValueOnMaterials(TEXT("Win"), WinRate);
     CubeCapture->CaptureScene();
 }
 
