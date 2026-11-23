@@ -1,5 +1,6 @@
 #include "LMUI/LMLoreWidget.h"
 
+#include "Animation/WidgetAnimation.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/ScrollBox.h"
@@ -32,17 +33,32 @@ bool ULMLoreWidget::HasLoreContent() const
 void ULMLoreWidget::ClearLore()
 {
 	LoreData = nullptr;
+	bIsClosingLore = false;
 }
 
-// 현재 컨트롤러가 이 위젯을 소유한 경우에만 닫도록 요청한다.
+// 닫기 연출을 시작하고 재생할 수 없으면 바로 화면을 정리한다.
 void ULMLoreWidget::RequestClose()
 {
-	ALMPlayerController* LoreController = GetOwningPlayer<ALMPlayerController>();
-	if (IsValid(LoreController))
-		LoreController->CloseLoreWidget(this);
+	if (!IsValid(LoreData) || bIsClosingLore) return;
+
+	// 연출 중 반복된 닫기 요청을 막고 열기 연출과 속성 제어가 겹치지 않게 한다.
+	bIsClosingLore = true;
+	if (IsValid(Open) && IsAnimationPlaying(Open))
+		StopAnimation(Open);
+
+	// 중지 콜백에서 화면이 이미 정리됐다면 닫기 연출을 다시 시작하지 않는다.
+	if (!IsValid(LoreData) || !bIsClosingLore) return;
+	if (IsValid(Close))
+	{
+		const FWidgetAnimationHandle CloseHandle = PlayAnimation(Close);
+		if (CloseHandle.IsValid()) return;
+	}
+
+	// 애니메이션이 없거나 재생을 시작하지 못해도 게임이 멈춘 채 남지 않는다.
+	FinishLoreClose();
 }
 
-// 버튼 입력을 연결하고 DA의 제목과 대화 목록을 표시한다.
+// 버튼 입력과 DA 내용을 연결한 뒤 열기 애니메이션을 재생한다.
 void ULMLoreWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -53,6 +69,9 @@ void ULMLoreWidget::NativeConstruct()
 		CloseButton->OnClicked.AddUniqueDynamic(this, &ThisClass::RequestClose);
 
 	BuildMessages();
+	// 화면이 구성된 뒤에만 열기 연출을 시작한다.
+	if (IsValid(LoreData) && !bIsClosingLore && IsValid(Open))
+		PlayAnimation(Open);
 }
 
 // 외부 제거에서도 남은 화면 소유권과 일시정지를 정리한다.
@@ -61,11 +80,31 @@ void ULMLoreWidget::NativeDestruct()
 	if (IsValid(CloseButton))
 		CloseButton->OnClicked.RemoveDynamic(this, &ThisClass::RequestClose);
 
-	// 정상 닫기에서는 ClearLore가 먼저 호출되어 중복 요청하지 않는다.
+	// 외부에서 제거됐다면 보이지 않는 화면의 연출을 기다리지 않고 즉시 복원한다.
 	if (IsValid(LoreData))
-		RequestClose();
+		FinishLoreClose();
 
 	Super::NativeDestruct();
+}
+
+// 닫기 애니메이션이 끝나면 창을 제거하고 게임을 재개한다.
+void ULMLoreWidget::OnAnimationFinished_Implementation(const UWidgetAnimation* Animation)
+{
+	Super::OnAnimationFinished_Implementation(Animation);
+
+	// 열기 등 다른 애니메이션의 종료는 닫기 완료로 취급하지 않는다.
+	if (Animation != Close || !bIsClosingLore) return;
+	FinishLoreClose();
+}
+
+// 창을 소유한 컨트롤러에 즉시 제거와 입력 복원을 요청한다.
+void ULMLoreWidget::FinishLoreClose()
+{
+	// 컨트롤러의 제거 콜백이 다시 들어와도 닫기 연출을 반복하지 않는다.
+	bIsClosingLore = false;
+	ALMPlayerController* LoreController = GetOwningPlayer<ALMPlayerController>();
+	if (IsValid(LoreController))
+		LoreController->CloseLoreWidget(this);
 }
 
 // 자식 위젯에 포커스가 있어도 ESC를 닫기 요청으로 처리한다.

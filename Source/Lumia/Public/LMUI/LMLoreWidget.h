@@ -9,6 +9,7 @@ class ULMLoreData;
 class UScrollBox;
 class UTextBlock;
 class UVerticalBox;
+class UWidgetAnimation;
 
 // 로어 원본을 채팅 목록으로 표시하고 닫기 입력을 전달한다.
 UCLASS()
@@ -43,6 +44,9 @@ protected:
 	// 스크롤이나 버튼에 포커스가 있어도 ESC로 창을 닫는다.
 	virtual FReply NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
+	// 닫기 애니메이션이 끝난 뒤 창과 일시정지를 정리한다.
+	virtual void OnAnimationFinished_Implementation(const UWidgetAnimation* Animation) override;
+
 private:
 	// DA 제목을 표시할 디자이너 위젯이다.
 	UPROPERTY(meta = (BindWidget))
@@ -68,10 +72,24 @@ private:
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UTextBlock> PreviewMessage;
 
+	// WBP에 같은 이름으로 작성된 열기 애니메이션이다.
+	UPROPERTY(Transient, meta = (BindWidgetAnimOptional))
+	TObjectPtr<UWidgetAnimation> Open;
+
+	// WBP에 같은 이름으로 작성된 닫기 애니메이션이다.
+	UPROPERTY(Transient, meta = (BindWidgetAnimOptional))
+	TObjectPtr<UWidgetAnimation> Close;
+
 	// 화면이 열려 있는 동안 사용할 로어 원본이다.
 	UPROPERTY(Transient)
 	TObjectPtr<ULMLoreData> LoreData;
 
+	// 닫기 연출 중 반복 입력으로 재생과 정리가 중복되지 않게 한다.
+	bool bIsClosingLore = false;
+
 	// DA의 각 줄을 디자이너 미리보기의 글꼴과 색상으로 만든다.
 	void BuildMessages();
+
+	// 현재 화면을 컨트롤러에 즉시 정리하도록 요청한다.
+	void FinishLoreClose();
 };
