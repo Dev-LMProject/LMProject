@@ -28,6 +28,9 @@ struct LUMIA_API FLMMonsterLocomotionFrame
 	bool bParryRetreating = false;
 
 	UPROPERTY(BlueprintReadOnly)
+	bool bGroggy = false;
+
+	UPROPERTY(BlueprintReadOnly)
 	bool bDead = false;
 };
 

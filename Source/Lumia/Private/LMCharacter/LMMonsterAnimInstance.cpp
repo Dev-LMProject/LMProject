@@ -39,6 +39,7 @@ void ULMMonsterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Locomotion.MoveSpeed = static_cast<float>(Velocity.Size2D());
 	Locomotion.bHitReacting = Monster->IsHitReacting();
 	Locomotion.bParryRetreating = Monster->IsParryRetreating();
+	Locomotion.bGroggy = Monster->IsGroggy();
 	Locomotion.bDead = Monster->IsDead();
 
 	// 서로 다른 진입·종료 속도로 정지 부근의 반복 전환을 막는다.

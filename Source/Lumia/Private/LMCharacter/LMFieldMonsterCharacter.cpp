@@ -219,7 +219,7 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
         return;
     }
 
-    if (!BeginHitReaction()) return;
+    if (!BeginHitReaction(false)) return;
 
     GetCharacterMovement()->StopMovementImmediately();
     AbilitySystemComponent->ClearAbilityInput(this);
@@ -227,9 +227,9 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
 }
 
 // 피격 애니메이션 길이로 경직을 시작하고 이미 진행 중인 반응은 연장하지 않는다.
-bool ALMFieldMonsterCharacter::BeginHitReaction()
+bool ALMFieldMonsterCharacter::BeginHitReaction(bool bFromParry)
 {
-    if (bEndingPlay || bIsDead || bIsHitReacting || !IsAliveForCombat())
+    if (bEndingPlay || bIsDead || bIsHitReacting || bIsGroggy || !IsAliveForCombat())
         return false;
 
     if (!IsValid(HitReactionAnimation.Get()) || !IsValid(GetMesh()->GetAnimInstance()) || !FMath::IsFinite(HitReactionAnimation->RateScale) || HitReactionAnimation->RateScale <= 0.0f)
@@ -244,9 +244,10 @@ bool ALMFieldMonsterCharacter::BeginHitReaction()
         return false;
     }
 
-    // 애니메이션 Notify 누락과 무관하게 제한이 풀리도록 종료 타이머를 먼저 준비한다.
+    // 패링 피격이 자연 종료될 때만 그로기로 전환한다.
     bIsHitReacting = true;
-    GetWorldTimerManager().SetTimer(HitReactionTimer, this, &ALMFieldMonsterCharacter::FinishHitReaction, Duration, false);
+    const auto OnReactionEnded = bFromParry ? &ALMFieldMonsterCharacter::BeginParryGroggy : &ALMFieldMonsterCharacter::FinishHitReaction;
+    GetWorldTimerManager().SetTimer(HitReactionTimer, this, OnReactionEnded, Duration, false);
 
     bOwnsStunTag = true;
     AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Stunned);
@@ -263,7 +264,7 @@ void ALMFieldMonsterCharacter::ReceiveParryReaction(ALMBaseCharacter* Parrier)
     if (BackDirection.IsNearlyZero())
         BackDirection = Parrier->GetActorForwardVector().GetSafeNormal2D();
 
-    if (!BeginHitReaction()) return;
+    if (!BeginHitReaction(true)) return;
 
     StopAttack();
     if (AAIController* AIController = Cast<AAIController>(GetController()))
@@ -331,8 +332,14 @@ bool ALMFieldMonsterCharacter::IsParryRetreating() const
     return Retreat.IsValid() && !Retreat->Status.HasFlag(ERootMotionSourceStatusFlags::Finished) && !Retreat->Status.HasFlag(ERootMotionSourceStatusFlags::MarkedForRemoval);
 }
 
-// 피격 종료나 사망 때 자신이 등록한 후퇴와 경직을 정리한다.
-void ALMFieldMonsterCharacter::FinishHitReaction()
+// AnimBP에 그로기 모션을 선택할 상태를 제공한다.
+bool ALMFieldMonsterCharacter::IsGroggy() const
+{
+    return bIsGroggy;
+}
+
+// 후퇴 요청과 이 반응이 등록한 이동만 제거하고 원래 시선을 복구한다.
+void ALMFieldMonsterCharacter::StopParryRetreat()
 {
     // 남은 공격 종료 알림이 지난 패링의 이동을 시작하지 않도록 요청부터 비운다.
     PendingParryRetreatDirection = FVector::ZeroVector;
@@ -343,9 +350,32 @@ void ALMFieldMonsterCharacter::FinishHitReaction()
         GetCharacterMovement()->RemoveRootMotionSourceByID(RetreatSourceId);
         UpdateCombatFocus();
     }
+}
 
+// 피격 모션에서 그로기로 전환하고 같은 핸들로 최종 경직 해제를 예약한다.
+void ALMFieldMonsterCharacter::BeginParryGroggy()
+{
+    if (bEndingPlay || bIsDead || !bIsHitReacting || !IsAliveForCombat() || !FMath::IsFinite(ParryGroggyDuration) || ParryGroggyDuration <= 0.0f)
+    {
+        FinishHitReaction();
+        return;
+    }
+
+    bIsHitReacting = false;
+    bIsGroggy = true;
+
+    // 새 공격권이 열리지 않도록 지금 소유한 기절 태그를 그로기 끝까지 유지한다.
+    GetWorldTimerManager().SetTimer(HitReactionTimer, this, &ALMFieldMonsterCharacter::FinishHitReaction, ParryGroggyDuration, false);
+    StopParryRetreat();
+}
+
+// 반응 종료나 사망 때 후퇴와 그로기 상태를 정리하고 소유한 경직만 해제한다.
+void ALMFieldMonsterCharacter::FinishHitReaction()
+{
+    StopParryRetreat();
     GetWorldTimerManager().ClearTimer(HitReactionTimer);
     bIsHitReacting = false;
+    bIsGroggy = false;
 
     if (bOwnsStunTag)
     {
