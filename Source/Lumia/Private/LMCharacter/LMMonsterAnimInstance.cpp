@@ -38,6 +38,7 @@ void ULMMonsterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// 이동 허가나 목표 속도가 아닌 실제 수평 속도와 확정된 반응 상태를 읽는다.
 	Locomotion.MoveSpeed = static_cast<float>(Velocity.Size2D());
 	Locomotion.bHitReacting = Monster->IsHitReacting();
+	Locomotion.bParryRetreating = Monster->IsParryRetreating();
 	Locomotion.bDead = Monster->IsDead();
 
 	// 서로 다른 진입·종료 속도로 정지 부근의 반복 전환을 막는다.

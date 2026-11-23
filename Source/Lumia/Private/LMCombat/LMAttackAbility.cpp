@@ -547,6 +547,7 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
         return;
     }
 
+    const UAbilitySystemComponent* AttackerASC = GetAbilitySystemComponentFromActorInfo();
     UWorld* World = Attacker->GetWorld();
     const ULMAttackData* LandingData = LandingAttackData.Get();
     const FHitResult* LandingHit = LandingEvent.ContextHandle.GetHitResult();
@@ -614,6 +615,10 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
         {
             break;
         }
+
+        // 패링으로 경직되면 공격 취소가 완료되기 전에도 남은 타격을 보내지 않는다.
+        if (!IsValid(AttackerASC) || AttackerASC->HasMatchingGameplayTag(LMGameplayTags::State_Stunned))
+            break;
     	
     	AActor* HitActor = Overlap.GetActor();
     	UPrimitiveComponent* HitBody = Overlap.GetComponent();
@@ -699,6 +704,10 @@ void ULMAttackAbility::ApplyLandingAreaDamage(const FGameplayEventData& LandingE
 	{
 		// 이전 대상의 반응으로 공격이 끝났거나 공격자가 사망했으면 남은 이벤트를 보내지 않는다.
 		if (!IsActive() || bIsAbilityEnding || LandingDamageRun != CurrentRun || GetAvatarActorFromActorInfo() != Attacker || !IsValid(Attacker) || !Attacker->IsAliveForCombat())
+			break;
+
+		// 패링 이후에는 같은 착지 공격의 환경 타격도 중단한다.
+		if (!IsValid(AttackerASC) || AttackerASC->HasMatchingGameplayTag(LMGameplayTags::State_Stunned))
 			break;
 
 		AActor* HitActor = Pair.Key.Get();
