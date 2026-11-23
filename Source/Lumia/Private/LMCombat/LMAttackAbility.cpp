@@ -4,7 +4,10 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "AbilitySystemComponent.h"
+#include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimNotifies/AnimNotify.h"
+#include "Animation/AnimNotifies/AnimNotifyState.h"
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Components/CapsuleComponent.h"
@@ -117,6 +120,7 @@ bool ULMAttackAbility::PlayAttackMontage(UAnimMontage* Montage, FName StartSecti
 	Task->OnCancelled.AddDynamic(this, &ThisClass::HandleAttackMontageAborted);
 
 	// 같은 능력이 다른 몽타주를 시작하면 이전 판정을 먼저 닫는다.
+	ResetParryState();
 	StopWeaponHitTrace();
 
 	// 첫 루트 이동 전에 목적지와 충돌 응답을 준비한다. 실패한 왕복은 원본 이동으로 재생하지 않는다.
@@ -127,6 +131,20 @@ bool ULMAttackAbility::PlayAttackMontage(UAnimMontage* Montage, FName StartSecti
 	}
 
 	Task->ReadyForActivation();
+
+	// 무기 Task 생성 조건과 독립적으로 이번 GA가 시작한 재생을 기록한다.
+	const FGameplayAbilityActorInfo* const ParryInfo = IsActive() && !bIsAbilityEnding ? GetCurrentActorInfo() : nullptr;
+	const UAbilitySystemComponent* const ParryASC = ParryInfo ? ParryInfo->AbilitySystemComponent.Get() : nullptr;
+	UAnimInstance* const PlayingAnim = ParryInfo ? ParryInfo->GetAnimInstance() : nullptr;
+	if (IsValid(ParryASC) && ParryASC->GetAnimatingAbility() == this && GetCurrentMontage() == Montage && IsValid(PlayingAnim))
+	{
+		const FAnimMontageInstance* const PlayingInstance = PlayingAnim->GetActiveInstanceForMontage(Montage);
+		if (PlayingInstance && !PlayingInstance->IsStopped())
+		{
+			ParryAnim = PlayingAnim;
+			ParryMontageId = PlayingInstance->GetInstanceID();
+		}
+	}
 
 	// 몽타주 재생 ID가 생긴 뒤 이번 실행을 관찰하는 Task를 만든다.
 	if (IsActive() && IsValid(AttackData.Get()))
@@ -144,6 +162,48 @@ bool ULMAttackAbility::PlayAttackMontage(UAnimMontage* Montage, FName StartSecti
 
 	// 몽타주 시작 실패 시 기존 콜백에서 능력이 종료되었을 수 있다.
 	return IsActive();
+}
+
+// 현재 공격 몽타주의 패링 창을 연 배치를 기록하거나 비운다.
+void ULMAttackAbility::SetParryWindow(const FBranchingPointNotifyPayload& Payload, const UAnimNotifyState& Notify, bool bOpen)
+{
+	if (!IsActive() || bIsAbilityEnding) return;
+	if (ParryMontageId == INDEX_NONE || Payload.MontageInstanceID != ParryMontageId)
+		return;
+
+	// 공격 시작 때 기록한 애님 인스턴스와 현재 알림의 메시·몽타주를 대조한다.
+	const FGameplayAbilityActorInfo* const ParryInfo = GetCurrentActorInfo();
+	const UAnimInstance* const PlayingAnim = ParryAnim.Get();
+	const UAnimMontage* const PlayingMontage = GetCurrentMontage();
+	if (!ParryInfo || !IsValid(PlayingAnim) || PlayingAnim != ParryInfo->GetAnimInstance())
+		return;
+	if (!IsValid(PlayingMontage) || Payload.SequenceAsset != PlayingMontage || Payload.SkelMeshComponent != PlayingAnim->GetSkelMeshComponent())
+		return;
+
+	// 이전 타의 End가 같은 재생에서 새로 열린 창을 닫지 않도록 배치를 대조한다.
+	if (!bOpen)
+	{
+		if (OpenParryWindow.Get() == &Notify)
+			OpenParryWindow.Reset();
+		return;
+	}
+
+	// 활성 목록에서 빠지거나 정지 중인 재생은 새 창을 열지 못한다.
+	const FAnimMontageInstance* const PlayingInstance = PlayingAnim->GetActiveInstanceForMontage(PlayingMontage);
+	if (!PlayingInstance || PlayingInstance->GetInstanceID() != ParryMontageId || PlayingInstance->IsStopped())
+		return;
+
+	// 같은 배치의 Begin이 중복 전달돼도 기존 창을 유지한다.
+	if (OpenParryWindow.Get() != &Notify)
+		OpenParryWindow = &Notify;
+}
+
+// 열린 패링 창과 이 공격에서 기록한 몽타주 재생을 비운다.
+void ULMAttackAbility::ResetParryState()
+{
+	OpenParryWindow.Reset();
+	ParryAnim.Reset();
+	ParryMontageId = INDEX_NONE;
 }
 
 /** 몽타주가 끝까지 재생되면 공격을 정상 종료한다. */
@@ -172,6 +232,9 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 	{
 		return;
 	}
+
+	// 실제 종료가 지연돼도 이 실행의 패링 창은 바로 닫는다.
+	ResetParryState();
 
 	if (ScopeLockCount > 0)
 	{
@@ -340,6 +403,8 @@ void ULMAttackAbility::JumpAttackMontageSection(FName SectionName)
 		return;
 	}
 
+	// 이동 준비 콜백을 마친 뒤 섹션이 실제로 바뀌기 직전에 이전 창을 닫는다.
+	OpenParryWindow.Reset();
 	MontageJumpToSection(SectionName);
 }
 

@@ -8,9 +8,12 @@
 class ACharacter;
 class ALMBaseCharacter;
 class ALMBreakableWall;
+class UAnimInstance;
 class UAnimMontage;
+class UAnimNotifyState;
 class ULMAttackData;
 class ULMAbilityTaskWeaponHitTrace;
+struct FBranchingPointNotifyPayload;
 
 /** 공격을 시작할 수 있는 이동 상태를 지정한다. */
 UENUM(BlueprintType)
@@ -39,6 +42,9 @@ public:
 	
 	/** 회복 관련 사건을 구독한 뒤 기존 블루프린트의 공격 실행을 시작한다. */
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+
+	// 현재 공격 몽타주의 패링 창을 연 배치를 기록하거나 비운다.
+	void SetParryWindow(const FBranchingPointNotifyPayload& Payload, const UAnimNotifyState& Notify, bool bOpen);
 
 protected:
 	/** 능력을 실제로 수행하는 Avatar 캐릭터를 반환한다. */
@@ -110,6 +116,14 @@ protected:
 	float RoundTripWindupDistance = 140.893f;
 
 private:
+	// 열린 패링 창과 이 공격에서 기록한 몽타주 재생을 비운다.
+	void ResetParryState();
+
+	// 재생 ID와 ANS 배치를 같이 보관해 이전 재생이나 타의 알림과 구별한다.
+	TWeakObjectPtr<UAnimInstance> ParryAnim;
+	int32 ParryMontageId = INDEX_NONE;
+	TWeakObjectPtr<const UAnimNotifyState> OpenParryWindow;
+
 	/** 몽타주가 끝까지 재생되면 공격을 정상 종료한다. */
 	UFUNCTION()
 	void HandleAttackMontageCompleted();
