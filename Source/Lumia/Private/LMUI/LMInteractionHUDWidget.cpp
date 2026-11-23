@@ -88,7 +88,8 @@ void ULMInteractionHUDWidget::RefreshTargets()
 
     if (!DisplayedTargets.Contains(SelectedActor))
     {
-        SelectedActor.Reset();
+        // 하나뿐인 장치는 목록 선택 없이 E로 조작하고, 여러 장치는 기존 선택 조작을 유지한다.
+        SelectedActor = DisplayedTargets.Num() == 1 ? DisplayedTargets[0] : TWeakObjectPtr<AActor>();
     }
 
     OnInteractionTargetsChanged(Targets);
