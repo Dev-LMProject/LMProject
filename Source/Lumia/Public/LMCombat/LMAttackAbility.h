@@ -46,6 +46,9 @@ public:
 	// 현재 공격 몽타주의 패링 창을 연 배치를 기록하거나 비운다.
 	void SetParryWindow(const FBranchingPointNotifyPayload& Payload, const UAnimNotifyState& Notify, bool bOpen);
 
+	// 현재 패링 창에서 첫 유효 타격을 소비한다.
+	bool TryParryHit();
+
 protected:
 	/** 능력을 실제로 수행하는 Avatar 캐릭터를 반환한다. */
 	UFUNCTION(BlueprintPure, Category="LM|Attack")
@@ -119,10 +122,16 @@ private:
 	// 열린 패링 창과 이 공격에서 기록한 몽타주 재생을 비운다.
 	void ResetParryState();
 
+	// 현재 몽타주가 기록해 둔 공격 재생과 일치하는지 확인한다.
+	bool HasActiveParryMontage(const UAnimInstance& AnimToCheck, const UAnimMontage& MontageToCheck) const;
+
 	// 재생 ID와 ANS 배치를 같이 보관해 이전 재생이나 타의 알림과 구별한다.
 	TWeakObjectPtr<UAnimInstance> ParryAnim;
 	int32 ParryMontageId = INDEX_NONE;
 	TWeakObjectPtr<const UAnimNotifyState> OpenParryWindow;
+
+	// 열린 창마다 첫 유효 타격에 한 번만 사용한다.
+	bool bParryWindowUsed = false;
 
 	/** 몽타주가 끝까지 재생되면 공격을 정상 종료한다. */
 	UFUNCTION()

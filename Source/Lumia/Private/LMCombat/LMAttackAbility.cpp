@@ -188,20 +188,53 @@ void ULMAttackAbility::SetParryWindow(const FBranchingPointNotifyPayload& Payloa
 		return;
 	}
 
-	// 활성 목록에서 빠지거나 정지 중인 재생은 새 창을 열지 못한다.
-	const FAnimMontageInstance* const PlayingInstance = PlayingAnim->GetActiveInstanceForMontage(PlayingMontage);
-	if (!PlayingInstance || PlayingInstance->GetInstanceID() != ParryMontageId || PlayingInstance->IsStopped())
+	// 같은 공격 재생이 활성 상태일 때 새 창을 연다.
+	if (!HasActiveParryMontage(*PlayingAnim, *PlayingMontage))
 		return;
 
-	// 같은 배치의 Begin이 중복 전달돼도 기존 창을 유지한다.
+	// 새 배치가 창을 열 때만 한 번 막을 기회를 준다.
 	if (OpenParryWindow.Get() != &Notify)
+	{
 		OpenParryWindow = &Notify;
+		bParryWindowUsed = false;
+	}
+}
+
+// 현재 몽타주가 기록해 둔 공격 재생과 일치하는지 확인한다.
+bool ULMAttackAbility::HasActiveParryMontage(const UAnimInstance& AnimToCheck, const UAnimMontage& MontageToCheck) const
+{
+	const FAnimMontageInstance* const PlayingInstance = AnimToCheck.GetActiveInstanceForMontage(&MontageToCheck);
+	return PlayingInstance && PlayingInstance->GetInstanceID() == ParryMontageId && !PlayingInstance->IsStopped();
+}
+
+// 현재 패링 창에서 첫 유효 타격을 소비한다.
+bool ULMAttackAbility::TryParryHit()
+{
+	// 현재 공격에 아직 쓸 수 있는 창이 있어야 한다.
+	if (!IsActive() || bIsAbilityEnding || !OpenParryWindow.IsValid() || bParryWindowUsed)
+		return false;
+
+	// 타격 시점에도 창을 연 애님 인스턴스와 몽타주가 유효해야 한다.
+	const FGameplayAbilityActorInfo* const ParryInfo = GetCurrentActorInfo();
+	const UAnimInstance* const PlayingAnim = ParryAnim.Get();
+	const UAnimMontage* const PlayingMontage = GetCurrentMontage();
+	if (!ParryInfo || !IsValid(PlayingAnim) || PlayingAnim != ParryInfo->GetAnimInstance() || !IsValid(PlayingMontage))
+		return false;
+
+	const UAbilitySystemComponent* const ParryASC = ParryInfo->AbilitySystemComponent.Get();
+	if (!IsValid(ParryASC) || ParryASC->GetAnimatingAbility() != this || !HasActiveParryMontage(*PlayingAnim, *PlayingMontage))
+		return false;
+
+	// 다음 타격이 들어오기 전에 이번 창의 사용을 확정한다.
+	bParryWindowUsed = true;
+	return true;
 }
 
 // 열린 패링 창과 이 공격에서 기록한 몽타주 재생을 비운다.
 void ULMAttackAbility::ResetParryState()
 {
 	OpenParryWindow.Reset();
+	bParryWindowUsed = false;
 	ParryAnim.Reset();
 	ParryMontageId = INDEX_NONE;
 }

@@ -4,6 +4,7 @@
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "GameplayEffect.h"
+#include "LMCombat/LMAttackAbility.h"
 #include "LMCombat/LMAttackData.h"
 #include "LMCombat/LMCombatAttributeSet.h"
 #include "Components/CapsuleComponent.h"
@@ -358,7 +359,7 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
 
     // GE가 같은 DataTag로 읽을 기본 피해를 저장한다. 이 시점에는 아직 HP를 변경하지 않는다.
     DamageSpec.Data->SetSetByCallerMagnitude(LMGameplayTags::Data_Damage, BaseDamage);
-	// 피해량이 0인 타격은 저스트 회피를 발동시키지 않는다.
+	// 양수 피해만 저스트 회피와 패링을 판정한다.
 	if (BaseDamage > 0.0f)
 	{
 		for (const FGameplayAbilitySpec& DodgeSpec : ReceiverASC->GetActivatableAbilities())
@@ -369,6 +370,11 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
 			ULMDodgeAbility* const DodgeAbility = Cast<ULMDodgeAbility>(DodgeSpec.GetPrimaryInstance());
 			if (DodgeAbility && DodgeAbility->TryAvoidDamage()) return;
 		}
+
+		// 저스트 회피가 처리하지 않은 타격은 피격자의 현재 공격에서 확인한다.
+		ULMAttackAbility* const ParryAbility = Cast<ULMAttackAbility>(ReceiverASC->GetAnimatingAbility());
+		if (ParryAbility && ParryAbility->TryParryHit())
+			return;
 	}
     // 공격 출처가 담긴 Spec을 피격자 자신에게 적용한다. HP 차감·소진 결과 알림은 AttributeSet이 담당한다.
     ReceiverASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
