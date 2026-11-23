@@ -8,6 +8,7 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/RootMotionSource.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMCombat/LMCombatAttributeSet.h"
 #include "LMGameplayTags/LMGameplayTags.h"
@@ -77,6 +78,10 @@ void ALMFieldMonsterCharacter::UnregisterCombatArea(ALMCombatArea* _CombatArea)
 }
 void ALMFieldMonsterCharacter::UpdateCombatFocus()
 {
+    // 패링 후퇴 중에는 발이 뒤로 움직이도록 시작 시점의 시선을 유지한다.
+    if (ParryRetreatSourceId != 0 && !bIsDead && !bEndingPlay)
+        return;
+
     AAIController* LMAIController = Cast<AAIController>(GetController());
     if (!IsValid(LMAIController)) return;
 
@@ -214,46 +219,163 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
         return;
     }
 
-    // 재피격은 HP만 반영하고 이미 진행 중인 반응을 재시작하거나 연장하지 않는다.
-    if (bIsHitReacting)
-    {
-        return;
-    }
-
-    if (!IsValid(HitReactionAnimation.Get()) || !IsValid(GetMesh()->GetAnimInstance()) || !FMath::IsFinite(HitReactionAnimation->RateScale) || HitReactionAnimation->RateScale <= 0.0f)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Check HitReactionAnimation and Crunch AnimBP."), *GetName());
-        return;
-    }
-
-    const float Duration = HitReactionAnimation->GetPlayLength() / HitReactionAnimation->RateScale;
-    if (!FMath::IsFinite(Duration) || Duration <= 0.0f)
-    {
-        return;
-    }
-
-    // 애니메이션 Notify 누락과 무관하게 제한이 풀리도록 종료 타이머를 먼저 준비한다.
-    bIsHitReacting = true;
-    GetWorldTimerManager().SetTimer(HitReactionTimer, this, &ALMFieldMonsterCharacter::FinishHitReaction, Duration, false);
-
-    bOwnsStunTag = true;
-    AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Stunned);
-
-    if (bEndingPlay || bIsDead)
-    {
-        return;
-    }
+    if (!BeginHitReaction(false)) return;
 
     GetCharacterMovement()->StopMovementImmediately();
     AbilitySystemComponent->ClearAbilityInput(this);
     AbilitySystemComponent->CancelAbilities();
 }
 
-/** 피격 타이머와 자신이 추가한 기절 태그만 해제한다. */
+// 피격 애니메이션 길이로 경직을 시작하고 이미 진행 중인 반응은 연장하지 않는다.
+bool ALMFieldMonsterCharacter::BeginHitReaction(bool bFromParry)
+{
+    if (bEndingPlay || bIsDead || bIsHitReacting || bIsGroggy || !IsAliveForCombat())
+        return false;
+
+    if (!IsValid(HitReactionAnimation.Get()) || !IsValid(GetMesh()->GetAnimInstance()) || !FMath::IsFinite(HitReactionAnimation->RateScale) || HitReactionAnimation->RateScale <= 0.0f)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Check HitReactionAnimation and Crunch AnimBP."), *GetName());
+        return false;
+    }
+
+    const float Duration = HitReactionAnimation->GetPlayLength() / HitReactionAnimation->RateScale;
+    if (!FMath::IsFinite(Duration) || Duration <= 0.0f)
+    {
+        return false;
+    }
+
+    // 패링 피격이 자연 종료될 때만 그로기로 전환한다.
+    bIsHitReacting = true;
+    const auto OnReactionEnded = bFromParry ? &ALMFieldMonsterCharacter::BeginParryGroggy : &ALMFieldMonsterCharacter::FinishHitReaction;
+    GetWorldTimerManager().SetTimer(HitReactionTimer, this, OnReactionEnded, Duration, false);
+
+    bOwnsStunTag = true;
+    AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Stunned);
+
+    return !bEndingPlay && !bIsDead && bIsHitReacting && IsAliveForCombat();
+}
+
+// 다음 공격권이 배정되기 전에 패링 경직을 걸고 현재 공격을 중단한다.
+void ALMFieldMonsterCharacter::ReceiveParryReaction(ALMBaseCharacter* Parrier)
+{
+    if (!HasAuthority() || !IsValid(Parrier)) return;
+
+    FVector BackDirection = (GetActorLocation() - Parrier->GetActorLocation()).GetSafeNormal2D();
+    if (BackDirection.IsNearlyZero())
+        BackDirection = Parrier->GetActorForwardVector().GetSafeNormal2D();
+
+    if (!BeginHitReaction(true)) return;
+
+    StopAttack();
+    if (AAIController* AIController = Cast<AAIController>(GetController()))
+        AIController->StopMovement();
+
+    if (bEndingPlay || !bIsHitReacting || !IsAliveForCombat())
+        return;
+
+    GetCharacterMovement()->StopMovementImmediately();
+    AbilitySystemComponent->ClearAbilityInput(this);
+
+    // 동기 공격 종료가 여기까지 끝났으면 즉시, 지연됐으면 FinishAttack에서 시작한다.
+    PendingParryRetreatDirection = BackDirection;
+    TryStartParryRetreat();
+}
+
+// 남은 경직 시간과 지정 거리로 이 몬스터의 후퇴 이동을 한 번 적용한다.
+void ALMFieldMonsterCharacter::TryStartParryRetreat()
+{
+    if (bAttackRunning || PendingParryRetreatDirection.IsNearlyZero())
+        return;
+
+    // 같은 요청을 공격 종료 분기와 직접 호출 양쪽에서 적용하지 않도록 소비한다.
+    const FVector BackDirection = PendingParryRetreatDirection;
+    PendingParryRetreatDirection = FVector::ZeroVector;
+    if (bEndingPlay || !bIsHitReacting || ParryRetreatSourceId != 0 || !IsAliveForCombat())
+        return;
+
+    UCharacterMovementComponent* MoveComponent = GetCharacterMovement();
+    if (!MoveComponent->IsMovingOnGround() || IsMovementControlledByAbilities() || MoveComponent->HasRootMotionSources())
+        return;
+
+    const float TimeLeft = GetWorldTimerManager().GetTimerRemaining(HitReactionTimer);
+    const float WalkSpeed = MoveComponent->MaxWalkSpeed;
+    if (!FMath::IsFinite(TimeLeft) || TimeLeft <= 0.0f || !FMath::IsFinite(ParryRetreatDistance) || ParryRetreatDistance <= 0.0f || !FMath::IsFinite(WalkSpeed) || WalkSpeed <= 0.0f)
+        return;
+
+    // 공격 종료가 늦어져도 보행 속도 안에서 발을 디디며 물러난다.
+    const float BackSpeed = FMath::Min(ParryRetreatDistance / TimeLeft, WalkSpeed);
+    const TSharedPtr<FRootMotionSource_ConstantForce> Retreat = MakeShared<FRootMotionSource_ConstantForce>();
+    Retreat->InstanceName = FName(TEXT("ParryRetreat"));
+    Retreat->AccumulateMode = ERootMotionAccumulateMode::Additive;
+    Retreat->Force = BackDirection * BackSpeed;
+    Retreat->Duration = TimeLeft;
+
+    // 마지막 틱은 남은 시간만 적용하고 종료 시 수평 잔속도를 없앤다.
+    Retreat->Settings.UnSetFlag(ERootMotionSourceSettingsFlags::DisablePartialEndTick);
+    Retreat->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::ClampVelocity;
+    Retreat->FinishVelocityParams.ClampVelocity = 0.0f;
+    ParryRetreatSourceId = MoveComponent->ApplyRootMotionSource(Retreat);
+    if (ParryRetreatSourceId == 0) return;
+
+    // 몸체 기준 이동 방향이 뒤쪽으로 계산되도록 패링한 쪽을 바라본다.
+    SetActorRotation((-BackDirection).Rotation());
+    if (AAIController* AIController = Cast<AAIController>(GetController()))
+        AIController->SetFocalPoint(GetActorLocation() - BackDirection * 100.0f, EAIFocusPriority::Gameplay);
+}
+
+// 이 반응이 등록한 이동 소스의 수명이 남아 있는 동안만 뒷걸음 자세를 사용한다.
+bool ALMFieldMonsterCharacter::IsParryRetreating() const
+{
+    if (ParryRetreatSourceId == 0) return false;
+
+    const TSharedPtr<FRootMotionSource> Retreat = GetCharacterMovement()->GetRootMotionSourceByID(ParryRetreatSourceId);
+    return Retreat.IsValid() && !Retreat->Status.HasFlag(ERootMotionSourceStatusFlags::Finished) && !Retreat->Status.HasFlag(ERootMotionSourceStatusFlags::MarkedForRemoval);
+}
+
+// AnimBP에 그로기 모션을 선택할 상태를 제공한다.
+bool ALMFieldMonsterCharacter::IsGroggy() const
+{
+    return bIsGroggy;
+}
+
+// 후퇴 요청과 이 반응이 등록한 이동만 제거하고 원래 시선을 복구한다.
+void ALMFieldMonsterCharacter::StopParryRetreat()
+{
+    // 남은 공격 종료 알림이 지난 패링의 이동을 시작하지 않도록 요청부터 비운다.
+    PendingParryRetreatDirection = FVector::ZeroVector;
+    const uint16 RetreatSourceId = ParryRetreatSourceId;
+    ParryRetreatSourceId = 0;
+    if (RetreatSourceId != 0)
+    {
+        GetCharacterMovement()->RemoveRootMotionSourceByID(RetreatSourceId);
+        UpdateCombatFocus();
+    }
+}
+
+// 피격 모션에서 그로기로 전환하고 같은 핸들로 최종 경직 해제를 예약한다.
+void ALMFieldMonsterCharacter::BeginParryGroggy()
+{
+    if (bEndingPlay || bIsDead || !bIsHitReacting || !IsAliveForCombat() || !FMath::IsFinite(ParryGroggyDuration) || ParryGroggyDuration <= 0.0f)
+    {
+        FinishHitReaction();
+        return;
+    }
+
+    bIsHitReacting = false;
+    bIsGroggy = true;
+
+    // 새 공격권이 열리지 않도록 지금 소유한 기절 태그를 그로기 끝까지 유지한다.
+    GetWorldTimerManager().SetTimer(HitReactionTimer, this, &ALMFieldMonsterCharacter::FinishHitReaction, ParryGroggyDuration, false);
+    StopParryRetreat();
+}
+
+// 반응 종료나 사망 때 후퇴와 그로기 상태를 정리하고 소유한 경직만 해제한다.
 void ALMFieldMonsterCharacter::FinishHitReaction()
 {
+    StopParryRetreat();
     GetWorldTimerManager().ClearTimer(HitReactionTimer);
     bIsHitReacting = false;
+    bIsGroggy = false;
 
     if (bOwnsStunTag)
     {
@@ -512,6 +634,9 @@ void ALMFieldMonsterCharacter::FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunAr
 
     if (ALMCombatArea* Area = _RunArea.Get())
         Area->FinishAttackTurn(this, _RunCombatId, _RunAttackId, !bEndingPlay && !bIsDead && IsAliveForCombat());
+
+    // 실제 공격 종료 알림을 받은 시점에 기다리던 패링 후퇴를 시작한다.
+    TryStartParryRetreat();
 }
 // 이동과 행동 유지 판정을 함께 제공하고 대상의 자연 소멸도 복귀로 처리한다.
 bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove)

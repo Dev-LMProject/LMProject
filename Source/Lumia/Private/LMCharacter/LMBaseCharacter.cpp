@@ -4,6 +4,7 @@
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "GameplayEffect.h"
+#include "LMCombat/LMAttackAbility.h"
 #include "LMCombat/LMAttackData.h"
 #include "LMCombat/LMCombatAttributeSet.h"
 #include "Components/CapsuleComponent.h"
@@ -289,7 +290,8 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
     }
 	
 	// 다른 호출 경로에서도 아군 피해와 보스 무적을 동일한 규칙으로 거부한다.
-	if (!CanReceiveAttackFrom(Cast<ALMBaseCharacter>(DamageSource)))
+	ALMBaseCharacter* const Attacker = Cast<ALMBaseCharacter>(DamageSource);
+	if (!CanReceiveAttackFrom(Attacker))
 	{
 		return;
 	}
@@ -305,10 +307,10 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
     UAbilitySystemComponent* ReceiverASC = GetAbilitySystemComponent();
 
     // 공격자가 사용하는 ASC다. 실제 소유 위치와 관계없이 공격 출처를 가진 Context와 Spec을 만든다.
-    UAbilitySystemComponent* AttackerASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(DamageSource);
+    UAbilitySystemComponent* AttackerASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Attacker);
 
     // Owner는 PlayerState일 수도 있지만 Avatar는 현재 몸체여야 한다. 교체 전 몸체와 남은 연결을 거부한다.
-    if (!IsValid(ReceiverASC) || ReceiverASC->GetAvatarActor() != this || !IsValid(AttackerASC) || AttackerASC->GetAvatarActor() != DamageSource)
+    if (!IsValid(ReceiverASC) || ReceiverASC->GetAvatarActor() != this || !IsValid(AttackerASC) || AttackerASC->GetAvatarActor() != Attacker)
     {
         UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Attacker or receiver ASC is not ready."), *GetName());
         return;
@@ -358,7 +360,7 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
 
     // GE가 같은 DataTag로 읽을 기본 피해를 저장한다. 이 시점에는 아직 HP를 변경하지 않는다.
     DamageSpec.Data->SetSetByCallerMagnitude(LMGameplayTags::Data_Damage, BaseDamage);
-	// 피해량이 0인 타격은 저스트 회피를 발동시키지 않는다.
+	// 양수 피해만 저스트 회피와 패링을 판정한다.
 	if (BaseDamage > 0.0f)
 	{
 		for (const FGameplayAbilitySpec& DodgeSpec : ReceiverASC->GetActivatableAbilities())
@@ -369,9 +371,23 @@ void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttack
 			ULMDodgeAbility* const DodgeAbility = Cast<ULMDodgeAbility>(DodgeSpec.GetPrimaryInstance());
 			if (DodgeAbility && DodgeAbility->TryAvoidDamage()) return;
 		}
+
+		// 저스트 회피가 처리하지 않은 타격은 피격자의 현재 공격에서 확인한다.
+		ULMAttackAbility* const ParryAbility = Cast<ULMAttackAbility>(ReceiverASC->GetAnimatingAbility());
+		if (ParryAbility && ParryAbility->TryParryHit())
+		{
+			// 패링을 일으킨 타격의 시전자에게만 반응을 전달한다.
+			Attacker->ReceiveParryReaction(this);
+			return;
+		}
 	}
     // 공격 출처가 담긴 Spec을 피격자 자신에게 적용한다. HP 차감·소진 결과 알림은 AttributeSet이 담당한다.
     ReceiverASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
+}
+
+// 캐릭터 종류에 따라 필요한 경우에만 패링 반응을 구현한다.
+void ALMBaseCharacter::ReceiveParryReaction(ALMBaseCharacter*)
+{
 }
 
 /** 진영 관계는 생존 여부와 분리하여 몸체 충돌 처리에서도 사용한다. */

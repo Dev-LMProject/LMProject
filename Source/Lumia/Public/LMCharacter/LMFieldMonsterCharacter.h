@@ -50,6 +50,12 @@ public:
 	FORCEINLINE bool IsDead() const{return bIsDead;}
 	
 	FORCEINLINE bool IsHitReacting() const{return bIsHitReacting;}
+
+	// AnimBP가 패링 후퇴 중에만 뒷걸음 자세를 사용하도록 현재 이동 소스를 확인한다.
+	bool IsParryRetreating() const;
+
+	// AnimBP에 현재 그로기 상태를 전달한다.
+	bool IsGroggy() const;
 	
 	// 이동 값을 읽고 BP가 사용할 공격 허가와 행동 유지 판정을 함께 갱신한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
@@ -67,6 +73,9 @@ public:
 	void FinishReturn();
 
 protected:
+	// 일반 몬스터의 공격이 패링되면 경직과 후퇴를 연결한다.
+	virtual void ReceiveParryReaction(ALMBaseCharacter* Parrier) override;
+
 	// 아래 값은 ReadMoveData에서 갱신하는 스냅샷이며 실제 허가는 CombatArea가 소유한다.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|CombatQueue")
 	bool bHasAttackTurn = false;
@@ -113,6 +122,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Reaction")
 	TObjectPtr<UAnimSequence> HitReactionAnimation;
 
+	// 패링당했을 때 지상에서 물러나는 목표 거리다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Reaction", meta = (ClampMin = "0.0", Units = "cm"))
+	float ParryRetreatDistance = 120.0f;
+
+	// 패링 피격이 끝난 뒤 추가로 행동을 막는 시간이다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Reaction", meta = (ClampMin = "0.0", Units = "s"))
+	float ParryGroggyDuration = 1.5f;
+
 	/** AnimBP가 피격 상태 전환에 읽는 값이다. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "LM|Reaction")
 	bool bIsHitReacting = false;
@@ -133,6 +150,18 @@ private:
 	/** 확정된 피해 결과로 일반 몬스터의 피격 또는 소진을 처리한다. */
 	void HandleDamageApplied(float ActualDamage, bool _bIsDead);
 
+	// 같은 경직 상태를 시작하고 패링 여부에 맞는 종료 함수를 예약한다.
+	bool BeginHitReaction(bool bFromParry);
+
+	// 이전 공격이 정리된 뒤 저장한 방향으로 한 번 후퇴한다.
+	void TryStartParryRetreat();
+
+	// 이 패링이 등록한 후퇴와 임시 시선을 정리한다.
+	void StopParryRetreat();
+
+	// 패링 피격이 끝나면 현재 경직을 유지한 채 그로기로 전환한다.
+	void BeginParryGroggy();
+
 	/** 피격 제한을 자신이 추가한 만큼만 해제한다. */
 	void FinishHitReaction();
 
@@ -140,6 +169,9 @@ private:
 	FDelegateHandle MaxHealthChangedHandle;
 	FDelegateHandle DamageAppliedHandle;
 	FTimerHandle HitReactionTimer;
+	FVector PendingParryRetreatDirection = FVector::ZeroVector;
+	uint16 ParryRetreatSourceId = 0;
+	bool bIsGroggy = false;
 	
 	bool bOwnsStunTag = false;
 	bool bOwnsDeadTag = false;

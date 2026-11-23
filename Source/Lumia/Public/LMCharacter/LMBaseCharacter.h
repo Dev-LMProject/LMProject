@@ -62,6 +62,9 @@ public:
 	TObjectPtr<UAnimMontage> DodgeMontage;
 
 protected:
+	// 이 캐릭터의 공격이 패링됐을 때 캐릭터별 반응을 처리한다.
+	virtual void ReceiveParryReaction(ALMBaseCharacter* Parrier);
+
 	// BP 기본값이 적용된 뒤 전투 진영에 맞는 몸체 채널을 한 번 설정한다.
 	virtual void PostInitializeComponents() override;
 
