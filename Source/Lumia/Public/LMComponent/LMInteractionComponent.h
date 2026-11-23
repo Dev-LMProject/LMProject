@@ -9,6 +9,8 @@
 #include "LMInteractionComponent.generated.h"
 class UPrimitiveComponent;
 class ULMInteractorComponent;
+class ULMLoreData;
+class ALMPlayerController;
 struct FHitResult;
 
 struct FGameplayTag;
@@ -92,6 +94,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|UI")
 	FText InteractionName;
 
+	// 지정하면 기존 상호작용 요청으로 이 로어의 대화 창을 연다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Lore")
+	TObjectPtr<ULMLoreData> LoreData = nullptr;
+
     // 연결된 유효한 감지 콜리전을 반환한다.
     UPrimitiveComponent* GetDetectionCollision() const;
 
@@ -123,6 +129,9 @@ private:
 
     // 싱글 플레이 대상이므로 현재 감지한 플레이어 하나만 기록한다.
     TWeakObjectPtr<ULMInteractorComponent> DetectedInteractor;
+
+	// 대상이 종료될 때 자신이 연 로어 창만 닫도록 컨트롤러를 기억한다.
+	TWeakObjectPtr<ALMPlayerController> LoreController;
 
     // 감지 콜리전의 겹침이 시작되면 플레이어 감지를 갱신한다.
     UFUNCTION()

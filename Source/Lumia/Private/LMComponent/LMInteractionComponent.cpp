@@ -1,7 +1,10 @@
 #include "LMComponent/LMInteractionComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
 #include "LMComponent/LMInteractorComponent.h"
+#include "LMPlayer/LMPlayerController.h"
+#include "LMUI/LMLoreData.h"
 //scope 종료 시 가드를 자동 복원
 #include "Templates/UnrealTemplate.h"
 
@@ -199,9 +202,14 @@ void ULMInteractionComponent::ClearDetection()
     }
 }
 
+// 소유한 로어 창과 감지 연결을 정리한 뒤 컴포넌트를 종료한다.
 void ULMInteractionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     bIsEndingPlay = true;
+	// 대상이 사라져도 이 대상이 연 화면과 일시정지는 남기지 않는다.
+	if (ALMPlayerController* ClosingController = LoreController.Get())
+		ClosingController->CloseLoreFor(this);
+	LoreController.Reset();
     ClearDetection();
     Super::EndPlay(EndPlayReason);
 }
@@ -246,7 +254,9 @@ FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* Reques
         R.Failure = EInteractionFailure::InvalidActionTags;
         return R;
     }
-    if (!TargetActor->GetClass()->ImplementsInterface(ULMInteractable::StaticClass()))
+    const bool bHasInterface = TargetActor->GetClass()->ImplementsInterface(ULMInteractable::StaticClass());
+    // 로어가 지정된 대상은 별도 액터 인터페이스 없이도 기존 감지와 태그를 사용할 수 있다.
+    if (!bHasInterface && !IsValid(LoreData))
     {
         R.Failure = EInteractionFailure::NotHasInterface;
         return R;
@@ -258,7 +268,7 @@ FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* Reques
     }
 
     // 액터 BP는 여기서 상태만 읽으며, 새로운 요청이나 상태 변경을 실행하지 않는다.
-    const bool bReserved = Execute_IsInteractionBusy(TargetActor);
+    const bool bReserved = bHasInterface && Execute_IsInteractionBusy(TargetActor);
     if (!IsValid(this) || bIsEndingPlay || IsBeingDestroyed() || GetOwner() != TargetActor || !IsValid(TargetActor) || !IsValid(RequestActor) || TargetActor->IsActorBeingDestroyed() || RequestActor->IsActorBeingDestroyed())
     {
         R.Failure = EInteractionFailure::CantAccessActor;
@@ -281,7 +291,7 @@ FLMInteractionResult ULMInteractionComponent::EvaluateInteraction(AActor* Reques
     return R;
 }
 
-//대상에게 인터렉션 요청->대상이 요청자와 인터렉션가능한지 확인->가능한경우 인터페이스로 구현된 interact 실행
+// 사전 요청을 처리한 뒤 로어 창 또는 기존 인터페이스 상호작용을 실행한다.
 FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* RequestActor, FGameplayTagContainer& ActionTags)
 {
     FLMInteractionResult R = EvaluateInteraction(RequestActor, ActionTags);
@@ -291,9 +301,10 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
     }
 	AActor* TargetActor = GetOwner();
     
-    //Execute_HandleInteractionRequest시 BP가 실행하는 다른 로직에서 같은 액터의 RequestInteraction()을 다시 호출하는것을 막기 위해 임시로 TRUE로 표시
+	// BP 사전 처리나 로어 화면 생성 중 같은 액터의 중복 요청을 막는다.
     TGuardValue<bool> DispatchGuard(bIsDispatchingRequest, true);
-    const ELMInteractionRequestHandling Handling = Execute_HandleInteractionRequest(TargetActor, RequestActor);
+    const bool bHasInterface = TargetActor->GetClass()->ImplementsInterface(ULMInteractable::StaticClass());
+    const ELMInteractionRequestHandling Handling = bHasInterface ? Execute_HandleInteractionRequest(TargetActor, RequestActor) : ELMInteractionRequestHandling::PassThrough;
 
     if (!IsValid(this) || bIsEndingPlay || IsBeingDestroyed() || GetOwner() != TargetActor || !IsValid(TargetActor) || !IsValid(RequestActor) || TargetActor->IsActorBeingDestroyed() || RequestActor->IsActorBeingDestroyed())
     {
@@ -319,6 +330,21 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
     {
         return R;
     }
+
+	// 사전 처리를 통과한 로어 대상은 일반 Interact 대신 대화 창을 연다.
+	if (IsValid(LoreData))
+	{
+		APawn* RequestPawn = Cast<APawn>(RequestActor);
+		ALMPlayerController* OpeningController = IsValid(RequestPawn) ? Cast<ALMPlayerController>(RequestPawn->GetController()) : nullptr;
+		LoreController = OpeningController;
+		if (!IsValid(OpeningController) || !OpeningController->OpenLoreWidget(this, LoreData))
+		{
+			LoreController.Reset();
+			R.bCanInteraction = false;
+			R.Failure = EInteractionFailure::ExecutionFailed;
+		}
+		return R;
+	}
 
     bIsBusy = true;
     const bool bStarted = Execute_Interact(TargetActor, RequestActor);
