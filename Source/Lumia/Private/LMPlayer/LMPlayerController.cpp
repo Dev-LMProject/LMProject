@@ -882,9 +882,9 @@ bool ALMPlayerController::OpenCubePuzzle(ALMCubeRoomPuzzle* Puzzle, ACameraActor
             if (!IsValid(NewPanel.Get()) || !IsRequestCurrent()) break;
 
             ActiveCubePanel = NewPanel.Get();
-            NewPanel->OpenFor(Puzzle);
+            NewPanel->OpenFor(Puzzle, InteractionHUD);
 
-            if (!NewPanel->AddToPlayerScreen(100) || !IsRequestCurrent() || !NewPanel->HasAllFaces()) break;
+            if (!NewPanel->AddToPlayerScreen(100) || !IsRequestCurrent() || !NewPanel->HasCubeView()) break;
 
             // 기존 카메라 연출의 종료 복귀를 먼저 끝내고 복귀 시점을 저장한다.
             ViewManager->StopCameraEffect();

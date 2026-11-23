@@ -1,58 +1,55 @@
 ﻿#include "LMUI/LMCubePanel.h"
-#include "Blueprint/WidgetTree.h"
+#include "Components/Image.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "LMPlayer/LMPlayerController.h"
 #include "Input/Events.h"
 #include "Input/Reply.h"
 #include "InputCoreTypes.h"
 
-// 면의 일치 여부만 계산하고 텍스트와 색상은 BP가 결정한다.
-void ULMCubeFaceWidget::RefreshFace(const FLMCubeView& View)
-{
-    OnFaceUpdated(Side == View.Exit, Side == View.Guide, View.bUseGoal && Side == View.GoalExit, View.bUseGoal && Side == View.GoalGuide);
-}
-
-// 입력을 받을 준비를 하고 퍼즐의 수명은 강제로 유지하지 않는다.
-void ULMCubePanel::OpenFor(ALMCubeRoomPuzzle* _Puzzle)
+// 현재 퍼즐의 촬영 결과를 연결하고 입력을 받을 준비를 한다.
+void ULMCubePanel::OpenFor(ALMCubeRoomPuzzle* _Puzzle, UWidget* _GameHUD)
 {
     Puzzle = _Puzzle;
+    GameHUD = _GameHUD;
     SetIsFocusable(true);
+
+    // 위젯마다 머티리얼을 따로 만들어 다른 화면의 텍스처를 바꾸지 않는다.
+    CubeMaterial = IsValid(CubeImage) ? CubeImage->GetDynamicMaterial() : nullptr;
+    if (IsValid(CubeMaterial) && Puzzle.IsValid())
+        CubeMaterial->SetTextureParameterValue(TEXT("CubeView"), Puzzle->GetCubeViewTarget());
 }
 
 // 컨트롤러가 정상적으로 닫을 때 Destruct의 중복 종료를 막는다.
 void ULMCubePanel::ClearPuzzle()
 {
     Puzzle.Reset();
+    RestoreGameHUD();
 }
 
-// Designer에 배치한 면 위젯을 한 번 수집한다.
+// 퍼즐 화면 뒤에 평상시 상호작용 글자가 남지 않게 한다.
 void ULMCubePanel::NativeConstruct()
 {
     Super::NativeConstruct();
 
-    Faces.Reset();
-
-    TArray<UWidget*> Children;
-    WidgetTree->GetAllWidgets(Children);
-
-    for (UWidget* Child : Children)
+    if (GameHUD.IsValid() && !bHUDHidden && HasCubeView())
     {
-        if (ULMCubeFaceWidget* Face = Cast<ULMCubeFaceWidget>(Child))
-            Faces.Add(Face);
+        OldHUDVisibility = GameHUD->GetVisibility();
+        bHUDHidden = true;
+        GameHUD->SetVisibility(ESlateVisibility::Collapsed);
     }
 }
 
-// 방향 중복이나 누락이 있으면 불완전한 조작 화면을 열지 않는다.
-bool ULMCubePanel::HasAllFaces() const
+// 이미지뿐 아니라 머티리얼의 실제 텍스처 연결까지 확인한다.
+bool ULMCubePanel::HasCubeView() const
 {
-    TSet<ELMCubeFace> Sides;
-
-    for (const ULMCubeFaceWidget* Face : Faces)
+    if (!Puzzle.IsValid() || !IsValid(CubeImage) || !IsValid(CubeMaterial) || !IsValid(Puzzle->GetCubeViewTarget()))
     {
-        if (!IsValid(Face)) return false;
-        Sides.Add(Face->GetSide());
+        return false;
     }
 
-    return Faces.Num() == 6 && Sides.Num() == 6;
+    UTexture* ViewTexture = nullptr;
+    return CubeMaterial->GetTextureParameterValue(FMaterialParameterInfo(TEXT("CubeView")), ViewTexture) && ViewTexture == Puzzle->GetCubeViewTarget();
 }
 
 // 회전 중 매 프레임 표시를 다시 만들지 않고 상태 변경 때만 갱신한다.
@@ -60,23 +57,18 @@ void ULMCubePanel::RefreshView()
 {
     if (!Puzzle.IsValid()) return;
 
-    const TWeakObjectPtr<ALMCubeRoomPuzzle> UpdatingPuzzle = Puzzle;
     const FLMCubeView View = Puzzle->GetView();
-
-    // BP 표시 이벤트가 화면을 닫아도 순회 중인 배열이 바뀌지 않게 한다.
-    const TArray<TObjectPtr<ULMCubeFaceWidget>> FaceList = Faces;
-
-    for (ULMCubeFaceWidget* Face : FaceList)
-    {
-        if (!Puzzle.IsValid() || Puzzle != UpdatingPuzzle) return;
-        if (!IsValid(Face)) continue;
-
-        Face->RefreshFace(View);
-    }
-
-    if (!Puzzle.IsValid() || Puzzle != UpdatingPuzzle) return;
-
     OnPanelUpdated(View.bCanTurn, View.bSolved);
+}
+
+// 자신이 숨겼던 HUD만 원래 표시 상태로 복구한다.
+void ULMCubePanel::RestoreGameHUD()
+{
+    if (bHUDHidden && GameHUD.IsValid())
+        GameHUD->SetVisibility(OldHUDVisibility);
+
+    bHUDHidden = false;
+    GameHUD.Reset();
 }
 
 // 예상하지 못한 위젯 제거도 입력 잠금을 남기지 않는다.
@@ -85,7 +77,7 @@ void ULMCubePanel::NativeDestruct()
     ALMCubeRoomPuzzle* ClosingPuzzle = Puzzle.Get();
 
     Puzzle.Reset();
-    Faces.Reset();
+    RestoreGameHUD();
 
     if (IsValid(ClosingPuzzle))
         ClosingPuzzle->ClosePuzzle();
