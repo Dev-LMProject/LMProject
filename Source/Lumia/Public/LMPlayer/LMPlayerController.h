@@ -14,6 +14,9 @@ class ULMInteractionHUDWidget;
 class ULMUserHUDWidget;
 class ULMHackingComponent;
 class ULMHackingWidget;
+class ULMInteractionComponent;
+class ULMLoreData;
+class ULMLoreWidget;
 class ULMAbilitySystemComponent;
 class UGameplayAbility;
 class ULMCubePanel;
@@ -62,6 +65,15 @@ public:
 	// 요청한 컴포넌트가 현재 화면의 세션일 때만 닫는다.
 	// 생성 도중 호출되면 취소를 표시하고, 생성 함수에서 제거한다.
 	void CloseHackingWidget(ULMHackingComponent* InSession);
+
+	// 상호작용 대상의 로어 창을 열고 게임 입력과 월드를 일시정지한다.
+	bool OpenLoreWidget(ULMInteractionComponent* LoreInteraction, ULMLoreData* LoreData);
+
+	// 현재 로어 창에서 보낸 닫기 요청만 처리한다.
+	void CloseLoreWidget(ULMLoreWidget* SourceWidget);
+
+	// 종료된 상호작용 대상이 소유한 로어 창만 닫는다.
+	void CloseLoreFor(ULMInteractionComponent* LoreInteraction);
 	
 	// 카메라를 먼저 계산하고 Task 검색을 실행한 뒤 HUD 표식 위치를 갱신한다.
 	virtual void UpdateCameraManager(float DeltaSeconds) override;
@@ -169,6 +181,17 @@ private:
 
 	// 화면을 요청한 해킹 컴포넌트를 식별하되 대상 액터의 수명은 유지하지 않는다.
 	TWeakObjectPtr<ULMHackingComponent> ActiveHackingSession;
+
+	// 현재 표시 중인 로어 창과 그 창을 요청한 상호작용 대상이다.
+	UPROPERTY(Transient)
+	TObjectPtr<ULMLoreWidget> ActiveLoreWidget = nullptr;
+	TWeakObjectPtr<ULMInteractionComponent> ActiveLoreInteraction;
+
+	// 창 생성과 정리 중 재진입 및 중복 상태 복원을 막는다.
+	bool bIsChangingLoreWidget = false;
+	bool bHasLoreInputState = false;
+	bool bPausedByLore = false;
+	bool bMouseCursorBeforeLore = false;
 	
 	UPROPERTY(Transient)
 	TObjectPtr<ULMUserHUDWidget> UserHUD;
@@ -224,6 +247,12 @@ private:
 
 	// 저장한 커서 상태와 게임 입력을 복원하고, 필요한 경우 일시정지를 해제한다.
 	void RestoreHackingInput();
+
+	// 현재 로어 창의 참조를 먼저 비운 뒤 화면과 입력 상태를 정리한다.
+	void ReleaseLoreWidget();
+
+	// 로어 창에서 확보한 커서·입력·일시정지만 복원한다.
+	void RestoreLoreInput();
 	
 	// 현재 프레임 검사에 통과한 Actor들만 보관한다.
 	// 약한 참조이므로 대상이 삭제되면 Get()으로 유효한 Actor를 얻을 수 없게 된다.

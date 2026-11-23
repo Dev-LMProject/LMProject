@@ -9,7 +9,10 @@
 #include "LMCamera/LMPlayerCameraManager.h"
 #include "LMCamera/LMTargetQueryLibrary.h"
 #include "LMComponent/LMHackingComponent.h"
+#include "LMComponent/LMInteractionComponent.h"
 #include "LMUI/LMHackingWidget.h"
+#include "LMUI/LMLoreData.h"
+#include "LMUI/LMLoreWidget.h"
 #include "LMUI/LMInteractionHUDWidget.h"
 #include "LMUI/LMUserHUDWidget.h"
 #include "EnhancedInputComponent.h"
@@ -112,6 +115,7 @@ void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	
 	OnFocusFrame.Clear();
 
+	ReleaseLoreWidget();
 	ReleaseHackingWidget();
 	CancelAbilityInput();
 
@@ -178,10 +182,11 @@ bool ALMPlayerController::IsHackingWidgetSource(const ULMHackingComponent* InSes
 		&& ActiveHackingWidget.Get() == SourceWidget;
 }
 
+// 다른 전용 화면과 겹치지 않게 해킹 창을 열고 입력을 전환한다.
 bool ALMPlayerController::OpenHackingWidget(ULMHackingComponent* InSession)
 {
-	// 큐브가 화면을 소유하거나 전환 중이면 해킹 화면을 겹쳐 열지 않는다.
-	if (bChangingCubeView || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel)
+	// 큐브나 로어 화면이 입력을 소유하거나 전환 중이면 해킹 화면을 겹쳐 열지 않는다.
+	if (bChangingCubeView || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel || bIsChangingLoreWidget || ActiveLoreWidget || !ActiveLoreInteraction.IsExplicitlyNull())
 	{
 		return false;	
 	}
@@ -363,6 +368,144 @@ void ALMPlayerController::RestoreHackingInput()
 		{
 			SetPause(false);
 		}
+	}
+}
+
+// 로어 창을 표시하고 소유한 일시정지와 UI 입력으로 전환한다.
+bool ALMPlayerController::OpenLoreWidget(ULMInteractionComponent* LoreInteraction, ULMLoreData* LoreData)
+{
+	// 다른 화면이 입력이나 카메라를 소유한 상태에서는 새 창을 열지 않는다.
+	if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || IsPaused() || bIsChangingLoreWidget || ActiveLoreWidget || !ActiveLoreInteraction.IsExplicitlyNull() || bIsChangingHackingWidget || ActiveHackingWidget || !ActiveHackingSession.IsExplicitlyNull() || bChangingCubeView || ActiveCubePanel || !ActiveCubePuzzle.IsExplicitlyNull())
+	{
+		return false;
+	}
+	if (!IsValid(LoreInteraction) || LoreInteraction->IsBeingDestroyed() || !IsValid(LoreData) || !LoreData->WidgetClass)
+	{
+		return false;
+	}
+
+	// 위젯 생성이나 일시정지 콜백에서 재진입한 요청을 구분한다.
+	TGuardValue<bool> ChangingGuard(bIsChangingLoreWidget, true);
+	const TWeakObjectPtr<ULMInteractionComponent> RequestedInteraction(LoreInteraction);
+	const TWeakObjectPtr<ULMLoreData> RequestedData(LoreData);
+	ActiveLoreInteraction = RequestedInteraction;
+	TStrongObjectPtr<ULMLoreWidget> NewWidget(CreateWidget<ULMLoreWidget>(this, LoreData->WidgetClass));
+
+	// 각 콜백을 마친 뒤에도 동일한 대상과 화면이 남아 있는지 확인한다.
+	const auto IsOpeningLoreValid = [this, &RequestedInteraction, &RequestedData, &NewWidget]()
+	{
+		return !bIsEndingPlay && !IsActorBeingDestroyed() && RequestedInteraction.IsValid() && RequestedData.IsValid() && ActiveLoreInteraction == RequestedInteraction && IsValid(NewWidget.Get()) && ActiveLoreWidget == NewWidget.Get() && NewWidget->GetOwningPlayer() == this && NewWidget->IsInViewport() && NewWidget->HasLoreContent();
+	};
+
+	bool bOpened = false;
+	if (IsValid(NewWidget.Get()) && RequestedInteraction.IsValid() && RequestedData.IsValid() && !bIsEndingPlay && ActiveLoreInteraction == RequestedInteraction)
+	{
+		// Construct가 DA를 읽을 수 있도록 뷰포트 등록 전에 원본을 연결한다.
+		ActiveLoreWidget = NewWidget.Get();
+		NewWidget->InitializeLore(RequestedData.Get());
+		bOpened = NewWidget->AddToPlayerScreen(10) && IsOpeningLoreValid();
+	}
+
+	if (bOpened)
+	{
+		// 실패하거나 도중에 닫혀도 이 창이 바꾼 상태만 복원한다.
+		bMouseCursorBeforeLore = bShowMouseCursor;
+		bHasLoreInputState = true;
+		bPausedByLore = SetPause(true);
+		bOpened = bPausedByLore && IsPaused() && IsOpeningLoreValid();
+	}
+
+	if (bOpened)
+	{
+		// 상호작용 키를 포함해 누른 채로 남은 능력 입력을 정리한다.
+		FlushPressedKeys();
+		bOpened = IsOpeningLoreValid();
+	}
+
+	if (bOpened)
+	{
+		bShowMouseCursor = true;
+		FInputModeUIOnly InputMode;
+		InputMode.SetWidgetToFocus(NewWidget->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+		bOpened = IsOpeningLoreValid();
+	}
+
+	if (!bOpened)
+	{
+		// 생성 도중 취소된 화면을 제거하고 이미 변경한 상태를 되돌린다.
+		ActiveLoreWidget = nullptr;
+		ActiveLoreInteraction.Reset();
+		if (IsValid(NewWidget.Get()))
+		{
+			NewWidget->ClearLore();
+			NewWidget->RemoveFromParent();
+		}
+		RestoreLoreInput();
+	}
+
+	return bOpened;
+}
+
+// 현재 창에서 발생한 닫기 요청만 받아 세션을 정리한다.
+void ALMPlayerController::CloseLoreWidget(ULMLoreWidget* SourceWidget)
+{
+	if (!IsValid(SourceWidget) || ActiveLoreWidget != SourceWidget)
+	{
+		return;
+	}
+	ReleaseLoreWidget();
+}
+
+// 대상 종료 시 동일한 대상이 연 창만 닫는다.
+void ALMPlayerController::CloseLoreFor(ULMInteractionComponent* LoreInteraction)
+{
+	if (!LoreInteraction) return;
+	const TWeakObjectPtr<ULMInteractionComponent> RequestedInteraction(LoreInteraction);
+	if (!ActiveLoreInteraction.HasSameIndexAndSerialNumber(RequestedInteraction))
+	{
+		return;
+	}
+	ReleaseLoreWidget();
+}
+
+// 로어 화면과 대상 참조를 해제하고 입력 및 일시정지를 복원한다.
+void ALMPlayerController::ReleaseLoreWidget()
+{
+	// 생성 중이면 요청 취소만 기록하고 OpenLoreWidget의 실패 정리에 맡긴다.
+	ActiveLoreInteraction.Reset();
+	if (bIsChangingLoreWidget) return;
+
+	TGuardValue<bool> ChangingGuard(bIsChangingLoreWidget, true);
+	TStrongObjectPtr<ULMLoreWidget> ClosingWidget(ActiveLoreWidget.Get());
+	ActiveLoreWidget = nullptr;
+	if (IsValid(ClosingWidget.Get()))
+	{
+		ClosingWidget->ClearLore();
+		ClosingWidget->RemoveFromParent();
+	}
+	RestoreLoreInput();
+}
+
+// 로어 창이 확보한 입력 상태와 일시정지를 한 번만 복원한다.
+void ALMPlayerController::RestoreLoreInput()
+{
+	if (!bHasLoreInputState) return;
+
+	const bool bReleasePause = bPausedByLore;
+	const bool bRestoreCursor = bMouseCursorBeforeLore;
+	// 복원 과정의 콜백이 다시 정리해도 같은 상태를 두 번 복원하지 않는다.
+	bHasLoreInputState = false;
+	bPausedByLore = false;
+	FlushPressedKeys();
+	bShowMouseCursor = bRestoreCursor;
+
+	if (GetWorld())
+	{
+		SetInputMode(FInputModeGameOnly());
+		if (bReleasePause && IsPaused())
+			SetPause(false);
 	}
 }
 
@@ -844,7 +987,7 @@ bool ALMPlayerController::IsCubePuzzleActive(const ALMCubeRoomPuzzle* Puzzle) co
 // 해킹과 중복되지 않게 화면을 열고 프로젝트 입력을 정리한다.
 bool ALMPlayerController::OpenCubePuzzle(ALMCubeRoomPuzzle* Puzzle, ACameraActor* Camera)
 {
-    if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || IsPaused() || bChangingCubeView || bIsChangingHackingWidget || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel || !ActiveHackingSession.IsExplicitlyNull() || ActiveHackingWidget)
+    if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || IsPaused() || bChangingCubeView || bIsChangingHackingWidget || bIsChangingLoreWidget || ActiveLoreWidget || !ActiveLoreInteraction.IsExplicitlyNull() || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel || !ActiveHackingSession.IsExplicitlyNull() || ActiveHackingWidget)
     {
         return false;
     }
