@@ -94,6 +94,14 @@ public:
     UFUNCTION(CallInEditor, Category="Cube|Setup")
     void PlaceAtRoomCenter();
 
+    // BP Timeline의 진행값으로 수납 통로를 이동하며 충돌 권한은 C++에 둔다.
+    UFUNCTION(BlueprintCallable, Category="Cube|Path")
+    void SetPathMoveAlpha(float Alpha);
+
+    // 통로가 끝점에 도달한 뒤에만 상승 또는 하강을 허용한다.
+    UFUNCTION(BlueprintCallable, Category="Cube|Path")
+    void FinishPathMove();
+
 protected:
     // 기존 방을 연결하고 에디터의 완성 자세를 시작 자세로 섞는다.
     virtual void BeginPlay() override;
@@ -123,6 +131,14 @@ protected:
     // 입력과 카메라 복구 후 BP의 반복 연출을 정리한다.
     UFUNCTION(BlueprintImplementableEvent, Category="Cube|Flow")
     void OnPuzzleClosed(bool bWasSolved);
+
+    // BP에서 통로용 Timeline을 처음부터 재생한다.
+    UFUNCTION(BlueprintImplementableEvent, Category="Cube|Flow")
+    void OnPathMoveStarted();
+
+    // 취소나 강제 종료 때 BP Timeline의 늦은 갱신을 중단한다.
+    UFUNCTION(BlueprintImplementableEvent, Category="Cube|Flow")
+    void OnPathMoveReset();
 
     // 고정 루트 아래에 남는 발판이다.
     UPROPERTY(VisibleAnywhere, Category="Cube")
@@ -172,6 +188,39 @@ protected:
     UPROPERTY(VisibleAnywhere, Category="Cube")
     TObjectPtr<USceneComponent> RoomPivot;
 
+    // 회전하는 실제 출구의 문턱이다. X는 통과 방향, Z는 위쪽이다.
+    UPROPERTY(VisibleAnywhere, Category="Cube|Path")
+    TObjectPtr<USceneComponent> ExitPoint;
+
+    // 펼쳐진 외부 통로의 방 쪽 끝이며 방과 함께 회전하지 않는다.
+    UPROPERTY(VisibleAnywhere, Category="Cube|Path")
+    TObjectPtr<USceneComponent> ExitTarget;
+
+    UPROPERTY(VisibleAnywhere, Category="Cube|Path")
+    TObjectPtr<UStaticMeshComponent> EntryBridge;
+
+    UPROPERTY(VisibleAnywhere, Category="Cube|Path")
+    TObjectPtr<UStaticMeshComponent> ExitBridge;
+
+    UPROPERTY(VisibleAnywhere, Category="Cube|Path")
+    TObjectPtr<UBoxComponent> EntryBlock;
+
+    UPROPERTY(VisibleAnywhere, Category="Cube|Path")
+    TObjectPtr<UBoxComponent> ExitBlock;
+
+    // 통로의 끝점은 고정 루트 기준이며 에디터에서 복도 치수에 맞춘다.
+    UPROPERTY(EditInstanceOnly, Category="Cube|Path")
+    FVector EntryOpen = FVector(-1870, 0, 80);
+
+    UPROPERTY(EditInstanceOnly, Category="Cube|Path")
+    FVector EntryClosed = FVector(-3270, 0, 80);
+
+    UPROPERTY(EditInstanceOnly, Category="Cube|Path")
+    FVector ExitOpen = FVector(1870, 0, 80);
+
+    UPROPERTY(EditInstanceOnly, Category="Cube|Path")
+    FVector ExitClosed = FVector(3270, 0, 80);
+
     // 레벨에 이미 배치한 방이다.
     UPROPERTY(EditInstanceOnly, Category="Cube|Setup")
     TObjectPtr<AActor> RoomToRotate;
@@ -183,13 +232,10 @@ protected:
     UPROPERTY(EditInstanceOnly, Category="Cube|Setup")
     bool bUseGoal = true;
 
-    // 완성 자세에서 출구가 있는 면이다. UI 표시 기준으로 사용한다.
-    UPROPERTY(EditInstanceOnly, Category="Cube|Setup")
-    ELMCubeFace GoalExit = ELMCubeFace::Right;
-
     // 에디터의 완성 자세를 PIE 시작 때 섞는 순서다.
     UPROPERTY(EditInstanceOnly, Category="Cube|Setup")
     TArray<ELMCubeTurn> StartTurns;
+    
     // 퍼즐을 열면 작은 큐브가 원래 위치에서 이 높이만큼 떠오른다. 단위는 cm다.
     UPROPERTY(EditDefaultsOnly, Category="Cube|Motion", meta=(ClampMin="0.0", Units="cm"))
     float LiftHeight = 45.f;
@@ -228,6 +274,9 @@ private:
     {
         Idle,    // 플레이어가 퍼즐 조작을 시작하기를 기다린다.
         Opening, // 퍼즐 화면을 여는 중이다. 이때는 다시 열기 요청을 받지 않는다.
+        ClosingPath, // 입구 통로 수납이 끝나기 전에는 방을 돌리지 않는다.
+        OpeningPath, // 출구 통로가 펼쳐지는 동안 플레이어를 중앙에 유지한다.
+        RestoringPath, // 취소 후 시작 자세의 입구 통로를 복구한다.
         Lift,    // 작은 큐브가 플레이어 앞에서 떠오른다.
         Ready,   // 방향키를 눌러 방을 돌릴 수 있다.
         Turning, // 작은 큐브와 큰 방이 90도 도는 중이다. 다음 회전 입력은 잠시 막는다.
@@ -240,9 +289,14 @@ private:
 
     ELMPhase Phase = ELMPhase::Idle;
 
+    // 통로 연출의 종류이며 별도의 퍼즐 정답이나 진행 단계가 아니다.
+    enum class ELMCubePathMove : uint8 { CloseEntry, OpenExit, RestoreEntry };
+    ELMCubePathMove PathMove = ELMCubePathMove::CloseEntry;
+
     bool bRoomAttached = false; // 방 연결 성공 여부
     bool bEnding = false;       // 종료 중 이벤트 재진입 방지
     bool bRoomSafe = false;     // 회전 중심의 안전 구역 검사 결과
+    bool bPathsReady = false;   // 통로와 실제 출구 기준이 연결됐는지 여부
     bool bSolved = false;       // 성공 후 하강 중에도 정답을 유지한다.
     bool bBodyHeld = false;     // 이 퍼즐이 실제로 이동을 고정한 캐릭터인지 구분한다.
     float Elapsed = 0.f;        // 현재 연출 시간
@@ -261,12 +315,18 @@ private:
     FQuat MiniBase = FQuat::Identity; // 작은 큐브의 완성 방향
     FQuat ReturnRoom;           // 취소 요청을 받은 순간의 방 자세
     FQuat ReturnMini;           // 취소 요청을 받은 순간의 모형 자세
+    FTransform ExitHome;       // 완성 자세의 문턱을 고정 루트 좌표로 보관한다.
+    FVector PathFrom;          // 중간 취소에서도 현재 위치부터 연출을 이어간다.
+    FVector PathTo;
+    float PathAlpha = 0.f;
+    float ViewScale = 1.f;      // 큰 방의 좌표를 작은 모형 좌표로 줄이는 비율
 
     FQuat StartPose = FQuat::Identity; // 섞어 둔 시작 자세
     FQuat Pose = FQuat::Identity;      // 정착한 현재 자세
     FQuat NextPose = FQuat::Identity;  // 다음 회전 목표
 
     FTimerHandle ResultTimer;
+    FTimerHandle PathTimer;
 
     TWeakObjectPtr<ALMPlayerController> Driver;
     TWeakObjectPtr<ALMPlayerCharacter> HeldBody;
@@ -297,6 +357,21 @@ private:
 
     // 정답 또는 취소 후 안전한 바닥 하강을 시작한다.
     void StartLowering();
+
+    // 실제 출구와 외부 통로의 문턱 위치·전방·위쪽 방향을 비교한다.
+    bool IsExitAligned() const;
+
+    // 정답 정지 연출이 끝나면 출구 통로의 전개를 시작한다.
+    void StartPathOpen();
+
+    // 입력이 잠긴 상태에서 BP에 통로 연출 한 번을 요청한다.
+    void StartPathMove(ELMCubePathMove Move);
+
+    // 강제 종료에서도 안전한 입구 또는 출구 끝점과 충돌을 맞춘다.
+    void ResetPaths(bool bKeepExit);
+
+    // BP 완료 연결이 빠져도 입력과 중앙 발판을 영구히 잠그지 않는다.
+    void OnPathMoveTimeout();
 
     // 촬영 대상과 방향 힌트를 한 번 준비한다.
     void SetupCubeView();
