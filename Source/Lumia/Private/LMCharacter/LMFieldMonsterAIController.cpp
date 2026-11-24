@@ -1,9 +1,9 @@
-#include "LMCharacter/LMMiddleMobAIController.h"
+#include "LMCharacter/LMFieldMonsterAIController.h"
 
 #include "Navigation/CrowdFollowingComponent.h"
 
 // 부모가 만든 CrowdFollowingComponent에 간격 보정을 적용한다.
-ALMMiddleMobAIController::ALMMiddleMobAIController(const FObjectInitializer& ObjectInitializer)
+ALMFieldMonsterAIController::ALMFieldMonsterAIController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	UCrowdFollowingComponent* CrowdFollowing = Cast<UCrowdFollowingComponent>(GetPathFollowingComponent());
