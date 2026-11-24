@@ -191,43 +191,32 @@ void ALMFieldMonsterCharacter::RefreshHealthWidget()
     }
 }
 
-/** 일반 몬스터의 소진은 즉시 제한하고 비치명 피해는 한 번 반응한다. */
+// 체력이 소진되면 공격과 이동을 끝내고 사망 상태로 전환한다.
 void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIsDead)
 {
-    if (bEndingPlay || bIsDead || !FMath::IsFinite(ActualDamage) || ActualDamage <= 0.0f)
+    if (!_bIsDead || bEndingPlay || bIsDead || !FMath::IsFinite(ActualDamage) || ActualDamage <= 0.0f)
     {
         return;
     }
-    
+
     StopAttack();
-    if (_bIsDead)
-    {
-        // 재진입 전에 상태를 확정하고 피격 제한을 풀기 전에 사망 제한을 세운다.
-        bIsDead = true;
-        UpdateCombatFocus();
-        bOwnsDeadTag = true;
-        AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Dead);
 
-        FinishHitReaction();
+    // 피격 제한을 풀기 전에 사망 상태와 태그를 적용한다.
+    bIsDead = true;
+    UpdateCombatFocus();
+    bOwnsDeadTag = true;
+    AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Dead);
 
-        GetCharacterMovement()->StopMovementImmediately();
-        GetCharacterMovement()->DisableMovement();
-        AbilitySystemComponent->ClearAbilityInput(this);
-        AbilitySystemComponent->CancelAbilities();
-
-        // 즉시 파괴하지 않고 AnimBP가 Death_A와 마지막 자세를 표시하게 한다.
-        return;
-    }
-
-    if (!BeginHitReaction(false)) return;
+    FinishHitReaction();
 
     GetCharacterMovement()->StopMovementImmediately();
+    GetCharacterMovement()->DisableMovement();
     AbilitySystemComponent->ClearAbilityInput(this);
     AbilitySystemComponent->CancelAbilities();
 }
 
-// 피격 애니메이션 길이로 경직을 시작하고 이미 진행 중인 반응은 연장하지 않는다.
-bool ALMFieldMonsterCharacter::BeginHitReaction(bool bFromParry)
+// 패링 경직을 시작하고 피격 애니메이션 길이만큼 기다린 뒤 그로기로 전환한다.
+bool ALMFieldMonsterCharacter::BeginParryHitReaction()
 {
     if (bEndingPlay || bIsDead || bIsHitReacting || bIsGroggy || !IsAliveForCombat())
         return false;
@@ -244,10 +233,8 @@ bool ALMFieldMonsterCharacter::BeginHitReaction(bool bFromParry)
         return false;
     }
 
-    // 패링 피격이 자연 종료될 때만 그로기로 전환한다.
     bIsHitReacting = true;
-    const auto OnReactionEnded = bFromParry ? &ALMFieldMonsterCharacter::BeginParryGroggy : &ALMFieldMonsterCharacter::FinishHitReaction;
-    GetWorldTimerManager().SetTimer(HitReactionTimer, this, OnReactionEnded, Duration, false);
+    GetWorldTimerManager().SetTimer(HitReactionTimer, this, &ALMFieldMonsterCharacter::BeginParryGroggy, Duration, false);
 
     bOwnsStunTag = true;
     AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Stunned);
@@ -264,7 +251,7 @@ void ALMFieldMonsterCharacter::ReceiveParryReaction(ALMBaseCharacter* Parrier)
     if (BackDirection.IsNearlyZero())
         BackDirection = Parrier->GetActorForwardVector().GetSafeNormal2D();
 
-    if (!BeginHitReaction(true)) return;
+    if (!BeginParryHitReaction()) return;
 
     StopAttack();
     if (AAIController* AIController = Cast<AAIController>(GetController()))
@@ -671,8 +658,12 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
 
     // BP에서는 여러 조건을 다시 조합하지 않고 현재 판정 결과만 읽는다.
     bAttackAllowed = bHasAttackTurn && !bAttackStopping && AttackCombatId == CombatArea->GetCombatId();
+
+    // 공격 중에는 대상이 수평 사거리 안에 있을 때만 현재 공격을 유지한다.
     bCanWork = (!bAttackRunning && _bCanMove)
-        || (bAttackRunning && bAttackAllowed && IsValid(_TargetPlayer) && !bReturning && !bIsDead && !bIsHitReacting && _TargetPlayer->IsAliveForCombat());
+        || (bAttackRunning && bAttackAllowed && IsValid(_TargetPlayer)
+            && !bReturning && !bIsDead && !bIsHitReacting
+            && _TargetPlayer->IsAliveForCombat() && !IsOutsideAttackDistance());
 
     return IsValid(_TargetPlayer);
 }

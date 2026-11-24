@@ -147,11 +147,11 @@ private:
 	/** 자신의 현재 체력을 위젯에 전달한다. */
 	void RefreshHealthWidget();
 
-	/** 확정된 피해 결과로 일반 몬스터의 피격 또는 소진을 처리한다. */
+	// 확정된 피해로 체력이 소진되면 사망을 처리한다.
 	void HandleDamageApplied(float ActualDamage, bool _bIsDead);
 
-	// 같은 경직 상태를 시작하고 패링 여부에 맞는 종료 함수를 예약한다.
-	bool BeginHitReaction(bool bFromParry);
+	// 패링 경직을 시작하고 그로기 전환을 예약한다.
+	bool BeginParryHitReaction();
 
 	// 이전 공격이 정리된 뒤 저장한 방향으로 한 번 후퇴한다.
 	void TryStartParryRetreat();
