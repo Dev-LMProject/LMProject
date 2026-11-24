@@ -16,6 +16,9 @@ struct FOnAttributeChangeData;
 class ALMCombatArea;
 class ULMAttackAbility;
 
+// 기본공격 실행과 공격권을 정리했을 때 알린다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMOnBasicAttackFinished);
+
 /** 
  * 본인 ASC와 전투 속성을 소유하는 일반 몬스터의 기반 몸체다. 
  * 자체 ASC와 체력, 임시 HP UI, 일반 몬스터의 피격·소진 반응을 관리한다.
@@ -210,6 +213,10 @@ public:
 	// 이동과 기본공격을 중단하며 실제 GA 종료까지 공격권을 유지한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	void StopAttack();
+
+	// 기본공격 정리가 끝나면 대기 중인 BP 태스크에 알린다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|AI")
+	FLMOnBasicAttackFinished OnBasicAttackFinished;
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")

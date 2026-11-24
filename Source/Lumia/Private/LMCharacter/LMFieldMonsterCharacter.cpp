@@ -714,6 +714,9 @@ void ALMFieldMonsterCharacter::FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunAr
 
     // 실제 공격 종료 알림을 받은 시점에 기다리던 패링 후퇴를 시작한다.
     TryStartParryRetreat();
+
+    // 공격권 반납과 후속 처리를 마친 뒤 태스크가 완료되도록 알린다.
+    OnBasicAttackFinished.Broadcast();
 }
 // 이동과 행동 유지 판정을 함께 제공하고 대상의 자연 소멸도 복귀로 처리한다.
 bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove)
