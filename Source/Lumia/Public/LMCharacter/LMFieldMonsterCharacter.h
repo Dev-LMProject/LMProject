@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Animation/AnimNotifies/AnimNotify.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "GameplayAbilitySpecHandle.h"
 #include "LMFieldMonsterCharacter.generated.h"
@@ -9,10 +10,14 @@ class ALMPlayerCharacter;
 class ULMAbilitySystemComponent;
 class ULMCombatAttributeSet;
 class UWidgetComponent;
+class UAnimInstance;
 class UAnimSequence;
 struct FOnAttributeChangeData;
 class ALMCombatArea;
 class ULMAttackAbility;
+
+// 기본공격 실행과 공격권을 정리했을 때 알린다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMOnBasicAttackFinished);
 
 /** 
  * 본인 ASC와 전투 속성을 소유하는 일반 몬스터의 기반 몸체다. 
@@ -147,11 +152,11 @@ private:
 	/** 자신의 현재 체력을 위젯에 전달한다. */
 	void RefreshHealthWidget();
 
-	/** 확정된 피해 결과로 일반 몬스터의 피격 또는 소진을 처리한다. */
+	// 확정된 피해로 체력이 소진되면 사망을 처리한다.
 	void HandleDamageApplied(float ActualDamage, bool _bIsDead);
 
-	// 같은 경직 상태를 시작하고 패링 여부에 맞는 종료 함수를 예약한다.
-	bool BeginHitReaction(bool bFromParry);
+	// 패링 경직을 시작하고 그로기 전환을 예약한다.
+	bool BeginParryHitReaction();
 
 	// 이전 공격이 정리된 뒤 저장한 방향으로 한 번 후퇴한다.
 	void TryStartParryRetreat();
@@ -197,6 +202,10 @@ private:
 	
 //GA
 public:
+	// 필드 몬스터의 현재 공격권으로 지정된 기본공격 GA를 시작한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	bool TryStartBasicAttack();
+
 	// BP가 GA를 실행하기 전에 공격권과 종료 감시를 준비한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool PrepareAttack();
@@ -204,6 +213,10 @@ public:
 	// 이동과 기본공격을 중단하며 실제 GA 종료까지 공격권을 유지한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	void StopAttack();
+
+	// 기본공격 정리가 끝나면 대기 중인 BP 태스크에 알린다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|AI")
+	FLMOnBasicAttackFinished OnBasicAttackFinished;
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack")
@@ -246,11 +259,16 @@ private:
 
 	// 같은 실행의 실제 종료만 반영하고 해당 공격권을 한 번 반납한다.
 	void FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunArea, int64 _RunCombatId, int64 _RunAttackId);
+
+	// 평타 섹션이 끝나기 직전에 다음 타를 이어갈 사거리를 확인한다.
+	UFUNCTION()
+	void HandleAttackSectionNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
 	
 	// 현재 공격권으로 기본공격 GA를 한 번 실행한다.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|Attack", meta = (AllowPrivateAccess = "true"))
 	FGameplayAbilitySpecHandle AttackAbilityHandle;
 	FDelegateHandle AttackEndedHandle;
+	TWeakObjectPtr<UAnimInstance> AttackNotifyAnim;
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<ALMCombatArea> RunArea;
