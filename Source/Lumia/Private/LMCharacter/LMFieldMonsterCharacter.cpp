@@ -1,6 +1,7 @@
 #include "LMCharacter/LMFieldMonsterCharacter.h"
 
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -522,10 +523,21 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
     if (!IsValid(Area) || !Area->ReadAttackTurn(this, Combat, Turn, bStop, Wait))
         return false;
 
+    const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
+    const ALMPlayerCharacter* Player = GetTargetPlayer();
+    const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
+    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && IsAliveForCombat()
+        && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
+    const bool bCanPrepare = !bStop && Combat == Area->GetCombatId() && bReady
+        && IsValid(Player) && Player->IsAliveForCombat() && Spec && !Spec->IsActive();
+
+    // 시전 직전에 사거리가 벌어지면 현재 공격권으로 다시 접근한다.
+    if (bCanPrepare && IsOutsideAttackDistance())
+        return false;
+
     // BP가 실행할 능력과 이번 공격권을 종료 알림보다 먼저 확정한다.
     SetSlowFollow(false);
     const TWeakObjectPtr<ALMCombatArea> SavedArea(Area);
-    const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
 
     RunArea = SavedArea;
     RunCombatId = Combat;
@@ -540,20 +552,58 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
 
     AttackEndedHandle = AbilitySystemComponent->OnAbilityEnded.AddWeakLambda(this, OnEnded);
 
-    // 이동 중단 이벤트 이후의 현재 상태를 다시 검사한다.
-    const ALMPlayerCharacter* Player = GetTargetPlayer();
-    const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
-    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
-
-    // 상태 선택 뒤 대상이나 거리가 바뀌어도 GA 시작 직전 같은 조건으로 다시 확인한다.
-    if (bStop || Combat != Area->GetCombatId() || !bReady || !IsValid(Player) || !Player->IsAliveForCombat() || !Spec || Spec->IsActive() || !CanStartAttack())
+    // 나머지 시작 조건을 만족하지 못하면 기록해 둔 실행과 공격권을 정리한다.
+    if (!bCanPrepare || !CanStartAttack())
     {
         StopAttack();
         return false;
     }
 
+    // 기본 몽타주 Notify가 전달되는 메시의 주 애님 인스턴스를 기억한다.
+    const FGameplayAbilityActorInfo* AttackActorInfo = AbilitySystemComponent->AbilityActorInfo.Get();
+    USkeletalMeshComponent* AttackMesh = AttackActorInfo ? AttackActorInfo->SkeletalMeshComponent.Get() : nullptr;
+    UAnimInstance* Anim = AttackMesh ? AttackMesh->GetAnimInstance() : nullptr;
+    if (IsValid(Anim))
+    {
+        AttackNotifyAnim = Anim;
+        Anim->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &ThisClass::HandleAttackSectionNotify);
+    }
+
     return true;
 }
+
+// 이번 평타 몽타주의 섹션 종료 직전에 다음 타를 이어갈 수 있는지 확인한다.
+void ALMFieldMonsterCharacter::HandleAttackSectionNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload)
+{
+    static const FName CheckNextAttack(TEXT("LM_CheckNextAttack"));
+    if (NotifyName != CheckNextAttack || !bAttackRunning || !IsValid(AbilitySystemComponent.Get()))
+        return;
+
+    const UGameplayAbility* Ability = AbilitySystemComponent->GetAnimatingAbility();
+    if (!IsValid(Ability) || !Ability->IsActive() || Ability->GetCurrentAbilitySpecHandle() != AttackAbilityHandle)
+        return;
+
+    // 현재 몽타주를 재생한 애님 인스턴스와 이번 재생 ID가 모두 일치해야 한다.
+    const FGameplayAbilityActorInfo* AttackActorInfo = AbilitySystemComponent->AbilityActorInfo.Get();
+    const UAnimInstance* Anim = AttackActorInfo ? AttackActorInfo->GetAnimInstance() : nullptr;
+    const UAnimMontage* Montage = AbilitySystemComponent->GetCurrentMontage();
+    if (!IsValid(Anim) || !IsValid(Montage) || Payload.SkelMeshComponent != Anim->GetSkelMeshComponent() || Payload.SequenceAsset != Montage)
+        return;
+
+    const FAnimMontageInstance* Instance = Anim->GetActiveInstanceForMontage(Montage);
+    if (!Instance || !Instance->IsActive() || Instance->GetInstanceID() != Payload.MontageInstanceID)
+        return;
+
+    const ALMPlayerCharacter* Player = GetTargetPlayer();
+    if (IsValid(Player) && Player->IsAliveForCombat() && !IsOutsideAttackDistance())
+        return;
+
+    // 현재 섹션의 남은 동작을 재생한 뒤 몽타주를 끝낸다.
+    const FName Section = Instance->GetCurrentSection();
+    if (!Section.IsNone())
+        AbilitySystemComponent->CurrentMontageSetNextSectionName(Section, NAME_None);
+}
+
 // 중단 의도를 기록하고 이동을 멈춘 뒤 실제 GA 종료를 기다린다.
 void ALMFieldMonsterCharacter::StopAttack()
 {
@@ -608,6 +658,11 @@ void ALMFieldMonsterCharacter::FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunAr
     if (!bAttackRunning || !RunArea.HasSameIndexAndSerialNumber(_RunArea) || RunCombatId != _RunCombatId || RunAttackId != _RunAttackId)
         return;
 
+    // 이번 평타에서 등록한 Notify를 공격권 반환 전에 해제한다.
+    if (UAnimInstance* Anim = AttackNotifyAnim.Get())
+        Anim->OnPlayMontageNotifyBegin.RemoveDynamic(this, &ThisClass::HandleAttackSectionNotify);
+    AttackNotifyAnim.Reset();
+
     if (IsValid(AbilitySystemComponent.Get()))
         AbilitySystemComponent->OnAbilityEnded.Remove(AttackEndedHandle);
 
@@ -659,11 +714,10 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     // BP에서는 여러 조건을 다시 조합하지 않고 현재 판정 결과만 읽는다.
     bAttackAllowed = bHasAttackTurn && !bAttackStopping && AttackCombatId == CombatArea->GetCombatId();
 
-    // 공격 중에는 대상이 수평 사거리 안에 있을 때만 현재 공격을 유지한다.
     bCanWork = (!bAttackRunning && _bCanMove)
         || (bAttackRunning && bAttackAllowed && IsValid(_TargetPlayer)
             && !bReturning && !bIsDead && !bIsHitReacting
-            && _TargetPlayer->IsAliveForCombat() && !IsOutsideAttackDistance());
+            && _TargetPlayer->IsAliveForCombat());
 
     return IsValid(_TargetPlayer);
 }

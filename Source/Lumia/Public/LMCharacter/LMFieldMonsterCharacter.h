@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Animation/AnimNotifies/AnimNotify.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "GameplayAbilitySpecHandle.h"
 #include "LMFieldMonsterCharacter.generated.h"
@@ -9,6 +10,7 @@ class ALMPlayerCharacter;
 class ULMAbilitySystemComponent;
 class ULMCombatAttributeSet;
 class UWidgetComponent;
+class UAnimInstance;
 class UAnimSequence;
 struct FOnAttributeChangeData;
 class ALMCombatArea;
@@ -246,11 +248,16 @@ private:
 
 	// 같은 실행의 실제 종료만 반영하고 해당 공격권을 한 번 반납한다.
 	void FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunArea, int64 _RunCombatId, int64 _RunAttackId);
+
+	// 평타 섹션이 끝나기 직전에 다음 타를 이어갈 사거리를 확인한다.
+	UFUNCTION()
+	void HandleAttackSectionNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
 	
 	// 현재 공격권으로 기본공격 GA를 한 번 실행한다.
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|Attack", meta = (AllowPrivateAccess = "true"))
 	FGameplayAbilitySpecHandle AttackAbilityHandle;
 	FDelegateHandle AttackEndedHandle;
+	TWeakObjectPtr<UAnimInstance> AttackNotifyAnim;
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<ALMCombatArea> RunArea;
