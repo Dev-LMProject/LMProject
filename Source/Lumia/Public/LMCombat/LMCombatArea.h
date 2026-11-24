@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Engine/TimerHandle.h"
 #include "LMCombatArea.generated.h"
 
 class ALMBaseCharacter;
@@ -11,6 +12,12 @@ class ALMFieldMonsterCharacter;
 class ALMPlayerCharacter;
 class UBoxComponent;
 class USceneComponent;
+class UAbilitySystemComponent;
+
+struct FGameplayTag;
+
+// 지정한 몬스터 묶음의 사망이 모두 확인됐을 때 알린다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMOnMobsCleared);
 
 UCLASS()
 class LUMIA_API ALMCombatArea : public AActor
@@ -20,6 +27,14 @@ class LUMIA_API ALMCombatArea : public AActor
 public:
 	// Sets default values for this actor's properties
 	ALMCombatArea();
+	
+	// 지정한 몬스터의 사망 감지를 시작하며 잘못된 목록이나 중복 시작은 거부한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|CombatArea")
+	bool WatchMobs(const TArray<ALMFieldMonsterCharacter*>& Mobs);
+
+	// 감지 시작 한 번당 모든 대상의 사망을 한 번만 알린다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|CombatArea")
+	FLMOnMobsCleared OnMobsCleared;
 	
     // 시작 시 감지 박스 안의 몬스터를 한 번만 등록한다.
     UFUNCTION(BlueprintCallable, Category = "LM|CombatArea")
@@ -142,10 +157,24 @@ protected:
 	int32 MaxAttackers = 1;
 	
 private:
+	// 사망 태그가 추가된 대상의 구독을 끝내고 남은 대상을 확인한다.
+	void HandleMobDeath(FGameplayTag Tag, int32 TagCount, TWeakObjectPtr<UAbilitySystemComponent> MobKey);
+	
+	// 몬스터의 사망 처리가 끝난 다음 타이머 실행 시점에 완료를 알린다.
+	void FinishMobWatch();
+
+	// 완료 또는 영역 종료 때 남은 구독과 완료 예약을 정리한다.
+	void StopMobWatch();
+
+	// 사망을 아직 받지 못한 대상의 구독만 보관하며 대상 수명은 연장하지 않는다.
+	TMap<TWeakObjectPtr<UAbilitySystemComponent>, FDelegateHandle> PendingMobDeaths;
+	FTimerHandle MobsClearedTimer;
+	bool bWatchingMobs = false;
+	
 	// 후보 위치가 현재 몬스터의 NavMesh 보정 범위에 있는지 확인한다.
 	bool ProjectCombatLocation(const ALMFieldMonsterCharacter& Monster, const FVector& Candidate, FVector& Location) const;
 
-// 플레이어의 Capsule이 지정 박스와 실제로 겹치는지 확인한다.
+	// 플레이어의 Capsule이 지정 박스와 실제로 겹치는지 확인한다.
     bool IsInside(const UBoxComponent* Box, const ALMPlayerCharacter* Player) const;
 
     // 고정 명단에 속한 살아 있는 관찰자의 현재 Sight를 확인한다.
