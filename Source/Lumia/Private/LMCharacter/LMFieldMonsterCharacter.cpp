@@ -775,15 +775,15 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     }
     else if (QueueArea->NeedsRetreat(this, SavedWait))
     {
-        // 공격권을 반납한 대기 번호에만 반경 이탈을 요구한다.
-        bRetreated = IsOutsideAttackDistance();
+        // 공격권을 반납한 위치에서 실제로 이동하고 간격을 확보했는지 확인한다.
+        bRetreated = QueueArea->CanFinishRetreat(*this, SavedWait);
         if (bRetreated)
         {
-            // 실제 반경을 벗어나면 남은 여유 거리를 더 이동하지 않는다.
+            // 실제 후퇴가 끝나면 도착 오차를 보정하려고 잡았던 목표를 해제한다.
             MoveLocation = SelfLocation;
             bAtCombatLocation = true;
         }
-        else if (!QueueArea->ReadRetreatLocation(*this, *CombatPlayer, AttackDistance, RetreatClearance, MoveLocation))
+        else if (!QueueArea->ReadAttackRetreatLocation(*this, *CombatPlayer, AttackDistance, RetreatClearance, SavedWait, MoveLocation))
         {
             SetSlowFollow(false);
             return false;
