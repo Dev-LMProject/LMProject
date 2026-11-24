@@ -1,8 +1,7 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+﻿#include "LMCombat/LMCombatArea.h"
 
-
-#include "LMCombat/LMCombatArea.h"
 #include "AIController.h"
+#include "AbilitySystemComponent.h"
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Components/BoxComponent.h"
@@ -12,10 +11,12 @@
 #include "Engine/World.h"
 #include "LMCharacter/LMFieldMonsterCharacter.h"
 #include "LMCharacter/LMPlayerCharacter.h"
+#include "LMGameplayTags/LMGameplayTags.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISense_Sight.h"
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "TimerManager.h"
 
 // Sets default values
 ALMCombatArea::ALMCombatArea()
@@ -47,6 +48,98 @@ ALMCombatArea::ALMCombatArea()
 		Box->SetGenerateOverlapEvents(true);
 		Box->SetCanEverAffectNavigation(false);
 	}
+}
+
+// 유효한 전체 목록을 먼저 확인한 뒤 사망 태그 감지를 시작한다.
+bool ALMCombatArea::WatchMobs(const TArray<ALMFieldMonsterCharacter*>& Mobs)
+{
+	if (bEndingPlay || bWatchingMobs || Mobs.IsEmpty() || !GetWorld())
+	{
+		return false;
+	}
+
+	TArray<UAbilitySystemComponent*> MobSystems;
+	for (ALMFieldMonsterCharacter* Mob : Mobs)
+	{
+		// 잘못된 대상을 빼고 더 적은 수로 완료되는 일을 막는다.
+		if (!IsValid(Mob) || Mob->IsActorBeingDestroyed() || Mob->GetWorld() != GetWorld())
+		{
+			return false;
+		}
+
+		UAbilitySystemComponent* MobSystem = Mob->GetAbilitySystemComponent();
+		if (!IsValid(MobSystem) || MobSystem->GetAvatarActor() != Mob || MobSystems.Contains(MobSystem))
+		{
+			return false;
+		}
+
+		MobSystems.Add(MobSystem);
+	}
+
+	bWatchingMobs = true;
+
+	// 먼저 모든 구독을 만든 뒤 이미 죽은 대상을 확인해 조기 완료를 막는다.
+	for (UAbilitySystemComponent* MobSystem : MobSystems)
+	{
+		const TWeakObjectPtr<UAbilitySystemComponent> MobKey(MobSystem);
+		const FDelegateHandle DeathHandle = MobSystem->RegisterGameplayTagEvent(LMGameplayTags::State_Dead, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &ALMCombatArea::HandleMobDeath, MobKey);
+		PendingMobDeaths.Add(MobKey, DeathHandle);
+	}
+
+	for (UAbilitySystemComponent* MobSystem : MobSystems)
+		HandleMobDeath(LMGameplayTags::State_Dead, MobSystem->GetGameplayTagCount(LMGameplayTags::State_Dead), TWeakObjectPtr<UAbilitySystemComponent>(MobSystem));
+
+	return true;
+}
+
+// 사망을 받은 대상은 목록에서 제거하여 같은 사망을 두 번 세지 않는다.
+void ALMCombatArea::HandleMobDeath(FGameplayTag Tag, int32 TagCount, TWeakObjectPtr<UAbilitySystemComponent> MobKey)
+{
+	if (bEndingPlay || !bWatchingMobs || TagCount <= 0) return;
+	if (Tag != LMGameplayTags::State_Dead) return;
+
+	FDelegateHandle DeathHandle;
+	if (!PendingMobDeaths.RemoveAndCopyValue(MobKey, DeathHandle))
+	{
+		return;
+	}
+
+	if (UAbilitySystemComponent* MobSystem = MobKey.Get())
+		MobSystem->UnregisterGameplayTagEvent(DeathHandle, LMGameplayTags::State_Dead, EGameplayTagEventType::NewOrRemoved);
+
+	// 사망 함수 안에서 연출을 시작하지 않도록 완료 알림만 한 번 예약한다.
+	if (PendingMobDeaths.IsEmpty())
+		MobsClearedTimer = GetWorldTimerManager().SetTimerForNextTick(this, &ALMCombatArea::FinishMobWatch);
+}
+
+// 다음 감지를 시작할 수 있도록 현재 감지를 정리한 뒤 완료를 알린다.
+void ALMCombatArea::FinishMobWatch()
+{
+	if (bEndingPlay || !bWatchingMobs || !PendingMobDeaths.IsEmpty())
+	{
+		return;
+	}
+
+	StopMobWatch();
+	OnMobsCleared.Broadcast();
+}
+
+// 영역 종료나 정상 완료 때 이 영역이 만든 감지만 정리한다.
+void ALMCombatArea::StopMobWatch()
+{
+	bWatchingMobs = false;
+
+	if (UWorld* AreaWorld = GetWorld())
+		AreaWorld->GetTimerManager().ClearTimer(MobsClearedTimer);
+	MobsClearedTimer.Invalidate();
+
+	for (const auto& DeathWatch : PendingMobDeaths)
+	{
+		if (UAbilitySystemComponent* MobSystem = DeathWatch.Key.Get())
+			MobSystem->UnregisterGameplayTagEvent(DeathWatch.Value, LMGameplayTags::State_Dead, EGameplayTagEventType::NewOrRemoved);
+	}
+
+	PendingMobDeaths.Reset();
 }
 
 void ALMCombatArea::RegisterMonsters()
@@ -378,6 +471,7 @@ bool ALMCombatArea::ProjectCombatLocation(const ALMFieldMonsterCharacter& Monste
 void ALMCombatArea::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	bEndingPlay = true;
+	StopMobWatch();
 	EndCombat();
 
 	for (ALMFieldMonsterCharacter* Monster : RegisteredMonsters)
