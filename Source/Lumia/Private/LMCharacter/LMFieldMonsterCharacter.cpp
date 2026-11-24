@@ -501,6 +501,41 @@ bool ALMFieldMonsterCharacter::CanStartAttack() const
     return !AttackWorld->LineTraceTestByChannel(SelfCenter, PlayerCenter, ECC_GameTraceChannel3, WallQuery);
 }
 
+// 이동을 멈추고 현재 공격권으로 기본공격 GA의 실행을 요청한다.
+bool ALMFieldMonsterCharacter::TryStartBasicAttack()
+{
+    // 이미 실행 중인 공격은 그대로 이어간다.
+    if (bAttackRunning) return true;
+
+    ALMPlayerCharacter* AttackTarget = nullptr;
+    FVector HomeLocation = FVector::ZeroVector;
+    bool bGoingHome = false;
+    bool bCanMove = false;
+    const bool bHasTarget = ReadMoveData(AttackTarget, HomeLocation, bGoingHome, bCanMove);
+    AAIController* AttackController = Cast<AAIController>(GetController());
+
+    // 시작할 수 없으면 접근 중에 받은 공격권을 정리한다.
+    if (!bHasTarget || bGoingHome || !bCanMove || !bAttackAllowed || !IsValid(AttackController))
+    {
+        StopAttack();
+        return false;
+    }
+
+    // 이동 종료 콜백이 먼저 공격을 시작했다면 해당 실행을 이어간다.
+    AttackController->StopMovement();
+    if (bAttackRunning) return true;
+
+    // 준비 단계에서 결정한 정리 또는 재접근을 그대로 따른다.
+    if (!PrepareAttack()) return false;
+
+    // 자신에게 부여된 GA를 실행하고, 시작이 거절되면 이번 공격권을 정리한다.
+    if (AbilitySystemComponent->TryActivateAbility(AttackAbilityHandle, false))
+        return true;
+
+    StopAttack();
+    return false;
+}
+
 // 현재 공격권과 사거리를 확인하고 정확한 GA 종료 관찰을 연결한다.
 bool ALMFieldMonsterCharacter::PrepareAttack()
 {

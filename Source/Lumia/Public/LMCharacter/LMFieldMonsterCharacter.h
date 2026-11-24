@@ -199,6 +199,10 @@ private:
 	
 //GA
 public:
+	// 필드 몬스터의 현재 공격권으로 지정된 기본공격 GA를 시작한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|AI")
+	bool TryStartBasicAttack();
+
 	// BP가 GA를 실행하기 전에 공격권과 종료 감시를 준비한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
 	bool PrepareAttack();
