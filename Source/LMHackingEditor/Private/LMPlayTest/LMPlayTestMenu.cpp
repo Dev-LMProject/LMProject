@@ -57,6 +57,10 @@ void SLMPlayTestMenu::Construct(const FArguments& InArgs)
                     [
                         MakeUnlockSwitch(LOCTEXT("Special", "특수기 해금"), LOCTEXT("SpecialHelp", "특수기 해금 상태를 바꿉니다. 실제 발동에는 콤보 진행 상태가 필요합니다."), LMGameplayTags::Unlock_Attack_Special)
                     ]
+                    + SVerticalBox::Slot().AutoHeight().Padding(0, 6)
+                    [
+                        MakeUnlockSwitch(LOCTEXT("Scan", "Scan 해금"), LOCTEXT("ScanHelp", "Scan 해금 상태를 바꿉니다. OFF로 전환하면 진행 중인 Scan도 종료합니다."), LMGameplayTags::InputTag_Scan)
+                    ]
                     + SVerticalBox::Slot().AutoHeight().Padding(0, 12, 0, 0)
                     [
                         SNew(STextBlock).Text(LOCTEXT("Session", "설정은 현재 PIE 세션에 적용됩니다."))
@@ -73,7 +77,7 @@ FReply SLMPlayTestMenu::OnMouseButtonDown(const FGeometry& MyGeometry, const FPo
     return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
 }
 
-// 테스트 전용 가산분 대신 전체 수량을 설정해 실제 검 획득 뒤에도 OFF를 적용한다.
+// 게임에서 이미 획득한 해금도 OFF로 바꿀 수 있게 태그 수량을 설정한다.
 TSharedRef<SWidget> SLMPlayTestMenu::MakeUnlockSwitch(const FText& Label, const FText& Help, FGameplayTag UnlockTag)
 {
     const TWeakObjectPtr<UAbilitySystemComponent> PlayerTags = AbilitySystem;
@@ -90,9 +94,22 @@ TSharedRef<SWidget> SLMPlayTestMenu::MakeUnlockSwitch(const FText& Label, const 
 
             const bool bEnabled = NewState == ECheckBoxState::Checked;
             PlayerTags->SetLooseGameplayTagCount(UnlockTag, bEnabled ? 1 : 0);
+            if (bEnabled || !PlayerTags.IsValid()) return;
+
+            // 입력에 연결된 Scan만 취소해 능력 종료 시 강조 효과를 정리한다.
+            if (UnlockTag == LMGameplayTags::InputTag_Scan)
+            {
+                FScopedAbilityListLock AbilityListLock(*PlayerTags.Get());
+                for (const FGameplayAbilitySpec& Spec : PlayerTags->GetActivatableAbilities())
+                {
+                    if (Spec.IsActive() && Spec.GetDynamicSpecSourceTags().HasTagExact(UnlockTag))
+                        PlayerTags->CancelAbilityHandle(Spec.Handle);
+                }
+                return;
+            }
 
             // 진행 중인 콤보는 해금 조건을 다시 검사하지 않으므로 OFF에서 관련 실행을 끝낸다.
-            if (!bEnabled && PlayerTags.IsValid() && (UnlockTag == LMGameplayTags::Unlock_Weapon_Sword || PlayerTags->HasMatchingGameplayTag(LMGameplayTags::State_Attack_Special)))
+            if (UnlockTag == LMGameplayTags::Unlock_Weapon_Sword || PlayerTags->HasMatchingGameplayTag(LMGameplayTags::State_Attack_Special))
             {
                 const FGameplayTagContainer AttackTags(LMGameplayTags::Ability_Attack);
                 PlayerTags->CancelAbilities(&AttackTags);
