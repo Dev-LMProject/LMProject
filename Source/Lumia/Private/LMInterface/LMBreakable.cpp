@@ -1,6 +1,9 @@
 #include "LMInterface/LMBreakable.h"
 
+#include "CollisionQueryParams.h"
+#include "CollisionShape.h"
 #include "Components/BoxComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "LMCharacter/LMBaseCharacter.h"
 
@@ -26,4 +29,44 @@ bool ILMBreakable::IsHitBody(const AActor* HitActor, const UPrimitiveComponent* 
 
 	// 같은 액터의 문틀이나 센서가 아니라 물체가 직접 지정한 부품인지 확인한다.
 	return ILMBreakable::Execute_GetBreakHitBody(HitActor) == HitBox;
+}
+
+// 실제 타격을 적용하지 않고 전방의 유효한 파괴 물체만 조회하여 사전 연출 판단에 사용한다.
+AActor* ILMBreakable::FindHitActorAhead(const AActor* SourceActor, float CheckDistance, float CheckRadius, ECollisionChannel HitChannel)
+{
+	if (!IsValid(SourceActor)) return nullptr;
+	UWorld* HitWorld = SourceActor->GetWorld();
+	if (!IsValid(HitWorld)) return nullptr;
+
+	// 잘못된 수치나 채널을 충돌 조회에 전달하지 않는다. 거리 0은 사전 조회를 끄는 값이다.
+	if (!FMath::IsFinite(CheckDistance) || CheckDistance <= 0.0f || !FMath::IsFinite(CheckRadius) || CheckRadius <= 0.0f || HitChannel >= ECC_MAX || HitChannel == ECC_OverlapAll_Deprecated)
+		return nullptr;
+
+	const FVector CheckStart = SourceActor->GetActorLocation();
+	const FVector CheckEnd = CheckStart + SourceActor->GetActorForwardVector() * CheckDistance;
+	FCollisionQueryParams HitQuery(SCENE_QUERY_STAT(LMBreakableFrontHit), false, SourceActor);
+	TArray<FHitResult> FrontHits;
+
+	/*
+	 * LMCombatHit은 캐릭터를 Overlap, 벽을 Block으로 처리하므로 Multi 조회로 둘 다 받는다.
+	 * 첫 차단 지점까지만 조회하여 다른 벽 뒤의 파괴 물체를 고르지 않는다.
+	 */
+	HitWorld->SweepMultiByChannel(FrontHits, CheckStart, CheckEnd, FQuat::Identity, HitChannel, FCollisionShape::MakeSphere(CheckRadius), HitQuery);
+
+	AActor* FrontHitActor = nullptr;
+	for (const FHitResult& FrontHit : FrontHits)
+	{
+		AActor* FoundActor = FrontHit.GetActor();
+
+		// 파괴 물체 앞의 캐릭터를 때리는 상황에서는 환경 물체용 연출을 선택하지 않는다.
+		if (IsValid(FoundActor) && FoundActor->IsA<ALMBaseCharacter>())
+			return nullptr;
+
+		// 파괴 여부와 실제 피격 상자 조건은 검·착지가 사용하는 기존 계약을 재사용한다.
+		if (IsHitBody(FoundActor, FrontHit.GetComponent(), HitChannel))
+			FrontHitActor = FoundActor;
+	}
+
+	// shortcut: 사전 조회이므로 이후 실제 명중은 보장하지 않는다. 정확한 명중별 연출이 필요해지면 피격 결과를 사용한다.
+	return FrontHitActor;
 }
