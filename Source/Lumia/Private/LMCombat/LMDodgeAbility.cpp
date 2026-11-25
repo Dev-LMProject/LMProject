@@ -58,14 +58,12 @@ void ULMDodgeAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, c
     PlayingAnim->OnMontageStarted.AddUniqueDynamic(this, &ThisClass::HandleMontageStarted);
     PlayingAnim->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &ThisClass::HandleDodgeNotify);
 
-    // BP가 앞 대시에서 시작한 경우, 캐릭터 뒤쪽으로 이동하는 입력은 뒤 대시로 보낸다.
+    // 현재 이동 입력에 전방 성분이 있을 때만 앞 대시를 유지한다.
     const APawn* const Pawn = Cast<APawn>(DodgeActorInfo->AvatarActor.Get());
     if (Pawn && PlayingInstance->GetCurrentSection() == LMDodge::Forward && PlayingMontage->IsValidSectionName(LMDodge::Back))
     {
-        FVector MoveDirection = Pawn->GetPendingMovementInputVector();
-        if (MoveDirection.IsNearlyZero())
-            MoveDirection = Pawn->GetLastMovementInputVector();
-        if (FVector::DotProduct(MoveDirection.GetSafeNormal2D(), Pawn->GetActorForwardVector()) < -0.1f)
+        const FVector MoveDirection = Pawn->GetPendingMovementInputVector().GetSafeNormal2D();
+        if (FVector::DotProduct(MoveDirection, Pawn->GetActorForwardVector().GetSafeNormal2D()) <= 0.1f)
             MontageJumpToSection(LMDodge::Back);
     }
 }
