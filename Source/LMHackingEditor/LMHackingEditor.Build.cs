@@ -7,5 +7,6 @@ public class LMHackingEditor : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         PrivateDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "Lumia", "Slate", "SlateCore", "PropertyEditor", "UnrealEd", "GameplayAbilities", "GameplayTags" });
+        PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry", "AssetTools", "MaterialEditor", "MovieScene", "MovieSceneTracks", "UMG", "UMGEditor" });
     }
 }
