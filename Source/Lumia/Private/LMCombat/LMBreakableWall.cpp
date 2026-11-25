@@ -4,6 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Curves/CurveFloat.h"
 #include "Engine/StaticMesh.h"
+#include "GameFramework/Pawn.h"
 #include "Materials/MaterialInterface.h"
 
 // 통로 판정은 상자 하나에 맡기고 보이는 철판은 충돌 없이 움직이게 한다.
@@ -70,6 +71,18 @@ UPrimitiveComponent* ALMBreakableWall::GetBreakHitBody_Implementation() const
 bool ALMBreakableWall::IsBroken() const
 {
     return HitCount >= BreakHit;
+}
+
+// 철문 공격음의 선택은 이 클래스에 두고 실제 전방 조회는 공통 파괴 인터페이스에 맡긴다.
+bool ALMBreakableWall::ShouldSkipAttackSound(const APawn* AttackPawn)
+{
+    if (!IsValid(AttackPawn) || !AttackPawn->IsPlayerControlled())
+        return false;
+
+    // 플레이어 중심에서 반경 35cm의 구체를 200cm 전진시켜 소리 시작 전의 공격 방향을 살핀다.
+    const AActor* FrontHitActor = ILMBreakable::FindHitActorAhead(AttackPawn, 200.0f, 35.0f, ECC_GameTraceChannel3);
+    const ALMBreakableWall* FrontDoor = Cast<ALMBreakableWall>(FrontHitActor);
+    return IsValid(FrontDoor) && !FrontDoor->IsBroken();
 }
 
 // 유효한 타격을 한 번 세고 눌림, 메시 교체, 통로 개방을 처리한다.
