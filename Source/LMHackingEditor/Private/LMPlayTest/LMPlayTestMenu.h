@@ -7,7 +7,7 @@
 
 class UAbilitySystemComponent;
 
-// 현재 PIE 플레이어의 두 공격 해금 태그를 조작하는 화면이다.
+// 현재 PIE 플레이어의 공격과 Scan 해금 태그를 조작하는 화면이다.
 class SLMPlayTestMenu : public SCompoundWidget
 {
 public:
@@ -16,7 +16,7 @@ public:
         SLATE_EVENT(FSimpleDelegate, OnClose)
     SLATE_END_ARGS()
 
-    // 실제 플레이어 태그를 읽는 스위치 두 개와 닫기 버튼을 만든다.
+    // 실제 플레이어 태그를 읽는 해금 스위치와 닫기 버튼을 만든다.
     void Construct(const FArguments& InArgs);
 
     // 게임 입력 대신 메뉴가 키보드 포커스를 받을 수 있게 한다.
