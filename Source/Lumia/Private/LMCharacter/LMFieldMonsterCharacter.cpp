@@ -1,6 +1,7 @@
 #include "LMCharacter/LMFieldMonsterCharacter.h"
 
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -191,43 +192,32 @@ void ALMFieldMonsterCharacter::RefreshHealthWidget()
     }
 }
 
-/** 일반 몬스터의 소진은 즉시 제한하고 비치명 피해는 한 번 반응한다. */
+// 체력이 소진되면 공격과 이동을 끝내고 사망 상태로 전환한다.
 void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIsDead)
 {
-    if (bEndingPlay || bIsDead || !FMath::IsFinite(ActualDamage) || ActualDamage <= 0.0f)
+    if (!_bIsDead || bEndingPlay || bIsDead || !FMath::IsFinite(ActualDamage) || ActualDamage <= 0.0f)
     {
         return;
     }
-    
+
     StopAttack();
-    if (_bIsDead)
-    {
-        // 재진입 전에 상태를 확정하고 피격 제한을 풀기 전에 사망 제한을 세운다.
-        bIsDead = true;
-        UpdateCombatFocus();
-        bOwnsDeadTag = true;
-        AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Dead);
 
-        FinishHitReaction();
+    // 피격 제한을 풀기 전에 사망 상태와 태그를 적용한다.
+    bIsDead = true;
+    UpdateCombatFocus();
+    bOwnsDeadTag = true;
+    AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Dead);
 
-        GetCharacterMovement()->StopMovementImmediately();
-        GetCharacterMovement()->DisableMovement();
-        AbilitySystemComponent->ClearAbilityInput(this);
-        AbilitySystemComponent->CancelAbilities();
-
-        // 즉시 파괴하지 않고 AnimBP가 Death_A와 마지막 자세를 표시하게 한다.
-        return;
-    }
-
-    if (!BeginHitReaction(false)) return;
+    FinishHitReaction();
 
     GetCharacterMovement()->StopMovementImmediately();
+    GetCharacterMovement()->DisableMovement();
     AbilitySystemComponent->ClearAbilityInput(this);
     AbilitySystemComponent->CancelAbilities();
 }
 
-// 피격 애니메이션 길이로 경직을 시작하고 이미 진행 중인 반응은 연장하지 않는다.
-bool ALMFieldMonsterCharacter::BeginHitReaction(bool bFromParry)
+// 패링 경직을 시작하고 피격 애니메이션 길이만큼 기다린 뒤 그로기로 전환한다.
+bool ALMFieldMonsterCharacter::BeginParryHitReaction()
 {
     if (bEndingPlay || bIsDead || bIsHitReacting || bIsGroggy || !IsAliveForCombat())
         return false;
@@ -244,10 +234,8 @@ bool ALMFieldMonsterCharacter::BeginHitReaction(bool bFromParry)
         return false;
     }
 
-    // 패링 피격이 자연 종료될 때만 그로기로 전환한다.
     bIsHitReacting = true;
-    const auto OnReactionEnded = bFromParry ? &ALMFieldMonsterCharacter::BeginParryGroggy : &ALMFieldMonsterCharacter::FinishHitReaction;
-    GetWorldTimerManager().SetTimer(HitReactionTimer, this, OnReactionEnded, Duration, false);
+    GetWorldTimerManager().SetTimer(HitReactionTimer, this, &ALMFieldMonsterCharacter::BeginParryGroggy, Duration, false);
 
     bOwnsStunTag = true;
     AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Stunned);
@@ -264,7 +252,7 @@ void ALMFieldMonsterCharacter::ReceiveParryReaction(ALMBaseCharacter* Parrier)
     if (BackDirection.IsNearlyZero())
         BackDirection = Parrier->GetActorForwardVector().GetSafeNormal2D();
 
-    if (!BeginHitReaction(true)) return;
+    if (!BeginParryHitReaction()) return;
 
     StopAttack();
     if (AAIController* AIController = Cast<AAIController>(GetController()))
@@ -405,6 +393,12 @@ bool ALMFieldMonsterCharacter::IsOutsideAttackDistance() const
     return FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance);
 }
 
+// 실제 스케일이 적용된 캡슐 반경으로 반납 후 최소 이동 거리를 정한다.
+float ALMFieldMonsterCharacter::GetAttackRetreatDistance() const
+{
+    return GetCapsuleComponent()->GetScaledCapsuleRadius() * FMath::Max(RetreatRadiusScale, 0.01f);
+}
+
 // 대기 이동에 들어갈 때의 속도를 기억해 이후 공격이나 복귀에 남기지 않는다.
 void ALMFieldMonsterCharacter::SetSlowFollow(bool _bSlowFollowing)
 {
@@ -472,8 +466,8 @@ bool ALMFieldMonsterCharacter::ReadWaitMoveLocation(const ALMCombatArea& QueueAr
     return Distance < MinimumRadius && QueueArea.ReadRetreatLocation(*this, CombatPlayer, AttackDistance, RetreatClearance, Location);
 }
 
-// 캡슐 중심 거리와 발 높이를 확인하고 몸체 사이를 막는 구조물이 있는지 검사한다.
-bool ALMFieldMonsterCharacter::CanStartAttack() const
+// 발 높이와 차폐를 검사하고 공격 시작 시에는 캡슐 중심 거리도 확인한다.
+bool ALMFieldMonsterCharacter::CanStartAttack(bool bCheckDistance) const
 {
     const ALMPlayerCharacter* AttackPlayer = GetTargetPlayer();
     const UWorld* AttackWorld = GetWorld();
@@ -491,7 +485,7 @@ bool ALMFieldMonsterCharacter::CanStartAttack() const
     const FVector PlayerCenter = PlayerCapsule->GetComponentLocation();
 
     // 공격 거리는 수평으로 비교하고 키가 다른 캐릭터의 높이는 발 위치로 비교한다.
-    if (FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance))
+    if (bCheckDistance && FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance))
         return false;
 
     const double SelfFoot = SelfCenter.Z - SelfCapsule->GetScaledCapsuleHalfHeight();
@@ -511,6 +505,41 @@ bool ALMFieldMonsterCharacter::CanStartAttack() const
     WallQuery.AddIgnoredActors(AttachedActors);
 
     return !AttackWorld->LineTraceTestByChannel(SelfCenter, PlayerCenter, ECC_GameTraceChannel3, WallQuery);
+}
+
+// 이동을 멈추고 현재 공격권으로 기본공격 GA의 실행을 요청한다.
+bool ALMFieldMonsterCharacter::TryStartBasicAttack()
+{
+    // 이미 실행 중인 공격은 그대로 이어간다.
+    if (bAttackRunning) return true;
+
+    ALMPlayerCharacter* AttackTarget = nullptr;
+    FVector HomeLocation = FVector::ZeroVector;
+    bool bGoingHome = false;
+    bool bCanMove = false;
+    const bool bHasTarget = ReadMoveData(AttackTarget, HomeLocation, bGoingHome, bCanMove);
+    AAIController* AttackController = Cast<AAIController>(GetController());
+
+    // 시작할 수 없으면 접근 중에 받은 공격권을 정리한다.
+    if (!bHasTarget || bGoingHome || !bCanMove || !bAttackAllowed || !IsValid(AttackController))
+    {
+        StopAttack();
+        return false;
+    }
+
+    // 이동 종료 콜백이 먼저 공격을 시작했다면 해당 실행을 이어간다.
+    AttackController->StopMovement();
+    if (bAttackRunning) return true;
+
+    // 준비 단계에서 결정한 정리 또는 재접근을 그대로 따른다.
+    if (!PrepareAttack()) return false;
+
+    // 자신에게 부여된 GA를 실행하고, 시작이 거절되면 이번 공격권을 정리한다.
+    if (AbilitySystemComponent->TryActivateAbility(AttackAbilityHandle, false))
+        return true;
+
+    StopAttack();
+    return false;
 }
 
 // 현재 공격권과 사거리를 확인하고 정확한 GA 종료 관찰을 연결한다.
@@ -535,10 +564,21 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
     if (!IsValid(Area) || !Area->ReadAttackTurn(this, Combat, Turn, bStop, Wait))
         return false;
 
+    const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
+    const ALMPlayerCharacter* Player = GetTargetPlayer();
+    const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
+    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && IsAliveForCombat()
+        && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
+    const bool bCanPrepare = !bStop && Combat == Area->GetCombatId() && bReady
+        && IsValid(Player) && Player->IsAliveForCombat() && Spec && !Spec->IsActive();
+
+    // 시전 직전에 사거리가 벌어지면 현재 공격권으로 다시 접근한다.
+    if (bCanPrepare && IsOutsideAttackDistance())
+        return false;
+
     // BP가 실행할 능력과 이번 공격권을 종료 알림보다 먼저 확정한다.
     SetSlowFollow(false);
     const TWeakObjectPtr<ALMCombatArea> SavedArea(Area);
-    const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
 
     RunArea = SavedArea;
     RunCombatId = Combat;
@@ -553,20 +593,58 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
 
     AttackEndedHandle = AbilitySystemComponent->OnAbilityEnded.AddWeakLambda(this, OnEnded);
 
-    // 이동 중단 이벤트 이후의 현재 상태를 다시 검사한다.
-    const ALMPlayerCharacter* Player = GetTargetPlayer();
-    const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
-    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
-
-    // 상태 선택 뒤 대상이나 거리가 바뀌어도 GA 시작 직전 같은 조건으로 다시 확인한다.
-    if (bStop || Combat != Area->GetCombatId() || !bReady || !IsValid(Player) || !Player->IsAliveForCombat() || !Spec || Spec->IsActive() || !CanStartAttack())
+    // 나머지 시작 조건을 만족하지 못하면 기록해 둔 실행과 공격권을 정리한다.
+    if (!bCanPrepare || !CanStartAttack())
     {
         StopAttack();
         return false;
     }
 
+    // 기본 몽타주 Notify가 전달되는 메시의 주 애님 인스턴스를 기억한다.
+    const FGameplayAbilityActorInfo* AttackActorInfo = AbilitySystemComponent->AbilityActorInfo.Get();
+    USkeletalMeshComponent* AttackMesh = AttackActorInfo ? AttackActorInfo->SkeletalMeshComponent.Get() : nullptr;
+    UAnimInstance* Anim = AttackMesh ? AttackMesh->GetAnimInstance() : nullptr;
+    if (IsValid(Anim))
+    {
+        AttackNotifyAnim = Anim;
+        Anim->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &ThisClass::HandleAttackSectionNotify);
+    }
+
     return true;
 }
+
+// 이번 평타 몽타주의 섹션 종료 직전에 다음 타를 이어갈 수 있는지 확인한다.
+void ALMFieldMonsterCharacter::HandleAttackSectionNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload)
+{
+    static const FName CheckNextAttack(TEXT("LM_CheckNextAttack"));
+    if (NotifyName != CheckNextAttack || !bAttackRunning || !IsValid(AbilitySystemComponent.Get()))
+        return;
+
+    const UGameplayAbility* Ability = AbilitySystemComponent->GetAnimatingAbility();
+    if (!IsValid(Ability) || !Ability->IsActive() || Ability->GetCurrentAbilitySpecHandle() != AttackAbilityHandle)
+        return;
+
+    // 현재 몽타주를 재생한 애님 인스턴스와 이번 재생 ID가 모두 일치해야 한다.
+    const FGameplayAbilityActorInfo* AttackActorInfo = AbilitySystemComponent->AbilityActorInfo.Get();
+    const UAnimInstance* Anim = AttackActorInfo ? AttackActorInfo->GetAnimInstance() : nullptr;
+    const UAnimMontage* Montage = AbilitySystemComponent->GetCurrentMontage();
+    if (!IsValid(Anim) || !IsValid(Montage) || Payload.SkelMeshComponent != Anim->GetSkelMeshComponent() || Payload.SequenceAsset != Montage)
+        return;
+
+    const FAnimMontageInstance* Instance = Anim->GetActiveInstanceForMontage(Montage);
+    if (!Instance || !Instance->IsActive() || Instance->GetInstanceID() != Payload.MontageInstanceID)
+        return;
+
+    const ALMPlayerCharacter* Player = GetTargetPlayer();
+    if (IsValid(Player) && Player->IsAliveForCombat() && !IsOutsideAttackDistance())
+        return;
+
+    // 현재 섹션의 남은 동작을 재생한 뒤 몽타주를 끝낸다.
+    const FName Section = Instance->GetCurrentSection();
+    if (!Section.IsNone())
+        AbilitySystemComponent->CurrentMontageSetNextSectionName(Section, NAME_None);
+}
+
 // 중단 의도를 기록하고 이동을 멈춘 뒤 실제 GA 종료를 기다린다.
 void ALMFieldMonsterCharacter::StopAttack()
 {
@@ -621,6 +699,11 @@ void ALMFieldMonsterCharacter::FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunAr
     if (!bAttackRunning || !RunArea.HasSameIndexAndSerialNumber(_RunArea) || RunCombatId != _RunCombatId || RunAttackId != _RunAttackId)
         return;
 
+    // 이번 평타에서 등록한 Notify를 공격권 반환 전에 해제한다.
+    if (UAnimInstance* Anim = AttackNotifyAnim.Get())
+        Anim->OnPlayMontageNotifyBegin.RemoveDynamic(this, &ThisClass::HandleAttackSectionNotify);
+    AttackNotifyAnim.Reset();
+
     if (IsValid(AbilitySystemComponent.Get()))
         AbilitySystemComponent->OnAbilityEnded.Remove(AttackEndedHandle);
 
@@ -637,6 +720,9 @@ void ALMFieldMonsterCharacter::FinishAttack(TWeakObjectPtr<ALMCombatArea> _RunAr
 
     // 실제 공격 종료 알림을 받은 시점에 기다리던 패링 후퇴를 시작한다.
     TryStartParryRetreat();
+
+    // 공격권 반납과 후속 처리를 마친 뒤 태스크가 완료되도록 알린다.
+    OnBasicAttackFinished.Broadcast();
 }
 // 이동과 행동 유지 판정을 함께 제공하고 대상의 자연 소멸도 복귀로 처리한다.
 bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, FVector& _StartLocation, bool& _bReturning, bool& _bCanMove)
@@ -671,8 +757,11 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
 
     // BP에서는 여러 조건을 다시 조합하지 않고 현재 판정 결과만 읽는다.
     bAttackAllowed = bHasAttackTurn && !bAttackStopping && AttackCombatId == CombatArea->GetCombatId();
+
     bCanWork = (!bAttackRunning && _bCanMove)
-        || (bAttackRunning && bAttackAllowed && IsValid(_TargetPlayer) && !bReturning && !bIsDead && !bIsHitReacting && _TargetPlayer->IsAliveForCombat());
+        || (bAttackRunning && bAttackAllowed && IsValid(_TargetPlayer)
+            && !bReturning && !bIsDead && !bIsHitReacting
+            && _TargetPlayer->IsAliveForCombat());
 
     return IsValid(_TargetPlayer);
 }
@@ -685,6 +774,7 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     CombatDistance = 0.0;
     bAtCombatLocation = false;
     bNeedMove = false;
+    CombatMoveReach = 0.0f;
 
     ALMCombatArea* QueueArea = GetCombatArea();
     if (!IsValid(QueueArea))
@@ -721,24 +811,28 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     }
 
     const FVector SelfLocation = GetNavAgentLocation();
+    CombatMoveReach = QueueArea->GetMoveReach();
     bool bWaiting = false;
     bool bRetreated = false;
     if (bAllowed)
     {
-        // 공격권이 있으면 1단위의 사거리·발 높이·차폐 판정으로 공격 진입을 결정한다.
-        bAtCombatLocation = CanStartAttack();
+        // 높이 차나 벽에 막혔을 때 넓은 도착 반경으로 이동이 끝나지 않게 한다.
+        constexpr float ApproachMargin = 10.0f;
+        const bool bClearToAttack = CanStartAttack(false);
+        bAtCombatLocation = bClearToAttack && !IsOutsideAttackDistance();
+        CombatMoveReach = bClearToAttack ? FMath::Max(0.0f, AttackDistance - ApproachMargin) : 0.0f;
     }
     else if (QueueArea->NeedsRetreat(this, SavedWait))
     {
-        // 공격권을 반납한 대기 번호에만 반경 이탈을 요구한다.
-        bRetreated = IsOutsideAttackDistance();
+        // 공격권을 반납한 위치에서 실제로 이동하고 간격을 확보했는지 확인한다.
+        bRetreated = QueueArea->CanFinishRetreat(*this, SavedWait);
         if (bRetreated)
         {
-            // 실제 반경을 벗어나면 남은 여유 거리를 더 이동하지 않는다.
+            // 실제 후퇴가 끝나면 도착 오차를 보정하려고 잡았던 목표를 해제한다.
             MoveLocation = SelfLocation;
             bAtCombatLocation = true;
         }
-        else if (!QueueArea->ReadRetreatLocation(*this, *CombatPlayer, AttackDistance, RetreatClearance, MoveLocation))
+        else if (!QueueArea->ReadAttackRetreatLocation(*this, *CombatPlayer, AttackDistance, RetreatClearance, SavedWait, MoveLocation))
         {
             SetSlowFollow(false);
             return false;

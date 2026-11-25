@@ -1,8 +1,7 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+﻿#include "LMCombat/LMCombatArea.h"
 
-
-#include "LMCombat/LMCombatArea.h"
 #include "AIController.h"
+#include "AbilitySystemComponent.h"
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Components/BoxComponent.h"
@@ -12,10 +11,12 @@
 #include "Engine/World.h"
 #include "LMCharacter/LMFieldMonsterCharacter.h"
 #include "LMCharacter/LMPlayerCharacter.h"
+#include "LMGameplayTags/LMGameplayTags.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISense_Sight.h"
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "TimerManager.h"
 
 // Sets default values
 ALMCombatArea::ALMCombatArea()
@@ -47,6 +48,98 @@ ALMCombatArea::ALMCombatArea()
 		Box->SetGenerateOverlapEvents(true);
 		Box->SetCanEverAffectNavigation(false);
 	}
+}
+
+// 유효한 전체 목록을 먼저 확인한 뒤 사망 태그 감지를 시작한다.
+bool ALMCombatArea::WatchMobs(const TArray<ALMFieldMonsterCharacter*>& Mobs)
+{
+	if (bEndingPlay || bWatchingMobs || Mobs.IsEmpty() || !GetWorld())
+	{
+		return false;
+	}
+
+	TArray<UAbilitySystemComponent*> MobSystems;
+	for (ALMFieldMonsterCharacter* Mob : Mobs)
+	{
+		// 잘못된 대상을 빼고 더 적은 수로 완료되는 일을 막는다.
+		if (!IsValid(Mob) || Mob->IsActorBeingDestroyed() || Mob->GetWorld() != GetWorld())
+		{
+			return false;
+		}
+
+		UAbilitySystemComponent* MobSystem = Mob->GetAbilitySystemComponent();
+		if (!IsValid(MobSystem) || MobSystem->GetAvatarActor() != Mob || MobSystems.Contains(MobSystem))
+		{
+			return false;
+		}
+
+		MobSystems.Add(MobSystem);
+	}
+
+	bWatchingMobs = true;
+
+	// 먼저 모든 구독을 만든 뒤 이미 죽은 대상을 확인해 조기 완료를 막는다.
+	for (UAbilitySystemComponent* MobSystem : MobSystems)
+	{
+		const TWeakObjectPtr<UAbilitySystemComponent> MobKey(MobSystem);
+		const FDelegateHandle DeathHandle = MobSystem->RegisterGameplayTagEvent(LMGameplayTags::State_Dead, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &ALMCombatArea::HandleMobDeath, MobKey);
+		PendingMobDeaths.Add(MobKey, DeathHandle);
+	}
+
+	for (UAbilitySystemComponent* MobSystem : MobSystems)
+		HandleMobDeath(LMGameplayTags::State_Dead, MobSystem->GetGameplayTagCount(LMGameplayTags::State_Dead), TWeakObjectPtr<UAbilitySystemComponent>(MobSystem));
+
+	return true;
+}
+
+// 사망을 받은 대상은 목록에서 제거하여 같은 사망을 두 번 세지 않는다.
+void ALMCombatArea::HandleMobDeath(FGameplayTag Tag, int32 TagCount, TWeakObjectPtr<UAbilitySystemComponent> MobKey)
+{
+	if (bEndingPlay || !bWatchingMobs || TagCount <= 0) return;
+	if (Tag != LMGameplayTags::State_Dead) return;
+
+	FDelegateHandle DeathHandle;
+	if (!PendingMobDeaths.RemoveAndCopyValue(MobKey, DeathHandle))
+	{
+		return;
+	}
+
+	if (UAbilitySystemComponent* MobSystem = MobKey.Get())
+		MobSystem->UnregisterGameplayTagEvent(DeathHandle, LMGameplayTags::State_Dead, EGameplayTagEventType::NewOrRemoved);
+
+	// 사망 함수 안에서 연출을 시작하지 않도록 완료 알림만 한 번 예약한다.
+	if (PendingMobDeaths.IsEmpty())
+		MobsClearedTimer = GetWorldTimerManager().SetTimerForNextTick(this, &ALMCombatArea::FinishMobWatch);
+}
+
+// 다음 감지를 시작할 수 있도록 현재 감지를 정리한 뒤 완료를 알린다.
+void ALMCombatArea::FinishMobWatch()
+{
+	if (bEndingPlay || !bWatchingMobs || !PendingMobDeaths.IsEmpty())
+	{
+		return;
+	}
+
+	StopMobWatch();
+	OnMobsCleared.Broadcast();
+}
+
+// 영역 종료나 정상 완료 때 이 영역이 만든 감지만 정리한다.
+void ALMCombatArea::StopMobWatch()
+{
+	bWatchingMobs = false;
+
+	if (UWorld* AreaWorld = GetWorld())
+		AreaWorld->GetTimerManager().ClearTimer(MobsClearedTimer);
+	MobsClearedTimer.Invalidate();
+
+	for (const auto& DeathWatch : PendingMobDeaths)
+	{
+		if (UAbilitySystemComponent* MobSystem = DeathWatch.Key.Get())
+			MobSystem->UnregisterGameplayTagEvent(DeathWatch.Value, LMGameplayTags::State_Dead, EGameplayTagEventType::NewOrRemoved);
+	}
+
+	PendingMobDeaths.Reset();
 }
 
 void ALMCombatArea::RegisterMonsters()
@@ -250,9 +343,27 @@ bool ALMCombatArea::ReadCombatLocation(ALMFieldMonsterCharacter* Monster, bool b
 // 반납한 몬스터에게 해당 번호의 이격 이동이 아직 필요한지 확인한다.
 bool ALMCombatArea::NeedsRetreat(const ALMFieldMonsterCharacter* Monster, int64 WaitId) const
 {
-	if (WaitId <= 0) return false;
+	return FindRetreatEntry(Monster, WaitId) != nullptr;
+}
 
-	return AttackQueue.ContainsByPredicate([Monster, WaitId](const FLMQueueEntry& Entry) { return Entry.Monster.Get() == Monster && Entry.WaitId == WaitId && Entry.bWaitRequired; });
+// 몬스터와 대기 번호가 일치하는 후퇴 대기 항목을 읽는다.
+const ALMCombatArea::FLMQueueEntry* ALMCombatArea::FindRetreatEntry(const ALMFieldMonsterCharacter* Monster, int64 WaitId) const
+{
+	if (!Monster || WaitId <= 0) return nullptr;
+
+	return AttackQueue.FindByPredicate([Monster, WaitId](const FLMQueueEntry& Entry) { return Entry.Monster.Get() == Monster && Entry.WaitId == WaitId && Entry.bWaitRequired; });
+}
+
+// 반납 위치에서 정해진 만큼 이동하고 플레이어와 주변 몬스터를 비켰는지 확인한다.
+bool ALMCombatArea::CanFinishRetreat(const ALMFieldMonsterCharacter& Monster, int64 WaitId) const
+{
+	const FLMQueueEntry* Entry = FindRetreatEntry(&Monster, WaitId);
+	if (!Entry || Entry->RetreatDistance < 0.0f || !Monster.IsOutsideAttackDistance())
+		return false;
+
+	const FVector SelfLocation = Monster.GetNavAgentLocation();
+	return FVector::DistSquared2D(SelfLocation, Entry->RetreatStart) >= FMath::Square(static_cast<double>(Entry->RetreatDistance))
+		&& HasRetreatSpace(Monster, SelfLocation, 0.0);
 }
 
 // 도착 반경만큼 일찍 멈춰도 실제 공격 범위를 벗어나는 지점을 찾는다.
@@ -278,6 +389,93 @@ bool ALMCombatArea::ReadRetreatLocation(const ALMFieldMonsterCharacter& Monster,
 		return false;
 
 	Location = ProjectedLocation;
+	return true;
+}
+
+// 반납 위치에서 직선, 대각선, 측면 순으로 실제 이동 가능한 후퇴 목표를 찾는다.
+bool ALMCombatArea::ReadAttackRetreatLocation(const ALMFieldMonsterCharacter& Monster, const ALMPlayerCharacter& Player, float AttackRadius, float Clearance, int64 WaitId, FVector& Location) const
+{
+	const FLMQueueEntry* Entry = FindRetreatEntry(&Monster, WaitId);
+	UWorld* CombatWorld = GetWorld();
+	if (!Entry || Entry->RetreatDistance < 0.0f || !CombatWorld || !FMath::IsFinite(AttackRadius) || AttackRadius <= 0.0f || !FMath::IsFinite(Clearance) || Clearance <= 0.0f)
+		return false;
+
+	const FVector SelfLocation = Monster.GetNavAgentLocation();
+	const FVector PlayerCenter = Player.GetCapsuleComponent()->GetComponentLocation();
+	FVector Away = (Entry->RetreatStart - PlayerCenter).GetSafeNormal2D();
+	if (Away.IsNearlyZero())
+		Away = -Monster.GetActorForwardVector().GetSafeNormal2D();
+
+	// MoveTo의 도착 반경 안에서 멈춰도 두 거리 기준을 넘는 목표를 쓴다.
+	const double MinTravel = Entry->RetreatDistance + MoveReach;
+	const double MinPlayerDistance = AttackRadius + MoveReach;
+	const FVector2D PlayerPosition(PlayerCenter);
+	const FVector2D StartPosition(SelfLocation);
+	const double MinPathPlayerDistanceSquared = FMath::Min(FVector2D::DistSquared(StartPosition, PlayerPosition), FMath::Square(static_cast<double>(AttackRadius)));
+	for (const float Angle : {0.0f, -45.0f, 45.0f, -90.0f, 90.0f})
+	{
+		FVector Candidate = Entry->RetreatStart + Away.RotateAngleAxis(Angle, FVector::UpVector) * (MinTravel + Clearance);
+		Candidate.Z = SelfLocation.Z;
+		FVector ProjectedLocation;
+		if (!ProjectCombatLocation(Monster, Candidate, ProjectedLocation)
+			|| FVector::DistSquared2D(ProjectedLocation, Entry->RetreatStart) < FMath::Square(MinTravel)
+			|| FVector::DistSquared2D(ProjectedLocation, PlayerCenter) <= FMath::Square(MinPlayerDistance))
+			continue;
+
+		// 방향을 바꿀 때도 플레이어 쪽으로 다시 들어가는 길은 사용하지 않는다.
+		const FVector2D Closest = FMath::ClosestPointOnSegment2D(PlayerPosition, StartPosition, FVector2D(ProjectedLocation));
+		if (FVector2D::DistSquared(Closest, PlayerPosition) + UE_KINDA_SMALL_NUMBER < MinPathPlayerDistanceSquared
+			|| !HasRetreatSpace(Monster, ProjectedLocation, MoveReach))
+			continue;
+
+		FVector HitLocation;
+		if (UNavigationSystemV1::NavigationRaycast(CombatWorld, SelfLocation, ProjectedLocation, HitLocation, {}, Monster.GetController()))
+			continue;
+
+		Location = ProjectedLocation;
+		return true;
+	}
+
+	return false;
+}
+
+// 다른 몬스터 몸체를 지나지 않고 도착 후에도 캡슐 사이에 여유가 남는지 확인한다.
+bool ALMCombatArea::HasRetreatSpace(const ALMFieldMonsterCharacter& Monster, const FVector& GoalLocation, double GoalAllowance) const
+{
+	const UCapsuleComponent* MoveCapsule = Monster.GetCapsuleComponent();
+	const FVector CapsuleStart = MoveCapsule->GetComponentLocation();
+	const FVector CapsuleGoal = CapsuleStart + (GoalLocation - Monster.GetNavAgentLocation());
+	const FVector2D StartPosition(CapsuleStart);
+	const FVector2D GoalPosition(CapsuleGoal);
+	const double MoveRadius = MoveCapsule->GetScaledCapsuleRadius();
+	const double MoveHalfHeight = MoveCapsule->GetScaledCapsuleHalfHeight();
+	const double PathMinZ = FMath::Min(CapsuleStart.Z, CapsuleGoal.Z);
+	const double PathMaxZ = FMath::Max(CapsuleStart.Z, CapsuleGoal.Z);
+	const double ExtraGap = FMath::Max(0.0f, RetreatGap) + GoalAllowance;
+
+	for (const ALMFieldMonsterCharacter* Other : RegisteredMonsters)
+	{
+		if (!IsValid(Other) || Other == &Monster || Other->GetCombatArea() != this || !Other->IsAliveForCombat())
+			continue;
+
+		const UCapsuleComponent* OtherCapsule = Other->GetCapsuleComponent();
+		const FVector OtherCenter = OtherCapsule->GetComponentLocation();
+		const double BodyHeight = MoveHalfHeight + OtherCapsule->GetScaledCapsuleHalfHeight();
+		if (OtherCenter.Z + BodyHeight <= PathMinZ || OtherCenter.Z - BodyHeight >= PathMaxZ)
+			continue;
+
+		const FVector2D OtherPosition(OtherCenter);
+		const double BodyDistance = MoveRadius + OtherCapsule->GetScaledCapsuleRadius();
+		if (FMath::Abs(CapsuleGoal.Z - OtherCenter.Z) < BodyHeight && FVector2D::DistSquared(GoalPosition, OtherPosition) < FMath::Square(BodyDistance + ExtraGap))
+			return false;
+
+		// 시작할 때 겹쳐 있다면 현재보다 깊이 들어가는 방향만 막는다.
+		const double MinPathDistanceSquared = FMath::Min(FVector2D::DistSquared(StartPosition, OtherPosition), FMath::Square(BodyDistance));
+		const FVector2D Closest = FMath::ClosestPointOnSegment2D(OtherPosition, StartPosition, GoalPosition);
+		if (FVector2D::DistSquared(Closest, OtherPosition) + UE_KINDA_SMALL_NUMBER < MinPathDistanceSquared)
+			return false;
+	}
+
 	return true;
 }
 
@@ -378,6 +576,7 @@ bool ALMCombatArea::ProjectCombatLocation(const ALMFieldMonsterCharacter& Monste
 void ALMCombatArea::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	bEndingPlay = true;
+	StopMobWatch();
 	EndCombat();
 
 	for (ALMFieldMonsterCharacter* Monster : RegisteredMonsters)
@@ -496,24 +695,30 @@ bool ALMCombatArea::FinishAttackTurn(ALMFieldMonsterCharacter* Monster, int64 _C
 
 	ActiveAttacks.RemoveAt(Index);
 
-	// 재삽입 전에 복귀 조건을 잠가 바로 같은 몬스터가 재허가받지 않게 한다.
-	if (!bEndingPlay && bIsSight && _CombatId == CombatId && bRequeue && IsQueueMember(Monster) && Monster->GetTargetPlayer() == TargetPlayer)
+	// 대기 항목의 공격 번호가 일치할 때만 실제 반납 위치를 기록한다.
+	if (!bEndingPlay && bIsSight && bRequeue && IsQueueMember(Monster) && Monster->GetTargetPlayer() == TargetPlayer)
 	{
-		const bool bQueued = AttackQueue.ContainsByPredicate([Monster](const FLMQueueEntry& Entry) { return Entry.Monster == Monster; });
+		FLMQueueEntry* Entry = AttackQueue.FindByPredicate([Monster](const FLMQueueEntry& Queued) { return Queued.Monster == Monster; });
+		if (!Entry && _CombatId == CombatId)
+			Entry = &AttackQueue.Add_GetRef({Monster, AttackId, true});
 
-		if (!bQueued)
-			AttackQueue.Add({Monster, AttackId, true});
+		// 재입장으로 먼저 생성된 대기 항목도 옛 공격권을 실제로 반납할 때 기준을 잡는다.
+		if (Entry && Entry->WaitId == AttackId && Entry->bWaitRequired)
+		{
+			Entry->RetreatStart = Monster->GetNavAgentLocation();
+			Entry->RetreatDistance = Monster->GetAttackRetreatDistance();
+		}
 	}
 
 	FillAttackSlots();
 	return true;
 }
 
-// 같은 반납에서 실제 반경을 한 번 벗어났을 때만 이격 요구를 푼다.
+// 같은 반납에서 실제 후퇴 거리와 두 간격을 모두 확보했을 때 이격 요구를 푼다.
 void ALMCombatArea::ReportWaitReady(ALMFieldMonsterCharacter* Monster, int64 _CombatId, int64 WaitId, bool bReady)
 {
 	if (bEndingPlay || !bIsSight || _CombatId != CombatId || WaitId <= 0 || !bReady) return;
-	if (!IsQueueMember(Monster) || Monster->GetTargetPlayer() != TargetPlayer || !Monster->IsOutsideAttackDistance())
+	if (!IsQueueMember(Monster) || Monster->GetTargetPlayer() != TargetPlayer || !CanFinishRetreat(*Monster, WaitId))
 		return;
 
 	const int32 Index = AttackQueue.IndexOfByPredicate([Monster, WaitId](const FLMQueueEntry& Entry) { return Entry.Monster.Get() == Monster && Entry.WaitId == WaitId && Entry.bWaitRequired; });

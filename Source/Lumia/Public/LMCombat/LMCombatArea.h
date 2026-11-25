@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Engine/TimerHandle.h"
 #include "LMCombatArea.generated.h"
 
 class ALMBaseCharacter;
@@ -11,6 +12,12 @@ class ALMFieldMonsterCharacter;
 class ALMPlayerCharacter;
 class UBoxComponent;
 class USceneComponent;
+class UAbilitySystemComponent;
+
+struct FGameplayTag;
+
+// 지정한 몬스터 묶음의 사망이 모두 확인됐을 때 알린다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMOnMobsCleared);
 
 UCLASS()
 class LUMIA_API ALMCombatArea : public AActor
@@ -20,6 +27,14 @@ class LUMIA_API ALMCombatArea : public AActor
 public:
 	// Sets default values for this actor's properties
 	ALMCombatArea();
+	
+	// 지정한 몬스터의 사망 감지를 시작하며 잘못된 목록이나 중복 시작은 거부한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|CombatArea")
+	bool WatchMobs(const TArray<ALMFieldMonsterCharacter*>& Mobs);
+
+	// 감지 시작 한 번당 모든 대상의 사망을 한 번만 알린다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|CombatArea")
+	FLMOnMobsCleared OnMobsCleared;
 	
     // 시작 시 감지 박스 안의 몬스터를 한 번만 등록한다.
     UFUNCTION(BlueprintCallable, Category = "LM|CombatArea")
@@ -44,6 +59,12 @@ public:
 	// 반납한 몬스터에게 해당 번호의 이격 이동이 아직 필요한지 확인한다.
 	bool NeedsRetreat(const ALMFieldMonsterCharacter* Monster, int64 WaitId) const;
 
+	// 같은 대기 번호의 실제 후퇴 거리와 양쪽 간격을 확인한다.
+	bool CanFinishRetreat(const ALMFieldMonsterCharacter& Monster, int64 WaitId) const;
+
+	// 공격권을 반납한 위치를 기준으로 이동 가능한 후퇴 목표를 찾는다.
+	bool ReadAttackRetreatLocation(const ALMFieldMonsterCharacter& Monster, const ALMPlayerCharacter& Player, float AttackRadius, float Clearance, int64 WaitId, FVector& Location) const;
+
 	// 공격 반경 밖의 이격 지점을 몬스터의 NavMesh에서 찾는다.
 	bool ReadRetreatLocation(const ALMFieldMonsterCharacter& Monster, const ALMPlayerCharacter& Player, float AttackRadius, float Clearance, FVector& Location) const;
 	
@@ -53,6 +74,9 @@ public:
 	// 실제 경로 이동과 같은 반경·높이 기준으로 도착 여부를 조회한다.
 	UFUNCTION(BlueprintPure, Category = "LM|CombatPlace")
 	bool IsAtPlace(ALMFieldMonsterCharacter* Monster, const FVector& Location) const;
+
+	// 공격권 없이 이동할 때 사용할 전투 구역의 도착 반경을 반환한다.
+	float GetMoveReach() const { return MoveReach; }
 	
 	// 준비 완료나 피격 회복 사건에서 현재 큐의 빈 공격 정원을 보충한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|CombatQueue")
@@ -116,6 +140,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
 	float MoveReach = 50.0f;
 
+	// 공격권 반납 후 몬스터 캡슐 표면 사이에 남겨야 할 수평 거리다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
+	float RetreatGap = 30.0f;
+
 	// 기존 Reader가 전달하는 재이동 여유 거리다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "0.0", Units = "cm"))
 	float PlaceReach = 100.0f;
@@ -132,10 +160,24 @@ protected:
 	int32 MaxAttackers = 1;
 	
 private:
+	// 사망 태그가 추가된 대상의 구독을 끝내고 남은 대상을 확인한다.
+	void HandleMobDeath(FGameplayTag Tag, int32 TagCount, TWeakObjectPtr<UAbilitySystemComponent> MobKey);
+	
+	// 몬스터의 사망 처리가 끝난 다음 타이머 실행 시점에 완료를 알린다.
+	void FinishMobWatch();
+
+	// 완료 또는 영역 종료 때 남은 구독과 완료 예약을 정리한다.
+	void StopMobWatch();
+
+	// 사망을 아직 받지 못한 대상의 구독만 보관하며 대상 수명은 연장하지 않는다.
+	TMap<TWeakObjectPtr<UAbilitySystemComponent>, FDelegateHandle> PendingMobDeaths;
+	FTimerHandle MobsClearedTimer;
+	bool bWatchingMobs = false;
+	
 	// 후보 위치가 현재 몬스터의 NavMesh 보정 범위에 있는지 확인한다.
 	bool ProjectCombatLocation(const ALMFieldMonsterCharacter& Monster, const FVector& Candidate, FVector& Location) const;
 
-// 플레이어의 Capsule이 지정 박스와 실제로 겹치는지 확인한다.
+	// 플레이어의 Capsule이 지정 박스와 실제로 겹치는지 확인한다.
     bool IsInside(const UBoxComponent* Box, const ALMPlayerCharacter* Player) const;
 
     // 고정 명단에 속한 살아 있는 관찰자의 현재 Sight를 확인한다.
@@ -153,7 +195,16 @@ private:
 		TWeakObjectPtr<ALMFieldMonsterCharacter> Monster;
 		int64 WaitId = 0;
 		bool bWaitRequired = false;
+		FVector RetreatStart = FVector::ZeroVector;
+		// 옛 공격권이 아직 반납되지 않은 대기 항목은 거리를 기록하지 않는다.
+		float RetreatDistance = -1.0f;
 	};
+
+	// 몬스터와 대기 번호가 일치하는 후퇴 대기 항목을 읽는다.
+	const FLMQueueEntry* FindRetreatEntry(const ALMFieldMonsterCharacter* Monster, int64 WaitId) const;
+
+	// 이동 중 몸체 충돌과 도착 지점의 몬스터 간격을 함께 확인한다.
+	bool HasRetreatSpace(const ALMFieldMonsterCharacter& Monster, const FVector& GoalLocation, double GoalAllowance) const;
 
 	// 접근·공격·종료 대기 중인 허가를 보관한다.
 	struct FLMAttackTurn
