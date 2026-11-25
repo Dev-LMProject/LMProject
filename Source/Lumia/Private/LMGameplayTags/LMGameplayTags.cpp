@@ -5,6 +5,8 @@ namespace LMGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(QTE_Interaction_Press, "LM.QTE.Interaction.Press", "한 번 누르기 판정");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(QTE_Interaction_Mash, "LM.QTE.Interaction.Mash", "서로 다른 누름 횟수 판정");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(QTE_Interaction_Drag, "LM.QTE.Interaction.Drag", "지정 영역의 포인터 드래그 판정");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_SceneHit, "LM.Damage.SceneHit", "허용된 연출의 생존 타격");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_SceneFinish, "LM.Damage.SceneFinish", "허용된 연출의 결정타");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(InputTag_Attack, "LM.InputTag.Attack", "공격 입력");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(InputTag_Special, "LM.InputTag.Special", "특수 스킬 입력");

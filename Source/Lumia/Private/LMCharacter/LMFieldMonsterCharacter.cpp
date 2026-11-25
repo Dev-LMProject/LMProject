@@ -21,6 +21,7 @@
 #include "Abilities/GameplayAbilityTypes.h"
 #include "GameplayAbilitySpec.h"
 #include "LMCombat/LMAttackAbility.h"
+#include "GameplayEffect.h"
 
 /** 몬스터의 실제 체력과 표시 객체를 각 인스턴스에 독립적으로 생성한다. */
 ALMFieldMonsterCharacter::ALMFieldMonsterCharacter()
@@ -561,7 +562,7 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
     const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
     const ALMPlayerCharacter* Player = GetTargetPlayer();
     const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
-    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && IsAliveForCombat()
+    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && !bSceneFight && IsAliveForCombat()
         && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
     const bool bCanPrepare = !bStop && Combat == Area->GetCombatId() && bReady
         && IsValid(Player) && Player->IsAliveForCombat() && Spec && !Spec->IsActive();
@@ -736,7 +737,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     _bReturning = bReturning;
 
     // ASC 준비 전이나 사망·경직·능력의 이동 제어 중에는 경로 이동을 막는다.
-    _bCanMove = !bEndingPlay && !bIsDead && !bIsHitReacting && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
+    _bCanMove = !bEndingPlay && !bIsDead && !bIsHitReacting && !bSceneFight && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
 
     // 기존 데이터 갱신 한 번으로 허가 정보도 읽으며 소속이 없으면 이전 값을 남기지 않는다.
     AttackCombatId = 0;
@@ -754,7 +755,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
 
     bCanWork = (!bAttackRunning && _bCanMove)
         || (bAttackRunning && bAttackAllowed && IsValid(_TargetPlayer)
-            && !bReturning && !bIsDead && !bIsHitReacting
+            && !bReturning && !bIsDead && !bIsHitReacting && !bSceneFight
             && _TargetPlayer->IsAliveForCombat());
 
     return IsValid(_TargetPlayer);
@@ -872,6 +873,9 @@ void ALMFieldMonsterCharacter::FinishReturn()
 void ALMFieldMonsterCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     bEndingPlay = true;
+    bSceneFight = false;
+    bEliteFightRules = false;
+    ScenePlayer.Reset();
     UpdateCombatFocus();
     StopAttack();
     
@@ -922,4 +926,87 @@ void ALMFieldMonsterCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
             AbilitySystemComponent->RemoveLooseGameplayTag(LMGameplayTags::State_Dead);
         }
     }
+}
+
+// 기본 몬스터는 기존 피해를 유지하고 지정한 엘리트만 별도 규칙을 사용한다.
+void ALMFieldMonsterCharacter::SetEliteFightRules(bool _bEliteFightRules)
+{
+    if (bEndingPlay) return;
+    bEliteFightRules = _bEliteFightRules;
+}
+
+// 지정 시연을 먼저 확정한 뒤 공격을 중단해 반납 과정에서 공격권을 다시 받지 않게 한다.
+bool ALMFieldMonsterCharacter::SetSceneFight(ALMPlayerCharacter* _ScenePlayer, bool _bSceneFight)
+{
+    if (!_bSceneFight)
+    {
+        bSceneFight = false;
+        bSceneFirstHitDone = false;
+        bSceneFinalHitDone = false;
+        ScenePlayer.Reset();
+        if (!bEndingPlay && !bIsDead && IsValid(CombatArea.Get()))
+            CombatArea->FillAttackSlots();
+        return true;
+    }
+    if (bEndingPlay || !IsAliveForCombat()) return false;
+    if (!IsValid(_ScenePlayer) || _ScenePlayer->GetWorld() != GetWorld() || !_ScenePlayer->IsAliveForCombat() || !IsHostileTo(_ScenePlayer))
+        return false;
+    if (bSceneFight) return ScenePlayer.Get() == _ScenePlayer;
+
+    ScenePlayer = _ScenePlayer;
+    bSceneFight = true;
+    bSceneFirstHitDone = false;
+    bSceneFinalHitDone = false;
+    StopAttack();
+    if (AAIController* SceneController = Cast<AAIController>(GetController()))
+        SceneController->StopMovement();
+    GetCharacterMovement()->StopMovementImmediately();
+    return true;
+}
+
+// 명시된 시연 단계만 해당 타격의 Spec에 기록하며 입력이나 일반 공격 GA는 실행하지 않는다.
+bool ALMFieldMonsterCharacter::ApplySceneHit(ALMPlayerCharacter* _ScenePlayer, bool bFinalHit)
+{
+    if (bEndingPlay || !bSceneFight || !IsAliveForCombat()) return false;
+    if (!IsValid(_ScenePlayer) || ScenePlayer.Get() != _ScenePlayer || !_ScenePlayer->IsAliveForCombat())
+        return false;
+    if (bSceneFinalHitDone || (bFinalHit ? !bSceneFirstHitDone : bSceneFirstHitDone))
+        return false;
+    if (!FMath::IsFinite(SceneHitDamageRatio) || SceneHitDamageRatio <= 0.0f || SceneHitDamageRatio > 1.0f)
+        return false;
+
+    const float RequestedDamage = bFinalHit ? CombatAttributes->GetHealth() : CombatAttributes->GetMaxHealth() * SceneHitDamageRatio;
+    const FGameplayTag SceneTag = bFinalHit ? LMGameplayTags::Damage_SceneFinish : LMGameplayTags::Damage_SceneHit;
+    if (!ApplyCombatDamage(_ScenePlayer, RequestedDamage, nullptr, FHitResult(), SceneTag))
+        return false;
+
+    // 실제 속성 처리에서 단계가 소비됐는지 확인하며 결정타는 기존 사망 처리까지 요구한다.
+    return bFinalHit ? bSceneFinalHitDone && bIsDead : bSceneFirstHitDone && IsAliveForCombat();
+}
+
+// Spec별 시연 예외와 일반 피해 제한을 분리해 콜백 재진입에도 다른 공격은 우회하지 못한다.
+float ALMFieldMonsterCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth)
+{
+    AActor* DamageSource = DamageSpec.GetContext().GetEffectCauser();
+    const bool bSceneHit = DamageSpec.GetDynamicAssetTags().HasTagExact(LMGameplayTags::Damage_SceneHit);
+    const bool bSceneFinish = DamageSpec.GetDynamicAssetTags().HasTagExact(LMGameplayTags::Damage_SceneFinish);
+    if (bSceneHit || bSceneFinish)
+    {
+        if (!bSceneFight || !ScenePlayer.IsValid() || DamageSource != ScenePlayer.Get() || bSceneHit == bSceneFinish || bSceneFinalHitDone)
+            return 0.0f;
+        if (bSceneFinish)
+        {
+            if (!bSceneFirstHitDone) return 0.0f;
+            bSceneFinalHitDone = true;
+            return OldHealth;
+        }
+        if (bSceneFirstHitDone) return 0.0f;
+        // HP 알림보다 먼저 첫타를 소비해 중복 시연 요청을 거부한다.
+        bSceneFirstHitDone = true;
+        return FMath::Min(RequestedDamage, FMath::Max(0.0f, OldHealth - FMath::Min(OldHealth, 1.0f)));
+    }
+    if (bSceneFight) return 0.0f;
+    if (bEliteFightRules && Cast<ALMPlayerCharacter>(DamageSource))
+        return FMath::Min(1.0f, FMath::Max(0.0f, OldHealth - FMath::Min(OldHealth, 1.0f)));
+    return Super::ChangeIncomingDamage(DamageSpec, RequestedDamage, OldHealth, MaximumHealth);
 }

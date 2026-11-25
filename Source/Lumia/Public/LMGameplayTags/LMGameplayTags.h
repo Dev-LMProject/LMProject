@@ -10,6 +10,10 @@ namespace LMGameplayTags
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(QTE_Interaction_Mash);
 	// 지정 영역의 포인터 드래그 판정.
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(QTE_Interaction_Drag);
+	// 허용된 연출의 생존 타격.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_SceneHit);
+	// 허용된 연출의 결정타.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_SceneFinish);
 
 	/** 입력 액션과 능력을 연결하는 공통 공격 입력 태그. */
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Attack);
