@@ -393,6 +393,12 @@ bool ALMFieldMonsterCharacter::IsOutsideAttackDistance() const
     return FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance);
 }
 
+// 실제 스케일이 적용된 캡슐 반경으로 반납 후 최소 이동 거리를 정한다.
+float ALMFieldMonsterCharacter::GetAttackRetreatDistance() const
+{
+    return GetCapsuleComponent()->GetScaledCapsuleRadius() * FMath::Max(RetreatRadiusScale, 0.01f);
+}
+
 // 대기 이동에 들어갈 때의 속도를 기억해 이후 공격이나 복귀에 남기지 않는다.
 void ALMFieldMonsterCharacter::SetSlowFollow(bool _bSlowFollowing)
 {
@@ -460,8 +466,8 @@ bool ALMFieldMonsterCharacter::ReadWaitMoveLocation(const ALMCombatArea& QueueAr
     return Distance < MinimumRadius && QueueArea.ReadRetreatLocation(*this, CombatPlayer, AttackDistance, RetreatClearance, Location);
 }
 
-// 캡슐 중심 거리와 발 높이를 확인하고 몸체 사이를 막는 구조물이 있는지 검사한다.
-bool ALMFieldMonsterCharacter::CanStartAttack() const
+// 발 높이와 차폐를 검사하고 공격 시작 시에는 캡슐 중심 거리도 확인한다.
+bool ALMFieldMonsterCharacter::CanStartAttack(bool bCheckDistance) const
 {
     const ALMPlayerCharacter* AttackPlayer = GetTargetPlayer();
     const UWorld* AttackWorld = GetWorld();
@@ -479,7 +485,7 @@ bool ALMFieldMonsterCharacter::CanStartAttack() const
     const FVector PlayerCenter = PlayerCapsule->GetComponentLocation();
 
     // 공격 거리는 수평으로 비교하고 키가 다른 캐릭터의 높이는 발 위치로 비교한다.
-    if (FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance))
+    if (bCheckDistance && FVector::DistSquared2D(SelfCenter, PlayerCenter) > FMath::Square(AttackDistance))
         return false;
 
     const double SelfFoot = SelfCenter.Z - SelfCapsule->GetScaledCapsuleHalfHeight();
@@ -768,6 +774,7 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     CombatDistance = 0.0;
     bAtCombatLocation = false;
     bNeedMove = false;
+    CombatMoveReach = 0.0f;
 
     ALMCombatArea* QueueArea = GetCombatArea();
     if (!IsValid(QueueArea))
@@ -804,12 +811,16 @@ bool ALMFieldMonsterCharacter::ReadCombatMoveData(FVector& CombatLocation, doubl
     }
 
     const FVector SelfLocation = GetNavAgentLocation();
+    CombatMoveReach = QueueArea->GetMoveReach();
     bool bWaiting = false;
     bool bRetreated = false;
     if (bAllowed)
     {
-        // 공격권이 있으면 1단위의 사거리·발 높이·차폐 판정으로 공격 진입을 결정한다.
-        bAtCombatLocation = CanStartAttack();
+        // 높이 차나 벽에 막혔을 때 넓은 도착 반경으로 이동이 끝나지 않게 한다.
+        constexpr float ApproachMargin = 10.0f;
+        const bool bClearToAttack = CanStartAttack(false);
+        bAtCombatLocation = bClearToAttack && !IsOutsideAttackDistance();
+        CombatMoveReach = bClearToAttack ? FMath::Max(0.0f, AttackDistance - ApproachMargin) : 0.0f;
     }
     else if (QueueArea->NeedsRetreat(this, SavedWait))
     {
