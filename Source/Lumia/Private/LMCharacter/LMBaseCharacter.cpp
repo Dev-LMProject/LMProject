@@ -273,116 +273,98 @@ void ALMBaseCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-/** 캐릭터 종류와 관계없이 공격 출처를 보존해 이 피격자에게 피해를 적용하고 HP 계산은 AttributeSet에 맡긴다. */
+// 공유 공격 데이터에서 피해를 읽고 일반 타격의 검증과 방어 판정을 요청한다.
 void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttackData* AttackData, const FHitResult& HitResult)
 {
-    // this는 피격자다. 권한이 없거나 파괴 중인 몸체에서는 HP 변경을 요청하지 않는다.
-    if (!HasAuthority() || IsActorBeingDestroyed())
+    if (!IsValid(AttackData)) return;
+    ApplyCombatDamage(Cast<ALMBaseCharacter>(DamageSource), AttackData->BaseDamage, AttackData, HitResult, FGameplayTag());
+}
+
+// 일반 피해와 시연 피해가 같은 출처·GE·속성·사망 경로를 사용하도록 적용 부분을 공유한다.
+bool ALMBaseCharacter::ApplyCombatDamage(ALMBaseCharacter* DamageSource, float RequestedDamage, const ULMAttackData* AttackData, const FHitResult& HitResult, FGameplayTag SceneTag)
+{
+    if (!HasAuthority() || IsActorBeingDestroyed()) return false;
+    if (!IsValid(DamageSource) || DamageSource->IsActorBeingDestroyed() || DamageSource->GetWorld() != GetWorld())
+        return false;
+    if (!FMath::IsFinite(RequestedDamage) || RequestedDamage < 0.0f)
+        return false;
+
+    // 명시한 두 시연 이유만 방어와 일반 피해 제한을 우회할 수 있다.
+    const bool bSceneHit = SceneTag == LMGameplayTags::Damage_SceneHit || SceneTag == LMGameplayTags::Damage_SceneFinish;
+    if (SceneTag.IsValid() && !bSceneHit) return false;
+    if (bSceneHit)
     {
-        return;
+        if (!IsHostileTo(DamageSource) || !IsAliveForCombat() || !DamageSource->IsAliveForCombat())
+            return false;
+    }
+    else if (!IsValid(AttackData) || !CanReceiveAttackFrom(DamageSource))
+    {
+        return false;
     }
 
-    // DamageSource는 공격한 캐릭터다. 공격 출처나 피해 입력을 읽을 수 없으면 중단한다.
-    if (!IsValid(DamageSource) || DamageSource->IsActorBeingDestroyed() || !IsValid(AttackData))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Invalid attacker or attack data."), *GetName());
-        return;
-    }
-	
-	// 다른 호출 경로에서도 아군 피해와 보스 무적을 동일한 규칙으로 거부한다.
-	ALMBaseCharacter* const Attacker = Cast<ALMBaseCharacter>(DamageSource);
-	if (!CanReceiveAttackFrom(Attacker))
-	{
-		return;
-	}
-
-    // 공유 DataAsset은 읽기만 한다. 음수·비정상 수치는 거부하며 0은 AttributeSet에서 피해 없이 소비한다.
-    const float BaseDamage = AttackData->BaseDamage;
-    if (!FMath::IsFinite(BaseDamage) || BaseDamage < 0.0f)
-    {
-        return;
-    }
-
-    // 피격자가 사용하는 ASC다. 플레이어·일반 몬스터·보스 중 누구든 최종 피해 적용 대상이 된다.
     UAbilitySystemComponent* ReceiverASC = GetAbilitySystemComponent();
-
-    // 공격자가 사용하는 ASC다. 실제 소유 위치와 관계없이 공격 출처를 가진 Context와 Spec을 만든다.
-    UAbilitySystemComponent* AttackerASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Attacker);
-
-    // Owner는 PlayerState일 수도 있지만 Avatar는 현재 몸체여야 한다. 교체 전 몸체와 남은 연결을 거부한다.
-    if (!IsValid(ReceiverASC) || ReceiverASC->GetAvatarActor() != this || !IsValid(AttackerASC) || AttackerASC->GetAvatarActor() != Attacker)
+    UAbilitySystemComponent* AttackerASC = DamageSource->GetAbilitySystemComponent();
+    if (!IsValid(ReceiverASC) || ReceiverASC->GetAvatarActor() != this || !IsValid(AttackerASC) || AttackerASC->GetAvatarActor() != DamageSource)
     {
         UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Attacker or receiver ASC is not ready."), *GetName());
-        return;
+        return false;
     }
 
-    // 공격자의 수치와 혼동하지 않도록 피격자에게 이미 등록된 전투 속성만 조회한다.
     const ULMCombatAttributeSet* ReceiverAttributes = ReceiverASC->GetSet<ULMCombatAttributeSet>();
-    if (!ReceiverAttributes)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: CombatAttributeSet is missing."), *GetName());
-        return;
-    }
+    if (!ReceiverAttributes || ReceiverAttributes->GetHealth() <= 0.0f || ReceiverASC->HasMatchingGameplayTag(LMGameplayTags::State_Dead))
+        return false;
 
-    // HP 소진이나 기존 사망 상태에서는 추가 피해를 막되, 이 함수가 사망·무력화를 결정하지는 않는다.
-    if (ReceiverAttributes->GetHealth() <= 0.0f || ReceiverASC->HasMatchingGameplayTag(LMGameplayTags::State_Dead))
-    {
-        return;
-    }
-
-    // GE의 기본 객체(CDO)는 설정 확인용이다. 아직 효과를 적용하지 않으며 Instant 정책만 허용한다.
     const UGameplayEffect* DamageEffectDefaults = DamageEffectClass.GetDefaultObject();
     if (!IsValid(DamageEffectDefaults) || DamageEffectDefaults->DurationPolicy != EGameplayEffectDurationType::Instant)
     {
         UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Assign the Instant GE_LM_Damage."), *GetName());
-        return;
+        return false;
     }
 
-    // 피격자가 접수하더라도 피해 출처는 공격자다. 공격자 ASC의 Owner·Avatar를 기준으로 Context를 만든다.
+    // Owner가 PlayerState여도 EffectCauser에는 공격자 몸체가 남는다.
     FGameplayEffectContextHandle DamageContext = AttackerASC->MakeEffectContext();
-
-    // 어떤 공격 데이터를 사용했는지 기록한다. 피해 숫자는 아래 SetByCaller로 별도 전달한다.
-    DamageContext.AddSourceObject(AttackData);
-
-    // 충돌 정보가 있으면 Context에 복사한다. 실제 적중 판정과 중복 타격 제한은 호출자가 담당한다.
+    if (AttackData)
+        DamageContext.AddSourceObject(AttackData);
     if (HitResult.GetActor())
-    {
         DamageContext.AddHitResult(HitResult, true);
-    }
 
-    // 이번 피해 요청 전용 Spec을 만든다. 1.0은 GE 레벨이며 피해량이나 피해 배율이 아니다.
     FGameplayEffectSpecHandle DamageSpec = AttackerASC->MakeOutgoingSpec(DamageEffectClass, 1.0f, DamageContext);
-    if (!DamageSpec.IsValid())
+    if (!DamageSpec.IsValid()) return false;
+    DamageSpec.Data->SetSetByCallerMagnitude(LMGameplayTags::Data_Damage, RequestedDamage);
+    if (bSceneHit)
+        DamageSpec.Data->AddDynamicAssetTag(SceneTag);
+
+    // 일반 유효 타격만 저스트 회피와 패링을 거치며 시연 예외는 이 Spec에만 남긴다.
+    if (!bSceneHit && RequestedDamage > 0.0f)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Failed to create damage Spec."), *GetName());
-        return;
+        for (const FGameplayAbilitySpec& DodgeSpec : ReceiverASC->GetActivatableAbilities())
+        {
+            if (!DodgeSpec.IsActive())
+                continue;
+            ULMDodgeAbility* const DodgeAbility = Cast<ULMDodgeAbility>(DodgeSpec.GetPrimaryInstance());
+            if (DodgeAbility && DodgeAbility->TryAvoidDamage()) return false;
+        }
+        ULMAttackAbility* const ParryAbility = Cast<ULMAttackAbility>(ReceiverASC->GetAnimatingAbility());
+        if (ParryAbility && ParryAbility->TryParryHit())
+        {
+            DamageSource->ReceiveParryReaction(this);
+            return false;
+        }
     }
 
-    // GE가 같은 DataTag로 읽을 기본 피해를 저장한다. 이 시점에는 아직 HP를 변경하지 않는다.
-    DamageSpec.Data->SetSetByCallerMagnitude(LMGameplayTags::Data_Damage, BaseDamage);
-	// 양수 피해만 저스트 회피와 패링을 판정한다.
-	if (BaseDamage > 0.0f)
-	{
-		for (const FGameplayAbilitySpec& DodgeSpec : ReceiverASC->GetActivatableAbilities())
-		{
-			if (!DodgeSpec.IsActive())
-				continue;
-
-			ULMDodgeAbility* const DodgeAbility = Cast<ULMDodgeAbility>(DodgeSpec.GetPrimaryInstance());
-			if (DodgeAbility && DodgeAbility->TryAvoidDamage()) return;
-		}
-
-		// 저스트 회피가 처리하지 않은 타격은 피격자의 현재 공격에서 확인한다.
-		ULMAttackAbility* const ParryAbility = Cast<ULMAttackAbility>(ReceiverASC->GetAnimatingAbility());
-		if (ParryAbility && ParryAbility->TryParryHit())
-		{
-			// 패링을 일으킨 타격의 시전자에게만 반응을 전달한다.
-			Attacker->ReceiveParryReaction(this);
-			return;
-		}
-	}
-    // 공격 출처가 담긴 Spec을 피격자 자신에게 적용한다. HP 차감·소진 결과 알림은 AttributeSet이 담당한다.
     ReceiverASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
+    return true;
+}
+
+// 별도 규칙이 없는 캐릭터의 피해량은 바꾸지 않는다.
+float ALMBaseCharacter::ChangeIncomingDamage(const FGameplayEffectSpec&, float RequestedDamage, float, float)
+{
+    return RequestedDamage;
+}
+
+// 기본 캐릭터에는 피해 계산 뒤 실행할 예약 반응이 없다.
+void ALMBaseCharacter::FinishCombatDamage()
+{
 }
 
 // 캐릭터 종류에 따라 필요한 경우에만 패링 반응을 구현한다.

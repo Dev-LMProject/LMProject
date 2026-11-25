@@ -29,6 +29,21 @@ class LUMIA_API ALMFieldMonsterCharacter : public ALMBaseCharacter
 	GENERATED_BODY()
 
 public:
+	// 지정 엘리트에서만 플레이어의 일반 타격을 1 피해와 생존 하한으로 제한한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|SceneCombat")
+	void SetEliteFightRules(bool _bEliteFightRules);
+
+	// 지정 플레이어의 시연을 준비하거나 끝내며 같은 활성 요청은 타격 기록을 유지한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|SceneCombat")
+	bool SetSceneFight(ALMPlayerCharacter* _ScenePlayer, bool _bSceneFight);
+
+	// 지정 시연의 첫타와 결정타를 순서대로 한 번씩 기존 피해 경로에 적용한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|SceneCombat")
+	bool ApplySceneHit(ALMPlayerCharacter* _ScenePlayer, bool bFinalHit);
+
+	// 일반 엘리트 피해와 해당 Spec에만 표시된 시연 예외를 구분한다.
+	virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth) override;
+
 	/** 몬스터 ASC / 전투 속성 / 체력 표시 컴포넌트를 생성한다. */
 	ALMFieldMonsterCharacter();
 	
@@ -81,6 +96,10 @@ public:
 	void FinishReturn();
 
 protected:
+	// 시연 첫타는 최대 HP의 이 비율을 깎되 최소 HP 1을 남긴다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|SceneCombat", meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float SceneHitDamageRatio = 0.5f;
+
 	// 일반 몬스터의 공격이 패링되면 경직과 후퇴를 연결한다.
 	virtual void ReceiveParryReaction(ALMBaseCharacter* Parrier) override;
 
@@ -149,6 +168,17 @@ protected:
 
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	// UI를 실행하지 않고 기존 몬스터 사망 수신자를 연결하는 검사에만 사용한다.
+	friend class FLMEliteCombatDamageTest;
+#endif
+
+	TWeakObjectPtr<ALMPlayerCharacter> ScenePlayer;
+	bool bEliteFightRules = false;
+	bool bSceneFight = false;
+	bool bSceneFirstHitDone = false;
+	bool bSceneFinalHitDone = false;
+
 	/** 현재 HP 또는 최대 HP가 바뀌면 표시값을 갱신한다. */
 	void HandleHealthChanged(const FOnAttributeChangeData& Data);
 

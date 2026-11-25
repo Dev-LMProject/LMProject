@@ -25,6 +25,9 @@
 #include "LMPlayer/LMPlayerController.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "LMCharacter/LMPlayerMeleeMovementComponent.h"
+#include "LMCharacter/LMFieldMonsterCharacter.h"
+#include "GameplayEffect.h"
+#include "TimerManager.h"
 
 namespace LMPivot
 {
@@ -1186,6 +1189,7 @@ void ALMPlayerCharacter::CancelMoveInput()
 /** 캐릭터 종료 시 GAS 연결과 남아 있는 이동·점프 처리를 정리한다. */
 void ALMPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    StopAwakeningWatch();
     DisconnectAbilitySystem();
 
     BlendOutPivot(0.0f);
@@ -1244,4 +1248,77 @@ void ALMPlayerCharacter::RefreshMovementPolicyFromAbilities()
 
     // 카메라 조작 허용 여부는 기본 정책의 AllowLook을 유지한다.
     ApplyResolvedMovementPolicy(Resolved);
+}
+
+// 전투 단계의 지정 엘리트를 약하게 보관하며 중복 호출로 1회 상태를 되돌리지 않는다.
+bool ALMPlayerCharacter::WatchAwakening(ALMFieldMonsterCharacter* _AwakeningMob)
+{
+    if (bAwakeningStarted || IsActorBeingDestroyed()) return false;
+    if (!IsValid(_AwakeningMob) || _AwakeningMob->GetWorld() != GetWorld() || !IsAliveForCombat() || !_AwakeningMob->IsAliveForCombat() || !IsHostileTo(_AwakeningMob))
+        return false;
+    if (bWatchingAwakening) return AwakeningMob.Get() == _AwakeningMob;
+
+    AwakeningMob = _AwakeningMob;
+    bWatchingAwakening = true;
+    return true;
+}
+
+// 종료와 중단은 자신이 예약한 알림과 보호 상태만 정리한다.
+void ALMPlayerCharacter::StopAwakeningWatch()
+{
+    bWatchingAwakening = false;
+    bAwakeningStarted = false;
+    bAwakeningPending = false;
+    AwakeningMob.Reset();
+    if (UWorld* PlayerWorld = GetWorld())
+        PlayerWorld->GetTimerManager().ClearTimer(AwakeningTimer);
+    AwakeningTimer.Invalidate();
+}
+
+// 지정 타격의 예상 HP를 먼저 판정해 사망 알림보다 앞서 보호를 확정한다.
+float ALMPlayerCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth)
+{
+    // 예약 직후 같은 프레임에 들어온 다른 공격도 HP를 깎지 못하게 한다.
+    if (bAwakeningStarted) return 0.0f;
+    if (!bWatchingAwakening) return RequestedDamage;
+    ALMFieldMonsterCharacter* WatchedMob = AwakeningMob.Get();
+    if (!IsValid(WatchedMob) || WatchedMob->IsActorBeingDestroyed())
+    {
+        StopAwakeningWatch();
+        return RequestedDamage;
+    }
+
+    // 낮은 HP로 진입한 경우도 다음 유효피격에서 인정하며 단순 수치 변화는 사용하지 않는다.
+    const float ExpectedHealth = FMath::Clamp(OldHealth - RequestedDamage, 0.0f, MaximumHealth);
+    if (DamageSpec.GetContext().GetEffectCauser() != WatchedMob || OldHealth <= 0.0f || ExpectedHealth >= OldHealth || ExpectedHealth > MaximumHealth * 0.3f)
+        return RequestedDamage;
+
+    bWatchingAwakening = false;
+    bAwakeningStarted = true;
+    bAwakeningPending = true;
+    // 이미 1 미만인 체력을 회복시키지 않으면서 이번 치명 타격을 막는다.
+    const float SavedHealth = FMath::Max(ExpectedHealth, FMath::Min(OldHealth, 1.0f));
+    return OldHealth - SavedHealth;
+}
+
+// 속성 계산이 끝난 뒤에만 다음 틱 연출 알림을 등록한다.
+void ALMPlayerCharacter::FinishCombatDamage()
+{
+    if (!bAwakeningPending) return;
+    bAwakeningPending = false;
+    if (UWorld* PlayerWorld = GetWorld())
+        AwakeningTimer = PlayerWorld->GetTimerManager().SetTimerForNextTick(this, &ALMPlayerCharacter::SendAwakeningStarted);
+}
+
+// 대상이나 소유자가 사라졌다면 연출을 시작하지 않고 감지를 정리한다.
+void ALMPlayerCharacter::SendAwakeningStarted()
+{
+    AwakeningTimer.Invalidate();
+    if (!bAwakeningStarted || IsActorBeingDestroyed()) return;
+    if (!AwakeningMob.IsValid() || AwakeningMob->IsActorBeingDestroyed())
+    {
+        StopAwakeningWatch();
+        return;
+    }
+    OnAwakeningStarted.Broadcast();
 }
