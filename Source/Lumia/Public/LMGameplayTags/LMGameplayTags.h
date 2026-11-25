@@ -4,6 +4,13 @@
 
 namespace LMGameplayTags
 {
+	// 한 번 누르기 판정.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(QTE_Interaction_Press);
+	// 서로 다른 누름 횟수 판정.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(QTE_Interaction_Mash);
+	// 지정 영역의 포인터 드래그 판정.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(QTE_Interaction_Drag);
+
 	/** 입력 액션과 능력을 연결하는 공통 공격 입력 태그. */
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Attack);
 	/** 스캔 입력 태그 */
