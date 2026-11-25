@@ -29,6 +29,10 @@ class LUMIA_API ALMFieldMonsterCharacter : public ALMBaseCharacter
 	GENERATED_BODY()
 
 public:
+	// 전투 영역이 요청한 체력바 표시 여부를 현재 생존 상태와 함께 적용한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|UI")
+	void SetHealthVisible(bool _bShowHealth);
+
 	// 지정 엘리트에서만 플레이어의 일반 타격을 1 피해와 생존 하한으로 제한한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|SceneCombat")
 	void SetEliteFightRules(bool _bEliteFightRules);
@@ -165,6 +169,9 @@ protected:
 
 
 private:
+	// 영역 밖에서는 체력이 갱신되어도 체력바를 다시 켜지 않는다.
+	bool bShowHealth = false;
+
 #if WITH_DEV_AUTOMATION_TESTS
 	// UI를 실행하지 않고 기존 몬스터 사망 수신자를 연결하는 검사에만 사용한다.
 	friend class FLMEliteCombatDamageTest;
