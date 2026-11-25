@@ -2,9 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "LMUI/LMSequencePanelWidget.h"
 #include "LMSequencePanelActor.generated.h"
 
-class ULMSequencePanelWidget;
 class UWidgetComponent;
 
 // 월드 공간 상태창을 배치하고 레벨 시퀀스의 값을 위젯에 전달한다.
@@ -28,6 +28,14 @@ public:
 	// 시퀀서가 평가한 패널 전체 투명도를 적용한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
 	void SetPanelOpacity(float _PanelOpacity);
+
+	// 시퀀서가 선택한 위젯 애니메이션으로 전환한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
+	void SetWidgetAnimation(ELMSequencePanelAnimation _WidgetAnimation);
+
+	// 현재 프레임에 해당하는 위젯 애니메이션 위치를 적용한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
+	void SetWidgetAnimationAlpha(float _WidgetAnimationAlpha);
 
 	// 위젯이 교체되었거나 패널 값이 바뀌면 현재 상태를 적용한다.
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "LM|Sequence Panel")
@@ -58,10 +66,18 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Interp, Category = "LM|Sequence Panel", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0"))
 	float PanelOpacity = 0.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Interp, Category = "LM|Sequence Panel", meta = (AllowPrivateAccess = "true"))
+	ELMSequencePanelAnimation WidgetAnimation = ELMSequencePanelAnimation::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Interp, Category = "LM|Sequence Panel", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0"))
+	float WidgetAnimationAlpha = 0.0f;
+
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "LM|Sequence Panel", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<ULMSequencePanelWidget> WidgetRef;
 
 	float LastTypingAlpha = -1.0f;
 	float LastDownloadAlpha = -1.0f;
 	float LastPanelOpacity = -1.0f;
+	ELMSequencePanelAnimation LastWidgetAnimation = ELMSequencePanelAnimation::None;
+	float LastWidgetAnimationAlpha = -1.0f;
 };

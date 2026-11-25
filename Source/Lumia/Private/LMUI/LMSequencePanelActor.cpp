@@ -51,6 +51,20 @@ void ALMSequencePanelActor::SetPanelOpacity(float _PanelOpacity)
 	RefreshPanel();
 }
 
+// 현재 프레임에서 재생할 위젯 애니메이션을 선택한다.
+void ALMSequencePanelActor::SetWidgetAnimation(ELMSequencePanelAnimation _WidgetAnimation)
+{
+	WidgetAnimation = _WidgetAnimation;
+	RefreshPanel();
+}
+
+// 시퀀서가 전달한 위치로 위젯 애니메이션을 이동시킨다.
+void ALMSequencePanelActor::SetWidgetAnimationAlpha(float _WidgetAnimationAlpha)
+{
+	WidgetAnimationAlpha = FMath::Clamp(_WidgetAnimationAlpha, 0.0f, 1.0f);
+	RefreshPanel();
+}
+
 // 컴포넌트가 소유한 위젯을 찾고 변경된 상태만 적용한다.
 void ALMSequencePanelActor::RefreshPanel()
 {
@@ -73,6 +87,8 @@ void ALMSequencePanelActor::RefreshPanel()
 	const bool bTypingChanged = bNewWidget || NewTyping != LastTypingAlpha;
 	const bool bDownloadChanged = bNewWidget || NewDownload != LastDownloadAlpha;
 	const bool bOpacityChanged = bNewWidget || NewOpacity != LastPanelOpacity;
+	const float NewAnimationAlpha = FMath::Clamp(WidgetAnimationAlpha, 0.0f, 1.0f);
+	const bool bAnimationChanged = bNewWidget || WidgetAnimation != LastWidgetAnimation || NewAnimationAlpha != LastWidgetAnimationAlpha;
 
 	// 외곽 위젯에 전체 투명도를 적용해 내부 Overlay 애니메이션과 합성한다.
 	if (bTypingChanged)
@@ -81,11 +97,15 @@ void ALMSequencePanelActor::RefreshPanel()
 		WidgetRef->UpdateDownload(NewDownload);
 	if (bOpacityChanged)
 		WidgetRef->SetRenderOpacity(NewOpacity);
+	if (bAnimationChanged)
+		WidgetRef->UpdateWidgetAnimation(WidgetAnimation, NewAnimationAlpha);
 
 	LastTypingAlpha = NewTyping;
 	LastDownloadAlpha = NewDownload;
 	LastPanelOpacity = NewOpacity;
-	if (bTypingChanged || bDownloadChanged || bOpacityChanged)
+	LastWidgetAnimation = WidgetAnimation;
+	LastWidgetAnimationAlpha = NewAnimationAlpha;
+	if (bTypingChanged || bDownloadChanged || bOpacityChanged || bAnimationChanged)
 		Widget_SystemPanel->RequestRenderUpdate();
 }
 

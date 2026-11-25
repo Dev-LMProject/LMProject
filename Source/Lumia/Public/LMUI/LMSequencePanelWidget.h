@@ -6,6 +6,17 @@
 
 class UProgressBar;
 class UTextBlock;
+class UWidgetAnimation;
+
+// 시퀀서가 현재 프레임에 적용할 위젯 애니메이션이다.
+UENUM(BlueprintType)
+enum class ELMSequencePanelAnimation : uint8
+{
+	None,
+	Appear,
+	Disappear,
+	Flicker
+};
 
 // 시퀀서가 전달한 진행률을 상태창의 글자와 게이지에 표시한다.
 UCLASS(Abstract, Blueprintable)
@@ -21,6 +32,9 @@ public:
 	// 게이지, 정수 퍼센트, 완료 문구를 같은 진행률로 갱신한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
 	void UpdateDownload(float Alpha);
+
+	// 선택한 UMG 클립을 현재 진행률에서 평가한다.
+	void UpdateWidgetAnimation(ELMSequencePanelAnimation Clip, float Alpha);
 
 protected:
 	// 위젯 블루프린트의 클래스 기본값에서 원본 문구를 교체한다.
@@ -38,4 +52,13 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "LM|Sequence Panel", meta = (BindWidget))
 	TObjectPtr<UTextBlock> TXT_Status;
+
+private:
+	// 기존 위젯 블루프린트가 생성한 애니메이션 변수를 찾는다.
+	UWidgetAnimation* FindPanelAnimation(ELMSequencePanelAnimation Clip) const;
+
+	UPROPERTY(Transient, DuplicateTransient)
+	TObjectPtr<UWidgetAnimation> ActivePanelAnimation;
+
+	FWidgetAnimationHandle PanelAnimationHandle;
 };
