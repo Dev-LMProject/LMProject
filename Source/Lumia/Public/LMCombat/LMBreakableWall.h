@@ -6,6 +6,7 @@
 #include "LMBreakableWall.generated.h"
 
 class UBoxComponent;
+class APawn;
 class UCurveFloat;
 class UMaterialInterface;
 class UStaticMesh;
@@ -37,6 +38,9 @@ public:
     // 마지막 타격음과 파괴음이 겹치지 않도록 BP에 현재 파괴 여부를 알려 준다.
     UFUNCTION(BlueprintPure, Category = "LM|Wall")
     bool IsBroken() const;
+
+    // 플레이어 전방에 닫힌 철문이 있으면 기존 공격음의 재생을 생략하도록 알린다.
+    static bool ShouldSkipAttackSound(const APawn* AttackPawn);
 
 protected:
     /*
