@@ -585,7 +585,9 @@ void ALMCubeRoomPuzzle::ShowInside(bool bShow)
             bHide = FVector::DotProduct(Center - RoomPivot->GetComponentLocation(), PuzzleCamera->GetActorLocation() - Center) > 0.0;
         }
 
-        Wall->SetHiddenInGame(bHide);
+        // 벽의 숨김 상태가 바뀔 때 붙어 있는 조명 메시도 함께 갱신한다.
+        if (Wall->bHiddenInGame != bHide)
+            Wall->SetHiddenInGame(bHide, true);
     }
 }
 
