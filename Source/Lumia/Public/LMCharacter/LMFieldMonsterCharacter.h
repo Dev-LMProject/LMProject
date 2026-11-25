@@ -72,6 +72,9 @@ public:
 
 	// 피격 높이나 차폐와 별개로 현재 대상의 공격 허용 반경을 벗어났는지 확인한다.
 	bool IsOutsideAttackDistance() const;
+
+	// 공격권을 반납한 지점부터 물러나야 할 최소 거리를 반환한다.
+	float GetAttackRetreatDistance() const;
 	
 	// 대상이 없는 복귀 성공에서만 최초 방향을 복원하고 복귀를 완료한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|AI")
@@ -223,16 +226,20 @@ protected:
 	TSubclassOf<ULMAttackAbility> AttackAbilityClass;
 
 	// 캡슐 중심 사이의 수평 거리로 판단하는 기본공격 시작 사거리다.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack", meta = (ClampMin = "1.0", Units = "cm"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Combat Distance", meta = (ClampMin = "1.0", Units = "cm"))
 	float AttackDistance = 200.0f;
 
 	// 지상 기본공격에서 허용하는 두 캡슐 발 위치의 높이 차이다.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack", meta = (ClampMin = "0.0", Units = "cm"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Combat Distance", meta = (ClampMin = "0.0", Units = "cm"))
 	float AttackHeight = 80.0f;
 
 	// 반납 직후 이격 목표가 도착 오차를 감안해도 공격 반경 밖에 오도록 여유를 준다.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|AI", meta = (ClampMin = "1.0", Units = "cm"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Combat Distance", meta = (ClampMin = "1.0", Units = "cm"))
 	float RetreatClearance = 10.0f;
+
+	// 캡슐 반경에 곱해 공격권 반납 직후의 최소 후퇴 거리를 정한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Combat Distance", meta = (ClampMin = "0.01"))
+	float RetreatRadiusScale = 2.5f;
 
 	// 공격권 없이 추적하거나 원호를 따라 이동할 때 적용할 속도 비율이다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|AI", meta = (ClampMin = "0.01", ClampMax = "1.0"))
@@ -242,8 +249,12 @@ protected:
 	bool bAttackRunning = false;
 
 private:
-	// 현재 대상이 사거리와 발 높이·벽 조건을 만족하는지 같은 기준으로 검사한다.
-	bool CanStartAttack() const;
+	// 발 높이·벽 조건을 검사하고 공격 시작 시에는 사거리도 확인한다.
+	bool CanStartAttack(bool bCheckDistance = true) const;
+
+	// Reader가 이번 Combat Location과 함께 StateTree에 전달할 도착 반경이다.
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category = "LM|AI", meta = (AllowPrivateAccess = "true"))
+	float CombatMoveReach = 0.0f;
 
 	// 대기 이동을 시작할 때 속도를 낮추고, 끝날 때 이전 속도를 복원한다.
 	void SetSlowFollow(bool _bSlowFollowing);
