@@ -21,11 +21,8 @@ public:
 	// 일시정지 중에도 ESC를 받을 수 있도록 포커스를 허용한다.
 	ULMLoreWidget(const FObjectInitializer& ObjectInitializer);
 
-	// 화면이 표시되기 전에 이번 창에 사용할 로어 원본을 연결한다.
-	void InitializeLore(ULMLoreData* _LoreData);
-
-	// 창에 필요한 디자이너 위젯과 로어 원본이 모두 연결됐는지 확인한다.
-	bool HasLoreContent() const;
+	// 필수 연결을 확인한 뒤 이번 창의 로어 원본과 닫기 완료 이벤트를 연결한다.
+	bool InitializeLore(ULMLoreData* _LoreData);
 
 	// 컨트롤러가 화면을 제거하기 전에 로어 참조를 해제한다.
 	void ClearLore();
@@ -43,9 +40,6 @@ protected:
 
 	// 스크롤이나 버튼에 포커스가 있어도 ESC로 창을 닫는다.
 	virtual FReply NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
-
-	// 닫기 애니메이션이 끝난 뒤 창과 일시정지를 정리한다.
-	virtual void OnAnimationFinished_Implementation(const UWidgetAnimation* Animation) override;
 
 private:
 	// DA 제목을 표시할 디자이너 위젯이다.
@@ -87,8 +81,14 @@ private:
 	// 닫기 연출 중 반복 입력으로 재생과 정리가 중복되지 않게 한다.
 	bool bIsClosingLore = false;
 
+	// 로어를 정리할 때 이 창의 닫기 완료 연결만 해제한다.
+	FDelegateHandle CloseDoneHandle;
+
 	// DA의 각 줄을 디자이너 미리보기의 글꼴과 색상으로 만든다.
 	void BuildMessages();
+
+	// 닫기 애니메이션의 종료만 골라 창을 닫는다.
+	void OnCloseAnimationFinished(FWidgetAnimationState& FinishedAnimation);
 
 	// 현재 화면을 컨트롤러에 즉시 정리하도록 요청한다.
 	void FinishLoreClose();
