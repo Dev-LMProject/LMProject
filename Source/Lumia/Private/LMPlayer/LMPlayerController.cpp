@@ -386,66 +386,66 @@ bool ALMPlayerController::OpenLoreWidget(ULMInteractionComponent* LoreInteractio
 
 	// 위젯 생성이나 일시정지 콜백에서 재진입한 요청을 구분한다.
 	TGuardValue<bool> ChangingGuard(bIsChangingLoreWidget, true);
+	if (TryOpenLoreWidget(LoreInteraction, LoreData)) return true;
+
+	// 열기 도중 취소되거나 실패하면 변경한 상태를 한 번만 복원한다.
+	ClearLoreWidget();
+	return false;
+}
+
+// 위젯을 등록하고 같은 요청이 유효한 동안에만 일시정지와 입력 전환을 진행한다.
+bool ALMPlayerController::TryOpenLoreWidget(ULMInteractionComponent* LoreInteraction, ULMLoreData* LoreData)
+{
 	const TWeakObjectPtr<ULMInteractionComponent> RequestedInteraction(LoreInteraction);
 	const TWeakObjectPtr<ULMLoreData> RequestedData(LoreData);
+
+	// 생성 콜백에서도 카드가 제거되면 현재 요청을 취소할 수 있게 대상을 먼저 기록한다.
 	ActiveLoreInteraction = RequestedInteraction;
 	TStrongObjectPtr<ULMLoreWidget> NewWidget(CreateWidget<ULMLoreWidget>(this, LoreData->WidgetClass));
 
-	// 각 콜백을 마친 뒤에도 동일한 대상과 화면이 남아 있는지 확인한다.
-	const auto IsOpeningLoreValid = [this, &RequestedInteraction, &RequestedData, &NewWidget]()
+	// 생성 콜백에서 취소된 위젯도 같은 정리 경로에서 제거할 수 있게 보관한다.
+	ActiveLoreWidget = NewWidget.Get();
+
+	if (!IsValid(NewWidget.Get()) || !RequestedInteraction.IsValid() || !RequestedData.IsValid() || bIsEndingPlay || ActiveLoreInteraction != RequestedInteraction)
 	{
-		return !bIsEndingPlay && !IsActorBeingDestroyed() && RequestedInteraction.IsValid() && RequestedData.IsValid() && ActiveLoreInteraction == RequestedInteraction && IsValid(NewWidget.Get()) && ActiveLoreWidget == NewWidget.Get() && NewWidget->GetOwningPlayer() == this && NewWidget->IsInViewport() && NewWidget->HasLoreContent();
+		return false;
+	}
+
+	// 화면을 등록한 뒤에는 같은 요청과 위젯이 여전히 유효한지만 확인한다.
+	const auto IsSameLoreRequest = [this, &RequestedInteraction, &RequestedData, &NewWidget]()
+	{
+		return !bIsEndingPlay && !IsActorBeingDestroyed()
+			&& RequestedInteraction.IsValid() && RequestedData.IsValid() && ActiveLoreInteraction == RequestedInteraction
+			&& IsValid(NewWidget.Get()) && ActiveLoreWidget == NewWidget.Get()
+			&& NewWidget->GetOwningPlayer() == this && NewWidget->IsInViewport();
 	};
 
-	bool bOpened = false;
-	if (IsValid(NewWidget.Get()) && RequestedInteraction.IsValid() && RequestedData.IsValid() && !bIsEndingPlay && ActiveLoreInteraction == RequestedInteraction)
+	// 준비를 마친 위젯만 화면에 등록하고, 등록 중 취소되면 일시정지하지 않는다.
+	if (!NewWidget->InitializeLore(RequestedData.Get()) || !NewWidget->AddToPlayerScreen(10) || !IsSameLoreRequest())
 	{
-		// Construct가 DA를 읽을 수 있도록 뷰포트 등록 전에 원본을 연결한다.
-		ActiveLoreWidget = NewWidget.Get();
-		NewWidget->InitializeLore(RequestedData.Get());
-		bOpened = NewWidget->AddToPlayerScreen(10) && IsOpeningLoreValid();
+		return false;
 	}
 
-	if (bOpened)
+	// 실패하거나 도중에 닫혀도 이 창이 바꾼 상태만 복원한다.
+	bMouseCursorBeforeLore = bShowMouseCursor;
+	bHasLoreInputState = true;
+	bPausedByLore = SetPause(true);
+	if (!bPausedByLore || !IsPaused() || !IsSameLoreRequest())
 	{
-		// 실패하거나 도중에 닫혀도 이 창이 바꾼 상태만 복원한다.
-		bMouseCursorBeforeLore = bShowMouseCursor;
-		bHasLoreInputState = true;
-		bPausedByLore = SetPause(true);
-		bOpened = bPausedByLore && IsPaused() && IsOpeningLoreValid();
+		return false;
 	}
 
-	if (bOpened)
-	{
-		// 상호작용 키를 포함해 누른 채로 남은 능력 입력을 정리한다.
-		FlushPressedKeys();
-		bOpened = IsOpeningLoreValid();
-	}
+	// 능력 취소 콜백에서 요청이 취소됐다면 UI 입력으로 전환하지 않는다.
+	FlushPressedKeys();
+	if (!IsSameLoreRequest()) return false;
 
-	if (bOpened)
-	{
-		bShowMouseCursor = true;
-		FInputModeUIOnly InputMode;
-		InputMode.SetWidgetToFocus(NewWidget->TakeWidget());
-		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		SetInputMode(InputMode);
-		bOpened = IsOpeningLoreValid();
-	}
-
-	if (!bOpened)
-	{
-		// 생성 도중 취소된 화면을 제거하고 이미 변경한 상태를 되돌린다.
-		ActiveLoreWidget = nullptr;
-		ActiveLoreInteraction.Reset();
-		if (IsValid(NewWidget.Get()))
-		{
-			NewWidget->ClearLore();
-			NewWidget->RemoveFromParent();
-		}
-		RestoreLoreInput();
-	}
-
-	return bOpened;
+	// 입력 전환을 마친 뒤에도 같은 창이 남아 있어야 열기에 성공한 것이다.
+	bShowMouseCursor = true;
+	FInputModeUIOnly InputMode;
+	InputMode.SetWidgetToFocus(NewWidget->TakeWidget());
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	SetInputMode(InputMode);
+	return IsSameLoreRequest();
 }
 
 // 현재 창에서 발생한 닫기 요청만 받아 세션을 정리한다.
@@ -470,16 +470,28 @@ void ALMPlayerController::CloseLoreFor(ULMInteractionComponent* LoreInteraction)
 	ReleaseLoreWidget();
 }
 
-// 로어 화면과 대상 참조를 해제하고 입력 및 일시정지를 복원한다.
+// 현재 로어 창을 닫되 열기 도중에는 실제 제거를 미룬다.
 void ALMPlayerController::ReleaseLoreWidget()
 {
-	// 생성 중이면 요청 취소만 기록하고 OpenLoreWidget의 실패 정리에 맡긴다.
-	ActiveLoreInteraction.Reset();
-	if (bIsChangingLoreWidget) return;
+	if (bIsChangingLoreWidget)
+	{
+		// 생성 중에는 같은 요청이 아니라는 표시만 남기고 열기 실패 경로에 정리를 맡긴다.
+		ActiveLoreInteraction.Reset();
+		return;
+	}
 
 	TGuardValue<bool> ChangingGuard(bIsChangingLoreWidget, true);
+	ClearLoreWidget();
+}
+
+// 화면과 대상 참조를 해제하고 이 창이 바꾼 입력과 일시정지를 복원한다.
+void ALMPlayerController::ClearLoreWidget()
+{
 	TStrongObjectPtr<ULMLoreWidget> ClosingWidget(ActiveLoreWidget.Get());
+
+	// 위젯 제거 콜백이 다시 닫기를 요청해도 같은 창을 두 번 정리하지 않는다.
 	ActiveLoreWidget = nullptr;
+	ActiveLoreInteraction.Reset();
 	if (IsValid(ClosingWidget.Get()))
 	{
 		ClosingWidget->ClearLore();

@@ -248,8 +248,14 @@ private:
 	// 저장한 커서 상태와 게임 입력을 복원하고, 필요한 경우 일시정지를 해제한다.
 	void RestoreHackingInput();
 
-	// 현재 로어 창의 참조를 먼저 비운 뒤 화면과 입력 상태를 정리한다.
+	// 로어 창을 등록하고 같은 요청이 유효한 동안에만 입력 전환을 진행한다.
+	bool TryOpenLoreWidget(ULMInteractionComponent* LoreInteraction, ULMLoreData* LoreData);
+
+	// 현재 로어 창을 닫는다. 열기 도중이면 요청만 취소한다.
 	void ReleaseLoreWidget();
+
+	// 열기 실패와 정상 닫기에서 화면을 제거하고 게임 입력 상태를 복원한다.
+	void ClearLoreWidget();
 
 	// 로어 창에서 확보한 커서·입력·일시정지만 복원한다.
 	void RestoreLoreInput();

@@ -1,6 +1,7 @@
 #include "LMUI/LMLoreWidget.h"
 
 #include "Animation/WidgetAnimation.h"
+#include "Animation/WidgetAnimationState.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/ScrollBox.h"
@@ -17,21 +18,33 @@ ULMLoreWidget::ULMLoreWidget(const FObjectInitializer& ObjectInitializer) : Supe
 	SetIsFocusable(true);
 }
 
-// 표시 전에 로어 원본을 보관한다.
-void ULMLoreWidget::InitializeLore(ULMLoreData* _LoreData)
+// 창을 표시하기 전에 필수 연결을 확인하고 로어 원본을 보관한다.
+bool ULMLoreWidget::InitializeLore(ULMLoreData* _LoreData)
 {
+	// 필수 위젯이나 원본이 빠진 경우 빈 창을 표시한 채 일시정지하지 않는다.
+	if (!IsValid(_LoreData) || !IsValid(WidgetTree) || !IsValid(TitleText) || !IsValid(CloseButton) || !IsValid(MessageScroll) || !IsValid(MessageList) || !IsValid(PreviewSender) || !IsValid(PreviewMessage))
+	{
+		return false;
+	}
+
 	LoreData = _LoreData;
+
+	// BP가 부모 이벤트를 호출하지 않아도 C++에서 닫기 연출의 종료를 받는다.
+	if (IsValid(Close) && !CloseDoneHandle.IsValid())
+		CloseDoneHandle = OnAnimationFinishedPlaying().AddUObject(this, &ThisClass::OnCloseAnimationFinished);
+
+	return true;
 }
 
-// 빈 창을 표시한 채 일시정지하지 않도록 필수 연결을 확인한다.
-bool ULMLoreWidget::HasLoreContent() const
-{
-	return IsValid(LoreData) && IsValid(TitleText) && IsValid(CloseButton) && IsValid(MessageScroll) && IsValid(MessageList) && IsValid(PreviewSender) && IsValid(PreviewMessage);
-}
-
-// 화면 제거로 인한 재진입 전에 로어 원본을 해제한다.
+// 화면 제거로 인한 재진입 전에 닫기 완료 연결과 로어 원본을 해제한다.
 void ULMLoreWidget::ClearLore()
 {
+	if (CloseDoneHandle.IsValid())
+	{
+		OnAnimationFinishedPlaying().Remove(CloseDoneHandle);
+		CloseDoneHandle.Reset();
+	}
+
 	LoreData = nullptr;
 	bIsClosingLore = false;
 }
@@ -88,13 +101,11 @@ void ULMLoreWidget::NativeDestruct()
 }
 
 // 닫기 애니메이션이 끝나면 창을 제거하고 게임을 재개한다.
-void ULMLoreWidget::OnAnimationFinished_Implementation(const UWidgetAnimation* Animation)
+void ULMLoreWidget::OnCloseAnimationFinished(FWidgetAnimationState& FinishedAnimation)
 {
-	Super::OnAnimationFinished_Implementation(Animation);
-
 	// 열기 등 다른 애니메이션의 종료는 닫기 완료로 취급하지 않는다.
-	if (Animation != Close || !bIsClosingLore) return;
-	FinishLoreClose();
+	if (bIsClosingLore && FinishedAnimation.GetAnimation() == Close)
+		FinishLoreClose();
 }
 
 // 창을 소유한 컨트롤러에 즉시 제거와 입력 복원을 요청한다.
@@ -124,11 +135,6 @@ FReply ULMLoreWidget::NativeOnPreviewKeyDown(const FGeometry& InGeometry, const 
 // 미리보기 글자 스타일을 복사해 DA의 대화를 작성 순서대로 표시한다.
 void ULMLoreWidget::BuildMessages()
 {
-	if (!WidgetTree || !HasLoreContent())
-	{
-		return;
-	}
-
 	// 미리보기 위젯을 제거하기 전에 디자이너에서 지정한 스타일을 복사한다.
 	const FSlateFontInfo SenderFont = PreviewSender->GetFont();
 	const FSlateColor SenderColor = PreviewSender->GetColorAndOpacity();
@@ -143,9 +149,7 @@ void ULMLoreWidget::BuildMessages()
 		UTextBlock* SenderText = WidgetTree->ConstructWidget<UTextBlock>();
 		UTextBlock* MessageText = WidgetTree->ConstructWidget<UTextBlock>();
 		if (!IsValid(SenderText) || !IsValid(MessageText))
-		{
 			continue;
-		}
 
 		SenderText->SetText(Line.Sender);
 		SenderText->SetFont(SenderFont);
