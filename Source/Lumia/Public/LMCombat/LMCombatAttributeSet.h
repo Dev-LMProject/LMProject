@@ -20,7 +20,7 @@ public:
 	/** 생성 시 체력과 임시 피해 속성의 기본값을 설정한다. */
 	ULMCombatAttributeSet();
 
-	/** GameplayEffect가 전달한 피해를 소비하고 실제 체력 감소량을 계산한다. */
+	// 원래 유효 피해를 소비하고 캐릭터별 보호와 실제 체력 감소 결과를 반영한다.
 	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
 
 	/** 현재 남아 있는 체력이다. */

@@ -16,6 +16,7 @@
 #include "LMComponent/LMTargetComponent.h"
 #include "LMPlayer/LMPlayerController.h"
 
+// 기존 후처리 카메라 보정을 등록한다.
 ALMPlayerCameraManager::ALMPlayerCameraManager()
 {
 	DefaultModifiers.AddUnique(ULMPostProcessCameraModifier::StaticClass());
@@ -33,9 +34,37 @@ ULMPostProcessCameraModifier* ALMPlayerCameraManager::GetPostProcessModifier() c
 	return nullptr;
 }
 
-bool ALMPlayerCameraManager::PlayCameraEffect(
-	ULevelSequence* Sequence, TSubclassOf<UCameraShakeBase> ShakeClass, float ShakeScale)
+// 기존 호출부는 바인딩을 지정하지 않은 같은 생성 경로를 사용한다.
+bool ALMPlayerCameraManager::PlayCameraEffect(ULevelSequence* Sequence, TSubclassOf<UCameraShakeBase> ShakeClass, float ShakeScale)
 {
+	return StartCameraEffect(Sequence, ShakeClass, ShakeScale, TMap<FName, AActor*>());
+}
+
+// 실제 주인공·적·방 액터를 시퀀스 역할에 배치한다.
+bool ALMPlayerCameraManager::PlayBoundSequence(ULevelSequence* Sequence, const TMap<FName, AActor*>& Bindings)
+{
+	if (!IsValid(Sequence)) return false;
+	return StartCameraEffect(Sequence, nullptr, 1.0f, Bindings);
+}
+
+// 호출자가 다른 장면의 재생기를 실수로 재개하지 않게 참조를 제공한다.
+ULevelSequencePlayer* ALMPlayerCameraManager::GetActiveSequencePlayer() const
+{
+	return ActiveSequencePlayer;
+}
+
+// 이전 장면 교체·바인딩·재생 순서를 하나의 경로로 유지한다.
+bool ALMPlayerCameraManager::StartCameraEffect(ULevelSequence* Sequence, TSubclassOf<UCameraShakeBase> ShakeClass, float ShakeScale, const TMap<FName, AActor*>& Bindings)
+{
+	if (bStartingSequence || bFinishingSequence || bEndingCamera)
+		return false;
+	TGuardValue<bool> StartGuard(bStartingSequence, true);
+	for (const TPair<FName, AActor*>& Binding : Bindings)
+	{
+		if (Binding.Key.IsNone() || !IsValid(Binding.Value) || Binding.Value->GetWorld() != GetWorld())
+			return false;
+	}
+
 	if (!IsValid(PCOwner) || !PCOwner->IsLocalController() || (!Sequence && !ShakeClass))
 	{
 		return false;
@@ -70,6 +99,8 @@ bool ALMPlayerCameraManager::PlayCameraEffect(
 	if (Sequence)
 	{
 		FMovieSceneSequencePlaybackSettings Settings;
+		// 자연 종료의 내부 Stop이 취소 알림을 먼저 보내지 않도록 완료 후 직접 정리한다.
+		Settings.bPauseAtEnd = true;
 		Settings.FinishCompletionStateOverride = EMovieSceneCompletionModeOverride::ForceRestoreState;
 
 		ALevelSequenceActor* SequenceActor = nullptr;
@@ -77,14 +108,25 @@ bool ALMPlayerCameraManager::PlayCameraEffect(
 		ActiveSequenceActor = SequenceActor;
 		if (!IsValid(ActiveSequencePlayer))
 		{
-			RestoreGameplayView();
+			FinishSequence(false, false);
 			return false;
+		}
+
+		// 누락된 역할은 무대에 잘못된 액터를 남기는 대신 시작 실패로 돌려준다.
+		for (const TPair<FName, AActor*>& Binding : Bindings)
+		{
+			if (SequenceActor->FindNamedBindings(Binding.Key).IsEmpty())
+			{
+				FinishSequence(false, false);
+				return false;
+			}
+			SequenceActor->SetBindingByTag(Binding.Key, TArray<AActor*>{Binding.Value}, false);
 		}
 
 		// 시퀀스의 Camera Cut도 이 매니저의 로컬 플레이어에게 적용한다.
 		SequenceActor->SetOwner(PCOwner);
-		ActiveSequencePlayer->OnFinished.AddDynamic(this, &ThisClass::RestoreGameplayView);
-		ActiveSequencePlayer->OnStop.AddDynamic(this, &ThisClass::RestoreGameplayView);
+		ActiveSequencePlayer->OnFinished.AddDynamic(this, &ThisClass::HandleSequenceFinished);
+		ActiveSequencePlayer->OnStop.AddDynamic(this, &ThisClass::HandleSequenceStopped);
 	}
 
 	if (ShakeClass)
@@ -110,18 +152,40 @@ bool ALMPlayerCameraManager::IsSequenceCameraActive() const
 	return IsValid(ActiveSequencePlayer);
 }
 
+// 명시적인 복귀는 시퀀스 성공으로 처리하지 않는다.
 void ALMPlayerCameraManager::RestoreGameplayView()
 {
+	FinishSequence(false);
+}
+
+// 끝 프레임 도달을 취소와 구분한다.
+void ALMPlayerCameraManager::HandleSequenceFinished()
+{
+	FinishSequence(true);
+}
+
+// 외부 중단도 같은 정리 경로를 거친다.
+void ALMPlayerCameraManager::HandleSequenceStopped()
+{
+	FinishSequence(false);
+}
+
+// 참조와 입력 시점을 복원한 뒤 다음 장면의 시작을 허용한다.
+void ALMPlayerCameraManager::FinishSequence(bool bFinished, bool bNotify)
+{
+	if (bFinishingSequence) return;
+	bFinishingSequence = true;
 	ULevelSequencePlayer* SequencePlayer = ActiveSequencePlayer;
 	ALevelSequenceActor* SequenceActor = ActiveSequenceActor;
+	ULevelSequence* ClosedSequence = IsValid(SequenceActor) ? SequenceActor->GetSequence() : nullptr;
 	ActiveSequencePlayer = nullptr;
 	ActiveSequenceActor = nullptr;
 
 	if (IsValid(SequencePlayer))
 	{
 		// Stop의 종료 알림이 정리 함수를 다시 호출하지 않도록 먼저 해제한다.
-		SequencePlayer->OnFinished.RemoveDynamic(this, &ThisClass::RestoreGameplayView);
-		SequencePlayer->OnStop.RemoveDynamic(this, &ThisClass::RestoreGameplayView);
+		SequencePlayer->OnFinished.RemoveDynamic(this, &ThisClass::HandleSequenceFinished);
+		SequencePlayer->OnStop.RemoveDynamic(this, &ThisClass::HandleSequenceStopped);
 		if (SequencePlayer->IsPlaying() || SequencePlayer->IsPaused())
 		{
 			SequencePlayer->Stop();
@@ -145,6 +209,9 @@ void ALMPlayerCameraManager::RestoreGameplayView()
 		APawn* CurrentPawn = PCOwner->GetPawn();
 		PCOwner->SetViewTarget(IsValid(CurrentPawn) ? static_cast<AActor*>(CurrentPawn) : PCOwner.Get());
 	}
+	bFinishingSequence = false;
+	if (bNotify && IsValid(ClosedSequence))
+		OnSequenceEnded.Broadcast(ClosedSequence, bFinished);
 }
 
 void ALMPlayerCameraManager::UpdateCamera(float DeltaTime)
@@ -160,8 +227,10 @@ void ALMPlayerCameraManager::UpdateCamera(float DeltaTime)
 	}
 }
 
+// 종료 알림에서 새 연출이 만들어지지 않게 먼저 막는다.
 void ALMPlayerCameraManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	bEndingCamera = true;
 	StopCameraEffect();
 	Super::EndPlay(EndPlayReason);
 	

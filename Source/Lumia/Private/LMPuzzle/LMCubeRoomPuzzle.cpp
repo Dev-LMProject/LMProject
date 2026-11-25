@@ -229,6 +229,10 @@ void ALMCubeRoomPuzzle::BeginPlay()
 {
     Super::BeginPlay();
 
+    // 정답이 확정될 때까지 두 다리의 메시를 숨긴다.
+    EntryBridge->SetHiddenInGame(true);
+    ExitBridge->SetHiddenInGame(true);
+
     USceneComponent* RoomRoot = IsValid(RoomToRotate) ? RoomToRotate->GetRootComponent() : nullptr;
 
     if (!RoomRoot || RoomToRotate == this || RoomRoot->GetAttachParent())
@@ -461,6 +465,10 @@ void ALMCubeRoomPuzzle::FinishMove(bool bFromTurn)
 
     if (bMatched)
     {
+        // 정답이 확정되면 두 다리를 함께 보여 준다.
+        EntryBridge->SetHiddenInGame(false);
+        ExitBridge->SetHiddenInGame(false);
+
         // 정답 연출 시간에만 기존 Tick을 유지해 문에 빛이 차오르는 화면을 갱신한다.
         SetActorTickEnabled(true);
 
@@ -585,7 +593,9 @@ void ALMCubeRoomPuzzle::ShowInside(bool bShow)
             bHide = FVector::DotProduct(Center - RoomPivot->GetComponentLocation(), PuzzleCamera->GetActorLocation() - Center) > 0.0;
         }
 
-        Wall->SetHiddenInGame(bHide);
+        // 벽의 숨김 상태가 바뀔 때 붙어 있는 조명 메시도 함께 갱신한다.
+        if (Wall->bHiddenInGame != bHide)
+            Wall->SetHiddenInGame(bHide, true);
     }
 }
 

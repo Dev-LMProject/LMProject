@@ -103,6 +103,9 @@ public:
     TObjectPtr<UAnimSequence> SelectedStart;
 
 protected:
+    // 기존 공격 사운드 알림이 재생되기 전에 철문의 생략 여부를 확인한다.
+    virtual bool HandleNotify(const FAnimNotifyEvent& AnimNotifyEvent) override;
+
     // AnimBP Class Defaults에서 게임용 정지 복사본 네 개를 지정한다.
     UPROPERTY(EditDefaultsOnly, Category = "LM|Assets|Stop")
     TObjectPtr<UAnimSequence> WalkStopLeft;

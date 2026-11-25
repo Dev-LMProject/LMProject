@@ -6,6 +6,8 @@
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMPlayerController.generated.h"
 
+class ULMQTEComponent;
+class UUserWidget;
 class ULMInputConfig;
 class ULMScanComponent;
 class UInputAction;
@@ -40,6 +42,23 @@ class LUMIA_API ALMPlayerController : public APlayerController
 public:
 	// 플레이어 카메라 매니저 클래스를 지정한다.
 	ALMPlayerController();
+
+	// 모든 장면이 같은 QTE 판정과 입력을 사용하도록 반환한다.
+	UFUNCTION(BlueprintPure, Category = "LM|QTE")
+	ULMQTEComponent* GetQTEComponent() const;
+
+	// 실제 입력 매핑에 연결된 키 이름을 안내에 사용한다.
+	UFUNCTION(BlueprintPure, Category = "LM|QTE")
+	FText GetQTEInputText(FGameplayTag InputTag) const;
+
+	// 다른 조작 화면과 충돌 없이 QTE를 시작할 수 있는지 확인한다.
+	bool CanStartQTE() const;
+
+	// 이 요청이 사용할 이동·시점 잠금과 드래그 입력을 확보한다.
+	bool BeginQTEInput(bool bDrag, UUserWidget* Widget);
+
+	// QTE가 확보했던 입력 상태만 복원한다.
+	void EndQTEInput();
 	
 	/** UI 전환 등으로 중단된 능력 입력을 취소한다. */
 	UFUNCTION(BlueprintCallable, Category="LM|Input")
@@ -162,6 +181,13 @@ protected:
 	virtual void PostProcessInput(const float DeltaTime, const bool bGamePaused) override;
 	
 private:
+	UPROPERTY(VisibleAnywhere, Category = "LM|QTE")
+	TObjectPtr<ULMQTEComponent> QTEComponent;
+
+	bool bHasQTEInputState = false;
+	bool bQTEChangedInputMode = false;
+	bool bMouseCursorBeforeQTE = false;
+
 	// HUD의 선택을 이전 상호작용 액터로 이동한다.
 	void SelectPreviousInteractionTarget();
 	// HUD의 선택을 다음 상호작용 액터로 이동한다.

@@ -23,6 +23,7 @@ public class Lumia : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"InputCore",
+			"Slate",
 			"EnhancedInput",
 			"LevelSequence",
 			"MovieScene",

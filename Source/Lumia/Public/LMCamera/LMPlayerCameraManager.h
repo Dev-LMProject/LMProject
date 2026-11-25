@@ -10,6 +10,9 @@ class ULevelSequence;
 class ULevelSequencePlayer;
 class ULMPostProcessCameraModifier;
 
+// 자연 종료와 중단을 구분하여 방 진행이 잘못 완료되지 않게 한다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FLMSequenceEndedDelegate, ULevelSequence*, Sequence, bool, bFinished);
+
 /** 로컬 플레이어의 카메라 연출과 기본 시점 복귀를 관리한다. */
 UCLASS()
 class LUMIA_API ALMPlayerCameraManager : public APlayerCameraManager
@@ -17,6 +20,7 @@ class LUMIA_API ALMPlayerCameraManager : public APlayerCameraManager
 	GENERATED_BODY()
 
 public:
+	// 기존 카메라 보정 기능을 등록한다.
 	ALMPlayerCameraManager();
 
 	ULMPostProcessCameraModifier* GetPostProcessModifier() const;
@@ -24,6 +28,18 @@ public:
 	/** 기존 연출을 교체한다. Sequence와 ShakeClass 중 사용할 애셋만 전달한다. */
 	UFUNCTION(BlueprintCallable, Category = "LM|Camera")
 	bool PlayCameraEffect(ULevelSequence* Sequence, TSubclassOf<UCameraShakeBase> ShakeClass, float ShakeScale = 1.0f);
+
+	// 장면 역할에 실제 액터를 연결한 뒤 첫 프레임부터 재생한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Camera")
+	bool PlayBoundSequence(ULevelSequence* Sequence, const TMap<FName, AActor*>& Bindings);
+
+	// QTE 시작을 보낸 실제 재생기를 비교하고 일시정지할 때 사용한다.
+	UFUNCTION(BlueprintPure, Category = "LM|Camera")
+	ULevelSequencePlayer* GetActiveSequencePlayer() const;
+
+	UPROPERTY(BlueprintAssignable, Category = "LM|Camera")
+	FLMSequenceEndedDelegate OnSequenceEnded;
+
 
 	/** 이 매니저가 재생한 연출을 중단하고 기본 시점으로 복귀한다. */
 	UFUNCTION(BlueprintCallable, Category = "LM|Camera")
@@ -47,6 +63,24 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
+	// 기존 카메라 효과와 액터 바인딩 연출의 공통 생성 경로다.
+	bool StartCameraEffect(ULevelSequence* Sequence, TSubclassOf<UCameraShakeBase> ShakeClass, float ShakeScale, const TMap<FName, AActor*>& Bindings);
+
+	// 자연 종료일 때만 성공 완료 알림을 보낸다.
+	UFUNCTION()
+	void HandleSequenceFinished();
+
+	// 외부 Stop은 완료와 구분하여 취소로 정리한다.
+	UFUNCTION()
+	void HandleSequenceStopped();
+
+	// 재생기와 카메라를 정리한 뒤 종료 사실을 알린다.
+	void FinishSequence(bool bFinished, bool bNotify = true);
+
+	bool bStartingSequence = false;
+	bool bFinishingSequence = false;
+	bool bEndingCamera = false;
+
 	/** 현재 시퀀스 연출을 위해 생성한 임시 액터. 종료 후 제거한다. */
 	UPROPERTY(Transient)
 	TObjectPtr<ALevelSequenceActor> ActiveSequenceActor;

@@ -1,4 +1,6 @@
 #include "LMPlayer/LMPlayerController.h"
+#include "LMQTE/LMQTEComponent.h"
+#include "Blueprint/UserWidget.h"
 
 #include "Engine/LocalPlayer.h"
 #include "Components/InputComponent.h"
@@ -30,9 +32,11 @@
 #include "Camera/CameraActor.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
+// 공통 카메라와 한 명의 플레이어가 사용할 QTE 판정을 준비한다.
 ALMPlayerController::ALMPlayerController()
 {
 	PlayerCameraManagerClass = ALMPlayerCameraManager::StaticClass();
+	QTEComponent = CreateDefaultSubobject<ULMQTEComponent>(TEXT("QTEComponent"));
 }
 
 void ALMPlayerController::BeginPlay()
@@ -101,6 +105,7 @@ void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	// 종료 중 새 포커스 갱신이 실행되지 않도록 먼저 막는다.
 	bIsEndingPlay = true;
+	QTEComponent->ResetInputState();
 	
 	// 액터의 Tick·타이머·벽 표시부터 정리하고 남은 화면도 제거한다.
 	if (ALMCubeRoomPuzzle* ClosingPuzzle = ActiveCubePuzzle.Get())
@@ -185,6 +190,10 @@ bool ALMPlayerController::IsHackingWidgetSource(const ULMHackingComponent* InSes
 // 다른 전용 화면과 겹치지 않게 해킹 창을 열고 입력을 전환한다.
 bool ALMPlayerController::OpenHackingWidget(ULMHackingComponent* InSession)
 {
+	// 시작·종료 중인 QTE도 입력 소유권을 넘기지 않는다.
+	if (QTEComponent->HasActiveQTE() || bHasQTEInputState)
+		return false;
+
 	// 큐브나 로어 화면이 입력을 소유하거나 전환 중이면 해킹 화면을 겹쳐 열지 않는다.
 	if (bChangingCubeView || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel || bIsChangingLoreWidget || ActiveLoreWidget || !ActiveLoreInteraction.IsExplicitlyNull())
 	{
@@ -374,6 +383,10 @@ void ALMPlayerController::RestoreHackingInput()
 // 로어 창을 표시하고 소유한 일시정지와 UI 입력으로 전환한다.
 bool ALMPlayerController::OpenLoreWidget(ULMInteractionComponent* LoreInteraction, ULMLoreData* LoreData)
 {
+	// 시작·종료 중인 QTE도 입력 소유권을 넘기지 않는다.
+	if (QTEComponent->HasActiveQTE() || bHasQTEInputState)
+		return false;
+
 	// 다른 화면이 입력이나 카메라를 소유한 상태에서는 새 창을 열지 않는다.
 	if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || IsPaused() || bIsChangingLoreWidget || ActiveLoreWidget || !ActiveLoreInteraction.IsExplicitlyNull() || bIsChangingHackingWidget || ActiveHackingWidget || !ActiveHackingSession.IsExplicitlyNull() || bChangingCubeView || ActiveCubePanel || !ActiveCubePuzzle.IsExplicitlyNull())
 	{
@@ -563,6 +576,11 @@ void ALMPlayerController::BindAbilityInputs()
 /** 입력 시작을 해당 입력 태그와 함께 ASC에 전달한다. */
 void ALMPlayerController::OnAbilityInputPressed(FGameplayTag InputTag)
 {
+	// 완료 콜백에서 다음 장면으로 넘어가도 같은 입력을 일반 공격에 재사용하지 않는다.
+	const bool bUsedByQTE = QTEComponent->HasActiveQTE();
+	QTEComponent->SubmitButtonPress(InputTag);
+	if (bUsedByQTE) return;
+
 	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
 	{
 		ASC->AbilityInputTagPressed(InputTag);
@@ -572,6 +590,11 @@ void ALMPlayerController::OnAbilityInputPressed(FGameplayTag InputTag)
 /** 정상적인 입력 해제를 ASC에 전달한다. */
 void ALMPlayerController::OnAbilityInputReleased(FGameplayTag InputTag)
 {
+	// 완료 콜백에서 다음 장면으로 넘어가도 같은 입력을 일반 공격에 재사용하지 않는다.
+	const bool bUsedByQTE = QTEComponent->HasActiveQTE();
+	QTEComponent->SubmitButtonRelease(InputTag);
+	if (bUsedByQTE) return;
+
 	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
 	{
 		ASC->AbilityInputTagReleased(InputTag);
@@ -581,6 +604,10 @@ void ALMPlayerController::OnAbilityInputReleased(FGameplayTag InputTag)
 /** 중단된 입력을 정상 해제와 구분하여 ASC에 전달한다. */
 void ALMPlayerController::OnAbilityInputCanceled(FGameplayTag InputTag)
 {
+	const bool bUsedByQTE = QTEComponent->HasActiveQTE();
+	QTEComponent->SubmitButtonRelease(InputTag);
+	if (bUsedByQTE) return;
+
 	if (ULMAbilitySystemComponent* ASC = GetLMAbilitySystemComponent())
 	{
 		ASC->AbilityInputTagCanceled(InputTag);
@@ -611,6 +638,7 @@ void ALMPlayerController::CancelAbilityInput()
 /** 키 초기화를 정상적인 버튼 해제로 해석하지 않도록 먼저 능력 입력을 취소한다. */
 void ALMPlayerController::FlushPressedKeys()
 {
+	QTEComponent->ResetInputState();
 	CancelAbilityInput();
 
 	Super::FlushPressedKeys();
@@ -657,7 +685,10 @@ bool ALMPlayerController::SetPause(bool bPause, FCanUnpause CanUnpauseDelegate)
 
 	// 일시정지 요청이 성공했을 때만 즉시 목록·선택·표식을 비운다.
 	if (bPause && bSucceeded)
+	{
+		QTEComponent->ResetInputState();
 		ClearFocus();
+	}
 
 	return bSucceeded;
 }
@@ -999,6 +1030,10 @@ bool ALMPlayerController::IsCubePuzzleActive(const ALMCubeRoomPuzzle* Puzzle) co
 // 해킹과 중복되지 않게 화면을 열고 프로젝트 입력을 정리한다.
 bool ALMPlayerController::OpenCubePuzzle(ALMCubeRoomPuzzle* Puzzle, ACameraActor* Camera)
 {
+	// 시작·종료 중인 QTE도 입력 소유권을 넘기지 않는다.
+	if (QTEComponent->HasActiveQTE() || bHasQTEInputState)
+		return false;
+
     if (!IsLocalPlayerController() || IsActorBeingDestroyed() || bIsEndingPlay || IsPaused() || bChangingCubeView || bIsChangingHackingWidget || bIsChangingLoreWidget || ActiveLoreWidget || !ActiveLoreInteraction.IsExplicitlyNull() || !ActiveCubePuzzle.IsExplicitlyNull() || ActiveCubePanel || !ActiveHackingSession.IsExplicitlyNull() || ActiveHackingWidget)
     {
         return false;
@@ -1178,4 +1213,75 @@ void ALMPlayerController::ReleaseCubeView()
 
     if (IsValid(ViewTarget))
         SetViewTargetWithBlend(ViewTarget, CubeBlendTime, VTBlend_Cubic);
+}
+
+// 다른 장면에서도 컨트롤러에 이미 있는 판정을 사용한다.
+ULMQTEComponent* ALMPlayerController::GetQTEComponent() const
+{
+	return QTEComponent;
+}
+
+// 하드코딩한 Q 대신 현재 매핑의 실제 키 표시명을 얻는다.
+FText ALMPlayerController::GetQTEInputText(FGameplayTag InputTag) const
+{
+	const ULocalPlayer* LocalPlayer = GetLocalPlayer();
+	const UEnhancedInputLocalPlayerSubsystem* InputSystem = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
+	if (!InputSystem || !InputConfig) return FText::GetEmpty();
+	for (const FLMAbilityInputBinding& Binding : InputConfig->AbilityInputs)
+	{
+		if (Binding.InputTag != InputTag || !Binding.InputAction) continue;
+		const TArray<FKey> Keys = InputSystem->QueryKeysMappedToAction(Binding.InputAction);
+		if (!Keys.IsEmpty()) return Keys[0].GetDisplayName();
+	}
+	return FText::GetEmpty();
+}
+
+// QTE는 시퀀스 안에서도 동작하지만 다른 조작 화면과는 함께 열지 않는다.
+bool ALMPlayerController::CanStartQTE() const
+{
+	const ALMPlayerCharacter* PlayerBody = Cast<ALMPlayerCharacter>(GetPawn());
+	return IsLocalPlayerController() && !IsActorBeingDestroyed() && !bIsEndingPlay && !IsPaused() && IsValid(PlayerBody) && PlayerBody->IsAliveForCombat()
+		&& !bIsChangingHackingWidget && !bHasHackingInputState && !ActiveHackingWidget && ActiveHackingSession.IsExplicitlyNull()
+		&& !bIsChangingLoreWidget && !bHasLoreInputState && !ActiveLoreWidget && ActiveLoreInteraction.IsExplicitlyNull()
+		&& !bChangingCubeView && !bHasCubeInput && !ActiveCubePanel && ActiveCubePuzzle.IsExplicitlyNull();
+}
+
+// 월드를 멈추지 않고 QTE가 필요한 입력만 확보한다.
+bool ALMPlayerController::BeginQTEInput(bool bDrag, UUserWidget* Widget)
+{
+	if (!CanStartQTE() || bHasQTEInputState || !IsValid(Widget) || Widget->GetOwningPlayer() != this)
+		return false;
+
+	bHasQTEInputState = true;
+	bMouseCursorBeforeQTE = bShowMouseCursor;
+	bQTEChangedInputMode = bDrag;
+	// FlushPressedKeys는 새 QTE도 취소하므로 기존 능력 큐만 비운다.
+	CancelAbilityInput();
+	SetIgnoreMoveInput(true);
+	SetIgnoreLookInput(true);
+	if (bDrag)
+	{
+		bShowMouseCursor = true;
+		FInputModeGameAndUI InputMode;
+		// 포인터만 받아 기존 뷰포트의 키 초기화가 새 QTE를 취소하지 않게 한다.
+		InputMode.SetHideCursorDuringCapture(false);
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+	}
+	return true;
+}
+
+// 연출 BP가 따로 확보한 잠금은 남기고 QTE 몫만 해제한다.
+void ALMPlayerController::EndQTEInput()
+{
+	if (!bHasQTEInputState) return;
+	const bool bRestoreGameInput = bQTEChangedInputMode;
+	bHasQTEInputState = false;
+	bQTEChangedInputMode = false;
+	SetIgnoreMoveInput(false);
+	SetIgnoreLookInput(false);
+	bShowMouseCursor = bMouseCursorBeforeQTE;
+	if (bRestoreGameInput)
+		SetInputMode(FInputModeGameOnly());
+	CancelAbilityInput();
 }

@@ -2,6 +2,7 @@
 
 #include "GameFramework/Actor.h"
 #include "GameplayEffectExtension.h"
+#include "LMCharacter/LMBaseCharacter.h"
 
 /** 새로 생성되는 전투 속성의 기본 체력과 임시 피해량을 설정한다. */
 ULMCombatAttributeSet::ULMCombatAttributeSet()
@@ -48,12 +49,22 @@ void ULMCombatAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCa
 		return;
 	}
 
-	// 남은 HP보다 큰 피해를 받아도 체력이 음수가 되지 않도록 제한한다.
-	const float NewHealth = FMath::Clamp(OldHealth - RequestedDamage, 0.0f, MaximumHealth);
+	// HP 변경 전에 캐릭터의 1회 보호와 시연 규칙을 확정한다.
+	ALMBaseCharacter* DamageReceiver = Cast<ALMBaseCharacter>(Data.Target.GetAvatarActor());
+	const float FinalDamage = DamageReceiver ? DamageReceiver->ChangeIncomingDamage(Data.EffectSpec, RequestedDamage, OldHealth, MaximumHealth) : RequestedDamage;
+	if (!ensureMsgf(FMath::IsFinite(FinalDamage) && FinalDamage >= 0.0f, TEXT("%s: Invalid final combat damage."), *GetNameSafe(DamageReceiver)))
+	{
+		return;
+	}
+
+	const float NewHealth = FMath::Clamp(OldHealth - FinalDamage, 0.0f, MaximumHealth);
 	const float ActualDamage = OldHealth - NewHealth;
 
 	if (ActualDamage <= 0.0f)
 	{
+		// 원래 유효피해가 있었다면 보호 후 감소가 0이어도 각성 예약을 완료한다.
+		if (IsValid(DamageReceiver))
+			DamageReceiver->FinishCombatDamage();
 		return;
 	}
 
@@ -65,4 +76,8 @@ void ULMCombatAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCa
 
 	// HP 변경을 완료한 피해만 알린다. UI는 별도의 GAS 속성 변경 알림을 사용한다.
 	OnDamageApplied.Broadcast(ActualDamage, bHealthDepleted);
+
+	// HP 및 기존 사망 수신자가 모두 끝난 뒤 캐릭터가 다음 틱 반응을 예약한다.
+	if (IsValid(DamageReceiver) && !DamageReceiver->IsActorBeingDestroyed())
+		DamageReceiver->FinishCombatDamage();
 }

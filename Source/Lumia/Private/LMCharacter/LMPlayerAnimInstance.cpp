@@ -1,11 +1,35 @@
 #include "LMCharacter/LMPlayerAnimInstance.h"
 
 #include "LMCharacter/LMPlayerCharacter.h"
+#include "AbilitySystemComponent.h"
 #include "AnimCharacterMovementLibrary.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimNotifies/AnimNotify_PlaySound.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimStateMachineTypes.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "LMCombat/LMAttackAbility.h"
+#include "LMCombat/LMBreakableWall.h"
+
+// 공격 GA가 재생 중인 몽타주의 PlaySound만 철문 판정에 보내고 다른 알림은 원래대로 처리한다.
+bool ULMPlayerAnimInstance::HandleNotify(const FAnimNotifyEvent& AnimNotifyEvent)
+{
+    if (Super::HandleNotify(AnimNotifyEvent)) return true;
+    const UAnimNotify_PlaySound* AttackSound = Cast<UAnimNotify_PlaySound>(AnimNotifyEvent.Notify);
+    if (!AttackSound) return false;
+
+    const ALMPlayerCharacter* SoundPlayer = Cast<ALMPlayerCharacter>(TryGetPawnOwner());
+    const UAbilitySystemComponent* SoundASC = IsValid(SoundPlayer) ? SoundPlayer->GetAbilitySystemComponent() : nullptr;
+    const UAnimMontage* SourceMontage = Cast<UAnimMontage>(AttackSound->GetOuter());
+
+    // 이동음이나 다른 연출의 소리가 공격 중에 겹쳐도 함께 생략하지 않는다.
+    if (!IsValid(SoundASC) || !SourceMontage || SoundASC->GetCurrentMontage() != SourceMontage || !Cast<ULMAttackAbility>(SoundASC->GetAnimatingAbility()))
+        return false;
+
+    // true이면 엔진이 이 알림의 PlaySound 호출을 건너뛴다. 피격음은 철문의 실제 피격 이벤트가 맡는다.
+    return ALMBreakableWall::ShouldSkipAttackSound(SoundPlayer);
+}
 
 /** 현재 Pawn을 기준으로 애니메이션 상태를 초기화한다. */
 void ULMPlayerAnimInstance::NativeInitializeAnimation()

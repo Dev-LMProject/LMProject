@@ -30,4 +30,7 @@ public:
 
 	// 검과 착지가 같은 기준으로 실제 맞은 부품을 검사한다.
 	static bool IsHitBody(const AActor* HitActor, const UPrimitiveComponent* HitBody, ECollisionChannel HitChannel);
+
+	// 전방 구체 조회에서 첫 장애물인 파괴 물체를 찾는다. 거리와 반경은 cm이며 앞에 캐릭터가 있으면 반환하지 않는다.
+	static AActor* FindHitActorAhead(const AActor* SourceActor, float CheckDistance, float CheckRadius, ECollisionChannel HitChannel);
 };

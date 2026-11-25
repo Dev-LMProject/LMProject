@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "LMCharacter/LMBaseCharacter.h"
+#include "Engine/TimerHandle.h"
 #include "LMPlayerCharacter.generated.h"
 
 class ULMScanComponent;
@@ -11,6 +12,10 @@ class UInputAction;
 class UAnimInstance;
 class UAnimMontage;
 class UMotionWarpingComponent;
+class ALMFieldMonsterCharacter;
+
+// 지정 엘리트의 유효피해와 HP 보호를 마친 다음 틱에 각성 연출을 요청한다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMOnAwakeningStarted);
 
 struct FAnimMontageInstance;
 class ULMInteractorComponent;
@@ -54,6 +59,24 @@ class LUMIA_API ALMPlayerCharacter : public ALMBaseCharacter
     GENERATED_BODY()
 
 public:
+    // 현재 엘리트 전투 한 번의 각성을 감지하며 같은 요청은 상태를 초기화하지 않는다.
+    UFUNCTION(BlueprintCallable, Category = "LM|Awakening")
+    bool WatchAwakening(ALMFieldMonsterCharacter* _AwakeningMob);
+
+    // 감지와 예약 알림을 취소하고 각성 중의 추가 피해 보호를 해제한다.
+    UFUNCTION(BlueprintCallable, Category = "LM|Awakening")
+    void StopAwakeningWatch();
+
+    // HP가 확정된 다음 틱에 구역 BP가 연출을 시작하도록 알린다.
+    UPROPERTY(BlueprintAssignable, Category = "LM|Awakening")
+    FLMOnAwakeningStarted OnAwakeningStarted;
+
+    // 지정 엘리트의 유효피해만 각성 조건으로 사용하고 치명 피해를 먼저 막는다.
+    virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth) override;
+
+    // 실제 감소가 없는 보호도 포함해 피해 계산 이후 각성 알림을 한 번 예약한다.
+    virtual void FinishCombatDamage() override;
+
     /** 
      * 캡슐·이동 기본값·카메라 컴포넌트를 구성한다. 
      * 기본 이동 컴포넌트를 평타 접근을 지원하는 클래스로 구성한다.
@@ -217,6 +240,15 @@ protected:
     virtual bool ExecutePreparedJump();
 
 private:
+    // 유효한 감지 소유자가 남아 있을 때 예약된 각성 알림을 한 번 전달한다.
+    void SendAwakeningStarted();
+
+    TWeakObjectPtr<ALMFieldMonsterCharacter> AwakeningMob;
+    FTimerHandle AwakeningTimer;
+    bool bWatchingAwakening = false;
+    bool bAwakeningStarted = false;
+    bool bAwakeningPending = false;
+
     /** 입력 크기를 제한하고 카메라의 수평 축으로 이동을 요청한다. */
     void Move(const FInputActionValue& Value);
 
