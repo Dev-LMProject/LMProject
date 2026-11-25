@@ -38,6 +38,7 @@ ALMFieldMonsterCharacter::ALMFieldMonsterCharacter()
 
     HealthWidgetComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthWidgetComponent"));
     HealthWidgetComponent->SetupAttachment(GetRootComponent());
+    HealthWidgetComponent->SetVisibility(false);
 
     // shortcut: 화면 공간 HP바는 벽에 가려지지 않는다. 최종 표시 정책에서 조정한다.
     HealthWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
@@ -77,6 +78,7 @@ void ALMFieldMonsterCharacter::UnregisterCombatArea(ALMCombatArea* _CombatArea)
     // 영역 종료도 일반 대상 해제와 동일한 복귀 규칙을 사용한다.
     SetTargetPlayer(_CombatArea, nullptr);
     CombatArea = nullptr;
+    SetHealthVisible(false);
 }
 void ALMFieldMonsterCharacter::UpdateCombatFocus()
 {
@@ -179,13 +181,23 @@ void ALMFieldMonsterCharacter::HandleHealthChanged(const FOnAttributeChangeData&
     RefreshHealthWidget();
 }
 
-/** 실제 AttributeSet 값을 표시 전용 위젯에 전달한다. */
+// 영역의 표시 요청을 보관하여 이후 체력 변경에도 같은 표시 정책을 유지한다.
+void ALMFieldMonsterCharacter::SetHealthVisible(bool _bShowHealth)
+{
+    bShowHealth = _bShowHealth;
+    RefreshHealthWidget();
+}
+
+// 현재 수치와 생존 상태를 함께 반영하여 사망한 몬스터의 체력바를 숨긴다.
 void ALMFieldMonsterCharacter::RefreshHealthWidget()
 {
     if (bEndingPlay || !IsValid(CombatAttributes.Get()) || !IsValid(HealthWidgetComponent.Get()))
     {
         return;
     }
+
+    // 사망 태그보다 체력 변경 알림이 먼저 와도 0 HP 프레임부터 숨긴다.
+    HealthWidgetComponent->SetVisibility(bShowHealth && CombatAttributes->GetHealth() > 0.0f);
 
     if (ULMMonsterHealthWidget* Widget = Cast<ULMMonsterHealthWidget>(HealthWidgetComponent->GetUserWidgetObject()))
     {
