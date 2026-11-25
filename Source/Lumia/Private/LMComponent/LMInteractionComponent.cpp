@@ -336,10 +336,16 @@ FLMInteractionResult ULMInteractionComponent::RequestInteraction(AActor* Request
 	{
 		APawn* RequestPawn = Cast<APawn>(RequestActor);
 		ALMPlayerController* OpeningController = IsValid(RequestPawn) ? Cast<ALMPlayerController>(RequestPawn->GetController()) : nullptr;
-		LoreController = OpeningController;
+		// 열기 도중 카드가 제거되어도 닫을 수 있게 하되, 기존 창의 참조는 유지한다.
+		const bool bAddedLoreLink = !LoreController.IsValid() && IsValid(OpeningController);
+		if (bAddedLoreLink)
+			LoreController = OpeningController;
+
 		if (!IsValid(OpeningController) || !OpeningController->OpenLoreWidget(this, LoreData))
 		{
-			LoreController.Reset();
+			// 실패한 요청이 새로 연결한 참조만 해제한다.
+			if (bAddedLoreLink)
+				LoreController.Reset();
 			R.bCanInteraction = false;
 			R.Failure = EInteractionFailure::ExecutionFailed;
 		}
