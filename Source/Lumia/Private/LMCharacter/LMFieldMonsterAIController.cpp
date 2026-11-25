@@ -2,14 +2,15 @@
 
 #include "Navigation/CrowdFollowingComponent.h"
 
-// 부모가 만든 CrowdFollowingComponent에 간격 보정을 적용한다.
-ALMFieldMonsterAIController::ALMFieldMonsterAIController(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+// 블루프린트에 지정한 간격 보정 값을 군중 이동에 적용한다.
+void ALMFieldMonsterAIController::PostInitializeComponents()
 {
+	Super::PostInitializeComponents();
+
 	UCrowdFollowingComponent* CrowdFollowing = Cast<UCrowdFollowingComponent>(GetPathFollowingComponent());
 	if (!CrowdFollowing) return;
 
-	// Crowd Manager에 등록되기 전에 간격 보정 값을 설정한다.
-	CrowdFollowing->SetCrowdSeparation(true, false);
-	CrowdFollowing->SetCrowdSeparationWeight(SeparationWeight, false);
+	// 이미 Crowd Manager에 등록된 경우에도 설정을 갱신한다.
+	CrowdFollowing->SetCrowdSeparation(true);
+	CrowdFollowing->SetCrowdSeparationWeight(SeparationWeight);
 }
