@@ -12,6 +12,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "LMCharacter/LMFieldMonsterCharacter.h"
@@ -21,6 +22,25 @@
 #include "LMInterface/LMBreakable.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "Templates/UnrealTemplate.h"
+
+namespace
+{
+    /** 본체를 먼저 확인하고 같은 포즈를 쓰는 메시에서 소켓 쌍을 찾는다. */
+    USkeletalMeshComponent* FindSocketMesh(const ALMBaseCharacter& Character, USkeletalMeshComponent& PoseMesh, FName StartSocket, FName EndSocket)
+    {
+        if (PoseMesh.DoesSocketExist(StartSocket) && PoseMesh.DoesSocketExist(EndSocket))
+            return &PoseMesh;
+
+        const TInlineComponentArray<USkeletalMeshComponent*> Meshes(&Character);
+        for (USkeletalMeshComponent* Mesh : Meshes)
+        {
+            if (IsValid(Mesh) && Mesh->LeaderPoseComponent.Get() == &PoseMesh && Mesh->DoesSocketExist(StartSocket) && Mesh->DoesSocketExist(EndSocket))
+                return Mesh;
+        }
+
+        return nullptr;
+    }
+}
 
 /** 입력만 보관하고 실제 검증과 이벤트 연결은 Activate에서 수행한다. */
 ULMAbilityTaskWeaponHitTrace* ULMAbilityTaskWeaponHitTrace::CreateWeaponHitTraceTask(UGameplayAbility* OwningAbility, UAnimMontage* InAttackMontage, ULMAttackData* InAttackData)
@@ -64,9 +84,17 @@ void ULMAbilityTaskWeaponHitTrace::Activate()
         // 해당 타격에 별도 데이터가 없으면 GA에 지정한 기본 데이터를 사용한다.
         ULMAttackData* WindowData = IsValid(WindowNotify->AttackDataOverride.Get()) ? WindowNotify->AttackDataOverride.Get() : AttackData.Get();
 
-        if (!IsValid(WindowData) || !FMath::IsFinite(WindowData->BaseDamage) || WindowData->BaseDamage < 0.0f || !FMath::IsFinite(WindowData->TraceRadius) || WindowData->TraceRadius <= 0.0f || WindowData->TraceChannel >= ECC_MAX || WindowData->TraceChannel == ECC_OverlapAll_Deprecated || WindowData->TraceStartSocket == WindowData->TraceEndSocket || !AttackerMesh->DoesSocketExist(WindowData->TraceStartSocket) || !AttackerMesh->DoesSocketExist(WindowData->TraceEndSocket))
+        if (!IsValid(WindowData) || !FMath::IsFinite(WindowData->BaseDamage) || WindowData->BaseDamage < 0.0f || !FMath::IsFinite(WindowData->TraceRadius) || WindowData->TraceRadius <= 0.0f || WindowData->TraceChannel >= ECC_MAX || WindowData->TraceChannel == ECC_OverlapAll_Deprecated || WindowData->TraceStartSocket == WindowData->TraceEndSocket)
         {
-            StopTraceWithWarning(TEXT("Check attack data, trace channel, positive radius and both blade sockets."));
+            StopTraceWithWarning(TEXT("Check attack data, trace channel, positive radius and distinct socket names."));
+            return;
+        }
+
+        // 두 소켓은 본체 포즈가 갱신될 때 함께 읽을 수 있는 한 메시에 있어야 한다.
+        USkeletalMeshComponent* SocketMesh = FindSocketMesh(*AttackerCharacter.Get(), *AttackerMesh.Get(), WindowData->TraceStartSocket, WindowData->TraceEndSocket);
+        if (!SocketMesh)
+        {
+            StopTraceWithWarning(TEXT("Both hit window sockets must exist on the body mesh or one of its pose followers."));
             return;
         }
 
@@ -111,6 +139,7 @@ void ULMAbilityTaskWeaponHitTrace::Activate()
         FLMWeaponHitWindowState& Window = HitWindows.AddDefaulted_GetRef();
         Window.Notify = WindowNotify;
         Window.AttackData = WindowData;
+        Window.SocketMesh = SocketMesh;
         Window.StartTime = StartTime;
         Window.EndTime = EndTime;
     }
@@ -283,15 +312,16 @@ void ULMAbilityTaskWeaponHitTrace::HandlePoseFinalized()
     for (FLMWeaponHitWindowState& Window : HitWindows)
     {
         const ULMAttackData* WindowData = Window.AttackData.Get();
+        const USkeletalMeshComponent* SocketMesh = Window.SocketMesh.Get();
 
-        if (!IsValid(WindowData))
+        if (!IsValid(WindowData) || !IsValid(SocketMesh))
         {
-            StopTraceWithWarning(TEXT("A hit window lost its attack data."));
+            StopTraceWithWarning(TEXT("A hit window lost its attack data or socket mesh."));
             return;
         }
 
-        const FVector BladeStart = AttackerMesh->GetSocketLocation(WindowData->TraceStartSocket);
-        const FVector BladeEnd = AttackerMesh->GetSocketLocation(WindowData->TraceEndSocket);
+        const FVector BladeStart = SocketMesh->GetSocketLocation(WindowData->TraceStartSocket);
+        const FVector BladeEnd = SocketMesh->GetSocketLocation(WindowData->TraceEndSocket);
 
         if (BladeStart.ContainsNaN() || BladeEnd.ContainsNaN())
         {

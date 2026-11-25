@@ -19,6 +19,7 @@ struct FLMWeaponHitWindowState
 {
     TWeakObjectPtr<ULMAnimNotifyStateAttackHitWindow> Notify;
     TWeakObjectPtr<ULMAttackData> AttackData;
+    TWeakObjectPtr<USkeletalMeshComponent> SocketMesh;
 
     float StartTime = 0.0f;
     float EndTime = 0.0f;
