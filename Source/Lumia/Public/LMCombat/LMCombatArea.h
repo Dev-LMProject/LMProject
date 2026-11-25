@@ -74,6 +74,9 @@ public:
 	// 실제 경로 이동과 같은 반경·높이 기준으로 도착 여부를 조회한다.
 	UFUNCTION(BlueprintPure, Category = "LM|CombatPlace")
 	bool IsAtPlace(ALMFieldMonsterCharacter* Monster, const FVector& Location) const;
+
+	// 공격권 없이 이동할 때 사용할 전투 구역의 도착 반경을 반환한다.
+	float GetMoveReach() const { return MoveReach; }
 	
 	// 준비 완료나 피격 회복 사건에서 현재 큐의 빈 공격 정원을 보충한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|CombatQueue")

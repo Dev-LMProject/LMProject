@@ -706,7 +706,7 @@ bool ALMCombatArea::FinishAttackTurn(ALMFieldMonsterCharacter* Monster, int64 _C
 		if (Entry && Entry->WaitId == AttackId && Entry->bWaitRequired)
 		{
 			Entry->RetreatStart = Monster->GetNavAgentLocation();
-			Entry->RetreatDistance = Monster->GetCapsuleComponent()->GetScaledCapsuleRadius() * 2.5f;
+			Entry->RetreatDistance = Monster->GetAttackRetreatDistance();
 		}
 	}
 
