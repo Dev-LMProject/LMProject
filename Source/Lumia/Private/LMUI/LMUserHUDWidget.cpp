@@ -11,6 +11,64 @@
 #include "LMCamera/LMTargetQueryLibrary.h"
 #include "LMComponent/LMTargetComponent.h"
 #include "LMUI/LMInteractionHUDWidget.h"
+#include "LMPlayer/LMPlayerState.h"
+#include "LMCombat/LMCombatAttributeSet.h"
+
+// BP의 기존 Construct가 끝난 뒤 표시값을 초기화한다.
+void ULMUserHUDWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+	if (APlayerController* OwnerController = GetOwningPlayer())
+		OwnerController->OnPossessedPawnChanged.AddUniqueDynamic(this, &ThisClass::HandleGaugePawnChanged);
+	BindSpecialGauge();
+}
+
+// 사라지는 HUD를 향한 콜백을 제거하고 기존 파괴 처리를 이어간다.
+void ULMUserHUDWidget::NativeDestruct()
+{
+	if (APlayerController* OwnerController = GetOwningPlayer())
+		OwnerController->OnPossessedPawnChanged.RemoveDynamic(this, &ThisClass::HandleGaugePawnChanged);
+	UnbindSpecialGauge();
+	Super::NativeDestruct();
+}
+
+// 한 HUD에 하나의 플레이어 상태 구독만 유지한다.
+void ULMUserHUDWidget::BindSpecialGauge()
+{
+	UnbindSpecialGauge();
+	const APlayerController* OwnerController = GetOwningPlayer();
+	ALMPlayerState* SpecialPlayer = OwnerController ? OwnerController->GetPlayerState<ALMPlayerState>() : nullptr;
+	GaugePlayerState = SpecialPlayer;
+	if (SpecialPlayer)
+		GaugeChangedHandle = SpecialPlayer->OnSpecialGaugeChanged.AddUObject(this, &ThisClass::RefreshSpecialGauge);
+	RefreshSpecialGauge();
+}
+
+// 변경한 게이지 구독만 제거하여 기존 HUD 기능에 영향을 주지 않는다.
+void ULMUserHUDWidget::UnbindSpecialGauge()
+{
+	if (ALMPlayerState* SpecialPlayer = GaugePlayerState.Get())
+		SpecialPlayer->OnSpecialGaugeChanged.Remove(GaugeChangedHandle);
+	GaugeChangedHandle.Reset();
+	GaugePlayerState.Reset();
+}
+
+// 생성 순서와 캐릭터 재소유에서 새 수치가 즉시 보이도록 연결한다.
+void ULMUserHUDWidget::HandleGaugePawnChanged(APawn* OldPawn, APawn* NewPawn)
+{
+	BindSpecialGauge();
+}
+
+// 게임 수치 판정은 PlayerState에 두고 UI에는 표시값만 전달한다.
+void ULMUserHUDWidget::RefreshSpecialGauge()
+{
+	const ALMPlayerState* SpecialPlayer = GaugePlayerState.Get();
+	const UAbilitySystemComponent* PlayerASC = SpecialPlayer ? SpecialPlayer->GetAbilitySystemComponent() : nullptr;
+	const ULMCombatAttributeSet* Attributes = PlayerASC ? PlayerASC->GetSet<ULMCombatAttributeSet>() : nullptr;
+	const float ChargeLimit = Attributes ? Attributes->GetMaxSpecialCharge() : 0.0f;
+	const float ChargeRatio = Attributes && ChargeLimit > 0.0f ? FMath::Clamp(Attributes->GetSpecialCharge() / ChargeLimit, 0.0f, 1.0f) : 0.0f;
+	UpdateSpecialGauge(SpecialPlayer && SpecialPlayer->ShouldShowSpecialGauge(), ChargeRatio, SpecialPlayer && SpecialPlayer->IsSpecialUnlocked(), SpecialPlayer && SpecialPlayer->HasFullSpecialCharge(), SpecialPlayer && SpecialPlayer->CanPrepareSpecialAttack());
+}
 
 // 기존 Controller가 상호작용 목록 위젯을 가져갈 수 있게 반환한다.
 ULMInteractionHUDWidget* ULMUserHUDWidget::GetInteractionHUD() const
