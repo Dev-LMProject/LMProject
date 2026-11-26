@@ -15,6 +15,10 @@ public:
 	/** 추가 계산 전의 기본 피해 입력이다. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage", meta = (ClampMin = "0.0"))
 	float BaseDamage = 10.0f;
+
+	// 실제 유효 피해가 발생한 타격의 검 게이지 보상이며 피해량과 독립적이다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Special", meta = (ClampMin = "0.0"))
+	float SpecialChargeGain = 0.0f;
 	
 	/** 플레이어 몸체 Mesh에 만든 검 시작점 소켓이다. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="LM|Trace")
