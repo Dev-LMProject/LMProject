@@ -257,11 +257,11 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
             DeadBrain->StopLogic(TEXT("Monster dead"));
     }
 
-    // 스몰 BP가 기존 사망 모션을 기다린 뒤 물리를 시작하도록 알린다.
+    // 각 몬스터 BP가 기존 사망 모션을 기다린 뒤 물리를 시작하도록 알린다.
     OnDeathStarted();
 }
 
-// 사망 모션이 끝난 스몰의 메시를 지형과만 충돌하는 레그돌로 한 번 전환한다.
+// 사망 연출이 끝난 몸체를 지형에 막히고 플레이어에게 밀리는 레그돌로 한 번 전환한다.
 void ALMFieldMonsterCharacter::StartDeathPhysics()
 {
     if (bDeathPhysicsStarted || !bIsDead || bSceneFight || bEndingPlay)
@@ -279,12 +279,17 @@ void ALMFieldMonsterCharacter::StartDeathPhysics()
     // 회전하는 큐브 방은 WorldDynamic이므로 고정 지형과 함께 물리 접촉을 남긴다.
     DeathMesh->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
     DeathMesh->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
-    DeathMesh->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+    // 플레이어 이동을 막지 않으면서 이동 컴포넌트가 접촉한 뼈에 힘을 전달하게 한다.
+    DeathMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+    DeathMesh->bMultiBodyOverlap = true;
+    DeathMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     DeathMesh->SetSimulatePhysics(true);
     // 바닥이 회전하거나 높은 곳에서 떨어질 때 얇은 지형을 관통할 가능성을 줄인다.
     DeathMesh->SetAllUseCCD(true);
     DeathMesh->SetAllBodiesPhysicsBlendWeight(1.0f);
     DeathMesh->WakeAllRigidBodies();
+    // 이미 겹친 플레이어도 물리 바디가 준비된 뒤 접촉 알림을 받게 한다.
+    DeathMesh->SetGenerateOverlapEvents(true);
 }
 
 // 패링 경직을 시작하고 피격 애니메이션 길이만큼 기다린 뒤 그로기로 전환한다.
