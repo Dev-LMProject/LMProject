@@ -18,6 +18,7 @@
 #include "LMCharacter/LMPlayerCharacter.h"
 #include "LMCombat/LMCombatArea.h"
 #include "AIController.h"
+#include "BrainComponent.h"
 #include "Abilities/GameplayAbilityTypes.h"
 #include "GameplayAbilitySpec.h"
 #include "LMCombat/LMAttackAbility.h"
@@ -213,10 +214,11 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
         return;
     }
 
+    // 공격 종료 콜백도 사망한 상태를 보도록 먼저 확정한다.
+    bIsDead = true;
     StopAttack();
 
-    // 피격 제한을 풀기 전에 사망 상태와 태그를 적용한다.
-    bIsDead = true;
+    // 피격 제한을 풀기 전에 사망 태그를 적용한다.
     UpdateCombatFocus();
     bOwnsDeadTag = true;
     AbilitySystemComponent->AddLooseGameplayTag(LMGameplayTags::State_Dead);
@@ -227,6 +229,62 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
     GetCharacterMovement()->DisableMovement();
     AbilitySystemComponent->ClearAbilityInput(this);
     AbilitySystemComponent->CancelAbilities();
+
+    // 사망 모션 중에도 캡슐과 몸체가 이동이나 공격 판정을 막지 않게 한다.
+    bCanBeAttackTarget = false;
+    bCanReceiveCombatDamage = false;
+    SetHealthVisible(false);
+    GetCapsuleComponent()->SetGenerateOverlapEvents(false);
+    GetCapsuleComponent()->SetCollisionResponseToAllChannels(ECR_Ignore);
+    GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    GetCapsuleComponent()->SetCanEverAffectNavigation(false);
+
+    if (USkeletalMeshComponent* DeathMesh = GetMesh())
+    {
+        DeathMesh->SetGenerateOverlapEvents(false);
+        DeathMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+        DeathMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        DeathMesh->SetCanEverAffectNavigation(false);
+        // 화면 밖에서도 사망 모션의 마지막 자세를 갱신한다.
+        DeathMesh->SetComponentTickEnabled(true);
+        DeathMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+    }
+
+    if (AAIController* DeadController = Cast<AAIController>(GetController()))
+    {
+        DeadController->StopMovement();
+        if (UBrainComponent* DeadBrain = DeadController->GetBrainComponent())
+            DeadBrain->StopLogic(TEXT("Monster dead"));
+    }
+
+    // 스몰 BP가 기존 사망 모션을 기다린 뒤 물리를 시작하도록 알린다.
+    OnDeathStarted();
+}
+
+// 사망 모션이 끝난 스몰의 메시를 지형과만 충돌하는 레그돌로 한 번 전환한다.
+void ALMFieldMonsterCharacter::StartDeathPhysics()
+{
+    if (bDeathPhysicsStarted || !bIsDead || bSceneFight || bEndingPlay)
+        return;
+
+    USkeletalMeshComponent* DeathMesh = GetMesh();
+    if (!IsValid(DeathMesh) || !DeathMesh->GetPhysicsAsset())
+        return;
+
+    // 반복 요청에도 이미 움직이는 시체의 상태를 다시 초기화하지 않는다.
+    bDeathPhysicsStarted = true;
+    DeathMesh->PhysicsTransformUpdateMode = EPhysicsTransformUpdateMode::SimulationUpatesComponentTransform;
+    DeathMesh->SetCollisionObjectType(ECC_PhysicsBody);
+    DeathMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+    // 회전하는 큐브 방은 WorldDynamic이므로 고정 지형과 함께 물리 접촉을 남긴다.
+    DeathMesh->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+    DeathMesh->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+    DeathMesh->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+    DeathMesh->SetSimulatePhysics(true);
+    // 바닥이 회전하거나 높은 곳에서 떨어질 때 얇은 지형을 관통할 가능성을 줄인다.
+    DeathMesh->SetAllUseCCD(true);
+    DeathMesh->SetAllBodiesPhysicsBlendWeight(1.0f);
+    DeathMesh->WakeAllRigidBodies();
 }
 
 // 패링 경직을 시작하고 피격 애니메이션 길이만큼 기다린 뒤 그로기로 전환한다.

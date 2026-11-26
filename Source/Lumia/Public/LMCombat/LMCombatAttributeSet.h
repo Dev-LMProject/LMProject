@@ -23,6 +23,33 @@ public:
 	// 원래 유효 피해를 소비하고 캐릭터별 보호와 실제 체력 감소 결과를 반영한다.
 	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
 
+	// 효과 적용과 직접 변경 모두에서 검 게이지의 현재값 범위를 지킨다.
+	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
+
+	// 기본값을 바꾸는 공통 충전·소비 경로에도 같은 범위를 적용한다.
+	virtual void PreAttributeBaseChange(const FGameplayAttribute& Attribute, float& NewValue) const override;
+
+	// 최대 충전량이 줄어들면 현재 충전량도 함께 줄인다.
+	virtual void PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue) override;
+
+	// 특수공격에 사용할 현재 충전량이며 수치의 유일한 원본이다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LM|Special")
+	FGameplayAttributeData SpecialCharge;
+
+	// 완충 및 첫 타격 소비의 기준이다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LM|Special")
+	FGameplayAttributeData MaxSpecialCharge;
+
+	// 검 게이지 속성의 조회·설정·초기화 접근자를 제공한다.
+	GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ULMCombatAttributeSet, SpecialCharge)
+	GAMEPLAYATTRIBUTE_VALUE_GETTER(SpecialCharge)
+	GAMEPLAYATTRIBUTE_VALUE_SETTER(SpecialCharge)
+	GAMEPLAYATTRIBUTE_VALUE_INITTER(SpecialCharge)
+	GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ULMCombatAttributeSet, MaxSpecialCharge)
+	GAMEPLAYATTRIBUTE_VALUE_GETTER(MaxSpecialCharge)
+	GAMEPLAYATTRIBUTE_VALUE_SETTER(MaxSpecialCharge)
+	GAMEPLAYATTRIBUTE_VALUE_INITTER(MaxSpecialCharge)
+
 	/** 현재 남아 있는 체력이다. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "LM|Combat")
 	FGameplayAttributeData Health;
@@ -55,4 +82,8 @@ public:
 	GAMEPLAYATTRIBUTE_VALUE_GETTER(IncomingDamage)
 	GAMEPLAYATTRIBUTE_VALUE_SETTER(IncomingDamage)
 	GAMEPLAYATTRIBUTE_VALUE_INITTER(IncomingDamage)
+
+private:
+	// 음수·비정상 수치가 UI와 소비 판정으로 전달되지 않도록 제한한다.
+	void ClampSpecialCharge(const FGameplayAttribute& Attribute, float& NewValue) const;
 };

@@ -24,6 +24,7 @@
 #include "LMCombat/LMAttackData.h"
 #include "LMCharacter/LMPlayerMeleeMovementComponent.h"
 #include "LMPlayer/LMPlayerController.h"
+#include "LMPlayer/LMPlayerState.h"
 #include "LMInterface/LMBreakable.h"
 
 /** 공격 능력의 공통 실행 정책과 상태 태그를 설정한다. */
@@ -227,6 +228,8 @@ bool ULMAttackAbility::TryParryHit()
 
 	// 다음 타격이 들어오기 전에 이번 창의 사용을 확정한다.
 	bParryWindowUsed = true;
+	if (ALMPlayerState* ParryPlayer = Cast<ALMPlayerState>(ParryASC->GetOwnerActor()))
+		ParryPlayer->AddParryCharge();
 	return true;
 }
 
@@ -268,6 +271,7 @@ void ULMAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const
 
 	// 실제 종료가 지연돼도 이 실행의 패링 창은 바로 닫는다.
 	ResetParryState();
+	SetSpecialPrepareWindow(false);
 
 	if (ScopeLockCount > 0)
 	{
@@ -303,6 +307,8 @@ void ULMAttackAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 {
 	// 같은 인스턴스를 재사용하므로 새 실행 번호와 착지 피해 기록을 먼저 준비한다.
 	++LandingDamageRun;
+	bSpecialChargeSpent = false;
+	SetSpecialPrepareWindow(false);
 	bLandingDamageApplied = false;
 	PassReturnTarget.Reset();
 
@@ -414,14 +420,47 @@ void ULMAttackAbility::StopWeaponHitTrace()
 /** 섹션을 건너뛸 때 실제로 재생하지 않은 공간에 검 궤적이 생기지 않도록 처리한다. */
 void ULMAttackAbility::JumpAttackMontageSection(FName SectionName)
 {
+	TryJumpAttackSection(SectionName, false);
+}
+
+// 첫 특수타격에만 사용하며 2타와 준비·취소는 기존 섹션 이동을 유지한다.
+bool ULMAttackAbility::TryStartSpecialAttack(FName SectionName)
+{
+	if (bSpecialChargeSpent) return false;
+	return TryJumpAttackSection(SectionName, true);
+}
+
+// 기존 PlayerState 자원을 직접 읽어 BP에 중복 수치를 만들지 않는다.
+bool ULMAttackAbility::HasFullSpecialCharge() const
+{
+	const UAbilitySystemComponent* PlayerASC = GetAbilitySystemComponentFromActorInfo();
+	const ALMPlayerState* SpecialPlayer = PlayerASC ? Cast<ALMPlayerState>(PlayerASC->GetOwnerActor()) : nullptr;
+	return SpecialPlayer && SpecialPlayer->HasFullSpecialCharge();
+}
+
+// 입력 창 소유자를 함께 전달하여 종료된 공격의 늦은 알림을 구별한다.
+void ULMAttackAbility::SetSpecialPrepareWindow(bool bOpen)
+{
+	const UAbilitySystemComponent* PlayerASC = GetAbilitySystemComponentFromActorInfo();
+	if (ALMPlayerState* SpecialPlayer = PlayerASC ? Cast<ALMPlayerState>(PlayerASC->GetOwnerActor()) : nullptr)
+		SpecialPlayer->SetSpecialPrepareWindow(this, bOpen);
+}
+
+// 전환 실패 시 과금하지 않고 실제 첫 타격 시작에서만 게이지를 소비한다.
+bool ULMAttackAbility::TryJumpAttackSection(FName SectionName, bool bSpendSpecialCharge)
+{
 	UAbilitySystemComponent* AttackerASC = GetAbilitySystemComponentFromActorInfo();
 	UAnimMontage* Montage = GetCurrentMontage();
 
 	// 다른 능력이 재생 중인 몽타주나 존재하지 않는 섹션에는 영향을 주지 않는다.
-	if (!IsActive() || !IsValid(AttackerASC) || AttackerASC->GetAnimatingAbility() != this || !IsValid(Montage) || Montage->GetSectionIndex(SectionName) == INDEX_NONE)
+	if (!IsActive() || bIsAbilityEnding || !IsValid(AttackerASC) || AttackerASC->GetAnimatingAbility() != this || !IsValid(Montage) || Montage->GetSectionIndex(SectionName) == INDEX_NONE)
 	{
-		return;
+		return false;
 	}
+	ALMPlayerState* SpecialPlayer = Cast<ALMPlayerState>(AttackerASC->GetOwnerActor());
+	if (bSpendSpecialCharge && (!SpecialPlayer || !SpecialPlayer->HasFullSpecialCharge()))
+		return false;
+	const uint32 AttackRun = LandingDamageRun;
 
 	// 점프 후 발생할 Notify가 새 타격 기록을 시작할 수 있도록 이전 상태를 먼저 비운다.
 	if (IsValid(WeaponHitTraceTask.Get()))
@@ -433,12 +472,27 @@ void ULMAttackAbility::JumpAttackMontageSection(FName SectionName)
 	if (!PrepareAttackMovement(Montage, SectionName))
 	{
 		HandleAttackMontageAborted();
-		return;
+		return false;
 	}
 
-	// 이동 준비 콜백을 마친 뒤 섹션이 실제로 바뀌기 직전에 이전 창을 닫는다.
+	// 이동 준비 중 취소·재시작된 실행은 이전 요청의 소비나 섹션 이동을 이어가지 않는다.
+	if (!IsActive() || bIsAbilityEnding || LandingDamageRun != AttackRun || AttackerASC->GetAnimatingAbility() != this || GetCurrentMontage() != Montage)
+		return false;
+	if (bSpendSpecialCharge)
+	{
+		// 이미 끝난 재생을 되살리거나 이동 준비 중 바뀐 자원으로 시작하지 않는다.
+		const UAnimInstance* PlayingAnim = CurrentActorInfo ? CurrentActorInfo->GetAnimInstance() : nullptr;
+		const FAnimMontageInstance* PlayingInstance = PlayingAnim ? PlayingAnim->GetActiveInstanceForMontage(Montage) : nullptr;
+		if (!PlayingInstance || PlayingInstance->IsStopped() || !SpecialPlayer->HasFullSpecialCharge())
+			return false;
+		bSpecialChargeSpent = true;
+	}
+
+	/* UE 5.8의 섹션 이동 알림은 큐에 들어간다. 첫 타격 위치를 먼저 확정하고
+	   같은 호출에서 소비하여 HUD 콜백의 취소가 시작 전 과금으로 바뀌지 않게 한다. */
 	OpenParryWindow.Reset();
 	MontageJumpToSection(SectionName);
+	return !bSpendSpecialCharge || SpecialPlayer->TrySpendSpecialCharge();
 }
 
 // 현재 포커스를 한 번 읽어 공격 종류에 맞는 이동과 공통 공격 대상을 준비한다.

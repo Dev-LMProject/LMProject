@@ -30,6 +30,10 @@ public:
 	/** 추가 계산 전의 기본 피해 입력이다. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage", meta = (ClampMin = "0.0"))
 	float BaseDamage = 10.0f;
+
+	// 실제 유효 피해가 발생한 타격의 검 게이지 보상이며 피해량과 독립적이다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Special", meta = (ClampMin = "0.0"))
+	float SpecialChargeGain = 0.0f;
 	
 	// 한 타격창에서 검사할 시작점과 끝점의 목록이다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Trace", meta = (TitleProperty = "EndSocket", ToolTip = "비워 두면 기존에 저장된 시작·끝 소켓을 사용합니다. 새 DA의 기본 소켓은 LMTraceStart와 LMTraceEnd입니다. 에셋을 로드하면 사용되는 쌍이 첫 줄에 표시됩니다."))
