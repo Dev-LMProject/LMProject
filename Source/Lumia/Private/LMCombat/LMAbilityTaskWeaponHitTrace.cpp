@@ -25,16 +25,28 @@
 
 namespace
 {
-    /** 본체를 먼저 확인하고 같은 포즈를 쓰는 메시에서 소켓 쌍을 찾는다. */
-    USkeletalMeshComponent* FindSocketMesh(const ALMBaseCharacter& Character, USkeletalMeshComponent& PoseMesh, FName StartSocket, FName EndSocket)
+    // 타격창의 모든 소켓 쌍을 한 메시에서 읽을 수 있는지 확인한다.
+    bool HasSocketPairs(const USkeletalMeshComponent& Mesh, TConstArrayView<FLMTraceSocketPair> SocketPairs)
     {
-        if (PoseMesh.DoesSocketExist(StartSocket) && PoseMesh.DoesSocketExist(EndSocket))
+        for (const FLMTraceSocketPair& Pair : SocketPairs)
+        {
+            if (Pair.StartSocket == Pair.EndSocket || !Mesh.DoesSocketExist(Pair.StartSocket) || !Mesh.DoesSocketExist(Pair.EndSocket))
+                return false;
+        }
+
+        return true;
+    }
+
+    // 본체를 먼저 확인하고 같은 포즈를 따르는 무기 메시에서 소켓을 찾는다.
+    USkeletalMeshComponent* FindSocketMesh(const ALMBaseCharacter& Character, USkeletalMeshComponent& PoseMesh, TConstArrayView<FLMTraceSocketPair> SocketPairs)
+    {
+        if (HasSocketPairs(PoseMesh, SocketPairs))
             return &PoseMesh;
 
         const TInlineComponentArray<USkeletalMeshComponent*> Meshes(&Character);
         for (USkeletalMeshComponent* Mesh : Meshes)
         {
-            if (IsValid(Mesh) && Mesh->LeaderPoseComponent.Get() == &PoseMesh && Mesh->DoesSocketExist(StartSocket) && Mesh->DoesSocketExist(EndSocket))
+            if (IsValid(Mesh) && Mesh->LeaderPoseComponent.Get() == &PoseMesh && HasSocketPairs(*Mesh, SocketPairs))
                 return Mesh;
         }
 
@@ -84,17 +96,21 @@ void ULMAbilityTaskWeaponHitTrace::Activate()
         // 해당 타격에 별도 데이터가 없으면 GA에 지정한 기본 데이터를 사용한다.
         ULMAttackData* WindowData = IsValid(WindowNotify->AttackDataOverride.Get()) ? WindowNotify->AttackDataOverride.Get() : AttackData.Get();
 
-        if (!IsValid(WindowData) || !FMath::IsFinite(WindowData->BaseDamage) || WindowData->BaseDamage < 0.0f || !FMath::IsFinite(WindowData->TraceRadius) || WindowData->TraceRadius <= 0.0f || WindowData->TraceChannel >= ECC_MAX || WindowData->TraceChannel == ECC_OverlapAll_Deprecated || WindowData->TraceStartSocket == WindowData->TraceEndSocket)
+        if (!IsValid(WindowData) || !FMath::IsFinite(WindowData->BaseDamage) || WindowData->BaseDamage < 0.0f || !FMath::IsFinite(WindowData->TraceRadius) || WindowData->TraceRadius <= 0.0f || WindowData->TraceChannel >= ECC_MAX || WindowData->TraceChannel == ECC_OverlapAll_Deprecated)
         {
-            StopTraceWithWarning(TEXT("Check attack data, trace channel, positive radius and distinct socket names."));
+            StopTraceWithWarning(TEXT("Check attack data, trace channel and positive radius."));
             return;
         }
 
-        // 두 소켓은 본체 포즈가 갱신될 때 함께 읽을 수 있는 한 메시에 있어야 한다.
-        USkeletalMeshComponent* SocketMesh = FindSocketMesh(*AttackerCharacter.Get(), *AttackerMesh.Get(), WindowData->TraceStartSocket, WindowData->TraceEndSocket);
+        // 새 DA처럼 아직 배열이 비어 있으면 기존 기본 소켓 쌍을 사용한다.
+        const FLMTraceSocketPair DefaultPair{WindowData->TraceStartSocket, WindowData->TraceEndSocket};
+        TConstArrayView<FLMTraceSocketPair> SocketPairs(WindowData->TraceSocketPairs);
+        if (SocketPairs.IsEmpty()) SocketPairs = MakeArrayView(&DefaultPair, 1);
+
+        USkeletalMeshComponent* SocketMesh = FindSocketMesh(*AttackerCharacter.Get(), *AttackerMesh.Get(), SocketPairs);
         if (!SocketMesh)
         {
-            StopTraceWithWarning(TEXT("Both hit window sockets must exist on the body mesh or one of its pose followers."));
+            StopTraceWithWarning(TEXT("Each socket pair needs distinct start and end sockets, and all pairs must be on the same body or pose follower mesh."));
             return;
         }
 
@@ -128,7 +144,7 @@ void ULMAbilityTaskWeaponHitTrace::Activate()
 
         for (const FLMWeaponHitWindowState& ExistingWindow : HitWindows)
         {
-            // 현재 검 하나의 타격창은 서로 겹치거나 같은 경계 시간을 공유하지 않게 한다.
+            // 타격창끼리 겹치거나 같은 경계 시간을 공유하지 않게 한다.
             if (ExistingWindow.Notify.Get() == WindowNotify || (StartTime <= ExistingWindow.EndTime + UE_KINDA_SMALL_NUMBER && EndTime >= ExistingWindow.StartTime - UE_KINDA_SMALL_NUMBER))
             {
                 StopTraceWithWarning(TEXT("Separate hit windows and use a distinct NotifyState placement for each hit."));
@@ -142,6 +158,9 @@ void ULMAbilityTaskWeaponHitTrace::Activate()
         Window.SocketMesh = SocketMesh;
         Window.StartTime = StartTime;
         Window.EndTime = EndTime;
+        Window.SocketPairs.Reserve(SocketPairs.Num());
+        for (const FLMTraceSocketPair& Pair : SocketPairs)
+            Window.SocketPairs.AddDefaulted_GetRef().Sockets = Pair;
     }
 
     if (HitWindows.IsEmpty())
@@ -320,56 +339,67 @@ void ULMAbilityTaskWeaponHitTrace::HandlePoseFinalized()
             return;
         }
 
-        const FVector BladeStart = SocketMesh->GetSocketLocation(WindowData->TraceStartSocket);
-        const FVector BladeEnd = SocketMesh->GetSocketLocation(WindowData->TraceEndSocket);
-
-        if (BladeStart.ContainsNaN() || BladeEnd.ContainsNaN())
+        // 피해 콜백 전에 모든 쌍의 위치를 읽고, 닫힌 타격창도 다음 Begin에 쓸 자세를 보관한다.
+        for (FLMWeaponHitPairState& Pair : Window.SocketPairs)
         {
-            StopTraceWithWarning(TEXT("Invalid blade socket position."));
-            return;
+            const FVector SocketStart = SocketMesh->GetSocketLocation(Pair.Sockets.StartSocket);
+            const FVector SocketEnd = SocketMesh->GetSocketLocation(Pair.Sockets.EndSocket);
+
+            if (SocketStart.ContainsNaN() || SocketEnd.ContainsNaN())
+            {
+                StopTraceWithWarning(TEXT("Invalid hit window socket position."));
+                return;
+            }
+
+            // 첫 자세나 점프 뒤에는 이전 위치를 연결하지 않는다.
+            Pair.PreviousStart = bContinuousPose ? Pair.CurrentStart : SocketStart;
+            Pair.PreviousEnd = bContinuousPose ? Pair.CurrentEnd : SocketEnd;
+            Pair.CurrentStart = SocketStart;
+            Pair.CurrentEnd = SocketEnd;
         }
 
-        if (Window.bOpen || Window.bPendingLastPose)
+        if (!Window.bOpen && !Window.bPendingLastPose)
+            continue;
+
+        float FromAlpha = 1.0f;
+        float ToAlpha = 1.0f;
+        bool bTrace = bMontagePositionChanged && Instance->IsPlaying() && Position >= Window.StartTime && Position < Window.EndTime;
+
+        if (bContinuousPose)
         {
-            if (bContinuousPose)
+            const float From = FMath::Max(PreviousMontagePosition, Window.StartTime);
+            const float To = FMath::Min(Position, Window.EndTime);
+            bTrace = From < To;
+
+            // 모든 소켓 쌍에 같은 타격창 경계 시간을 적용한다.
+            if (bTrace)
             {
-                const float From = FMath::Max(PreviousMontagePosition, Window.StartTime);
-                const float To = FMath::Min(Position, Window.EndTime);
-
-                if (From < To)
-                {
-                    // 한 프레임이 타격창 경계를 지나도 허용 시간에 해당하는 부분만 검사한다.
-                    const float FromAlpha = FMath::Clamp((From - PreviousMontagePosition) / PositionDelta, 0.0f, 1.0f);
-                    const float ToAlpha = FMath::Clamp((To - PreviousMontagePosition) / PositionDelta, 0.0f, 1.0f);
-
-                    if (!TraceWeaponMovement(Window, FMath::Lerp(Window.PreviousBladeStart, BladeStart, FromAlpha), FMath::Lerp(Window.PreviousBladeEnd, BladeEnd, FromAlpha), FMath::Lerp(Window.PreviousBladeStart, BladeStart, ToAlpha), FMath::Lerp(Window.PreviousBladeEnd, BladeEnd, ToAlpha)))
-                    {
-                        bHasPreviousPose = false;
-                        return;
-                    }
-                }
+                FromAlpha = FMath::Clamp((From - PreviousMontagePosition) / PositionDelta, 0.0f, 1.0f);
+                ToAlpha = FMath::Clamp((To - PreviousMontagePosition) / PositionDelta, 0.0f, 1.0f);
             }
-            else if (bMontagePositionChanged && Instance->IsPlaying() && Position >= Window.StartTime && Position < Window.EndTime)
+        }
+
+        if (bTrace)
+        {
+            for (const FLMWeaponHitPairState& Pair : Window.SocketPairs)
             {
-                // 점프 후 첫 샘플은 현재 검 위치만 검사하고 이전 위치까지 연결하지 않는다.
-                if (!TraceWeaponMovement(Window, BladeStart, BladeEnd, BladeStart, BladeEnd))
+                const FVector FromStart = FMath::Lerp(Pair.PreviousStart, Pair.CurrentStart, FromAlpha);
+                const FVector FromEnd = FMath::Lerp(Pair.PreviousEnd, Pair.CurrentEnd, FromAlpha);
+                const FVector ToStart = FMath::Lerp(Pair.PreviousStart, Pair.CurrentStart, ToAlpha);
+                const FVector ToEnd = FMath::Lerp(Pair.PreviousEnd, Pair.CurrentEnd, ToAlpha);
+
+                // 한 타격창에 속한 쌍은 피격 기록을 함께 쓴다.
+                if (!TraceWeaponMovement(Window, FromStart, FromEnd, ToStart, ToEnd))
                 {
                     bHasPreviousPose = false;
                     return;
                 }
             }
-
-            Window.bPendingLastPose = false;
-
-            if (Position < Window.StartTime || Position >= Window.EndTime)
-            {
-                Window.bOpen = false;
-            }
         }
 
-        // 닫힌 타격창도 준비 포즈를 보관하여 다음 Begin 직후의 경로를 계산할 수 있게 한다.
-        Window.PreviousBladeStart = BladeStart;
-        Window.PreviousBladeEnd = BladeEnd;
+        Window.bPendingLastPose = false;
+        if (Position < Window.StartTime || Position >= Window.EndTime)
+            Window.bOpen = false;
     }
 
     PreviousMontagePosition = Position;
@@ -377,7 +407,7 @@ void ULMAbilityTaskWeaponHitTrace::HandlePoseFinalized()
     bHasPreviousPose = true;
 }
 
-/** 검 전체를 덮는 구체 궤적으로 일반 몬스터를 찾고 타격창마다 한 번 피해를 요청한다. */
+// 소켓 쌍 사이를 구체로 훑고 타격창마다 대상에 한 번 피해를 요청한다.
 bool ULMAbilityTaskWeaponHitTrace::TraceWeaponMovement(FLMWeaponHitWindowState& Window, const FVector& PreviousStart, const FVector& PreviousEnd, const FVector& CurrentStart, const FVector& CurrentEnd)
 {
     const ULMAttackData* WindowData = Window.AttackData.Get();
@@ -398,17 +428,17 @@ bool ULMAbilityTaskWeaponHitTrace::TraceWeaponMovement(FLMWeaponHitWindowState& 
 
     const uint32 InvocationRevision = TraceRevision;
     const float Radius = WindowData->TraceRadius;
-    const float BladeLength = FMath::Max(FVector::Dist(PreviousStart, PreviousEnd), FVector::Dist(CurrentStart, CurrentEnd));
-    const float RequiredSegments = BladeLength / Radius;
+    const double BladeLength = FMath::Max(FVector::Dist(PreviousStart, PreviousEnd), FVector::Dist(CurrentStart, CurrentEnd));
+    const double RequiredSegments = BladeLength / Radius;
 
-    // 설정 오류로 검사 횟수가 무제한 증가하거나 정수 변환이 넘치는 것을 막는다.
-    if (!FMath::IsFinite(RequiredSegments) || RequiredSegments > 15.0f)
+    // 정수 변환과 마지막 인덱스 증가가 유효한 범위인지 확인한다.
+    if (!FMath::IsFinite(RequiredSegments) || RequiredSegments > MAX_int32 - 1)
     {
-        StopTraceWithWarning(TEXT("Blade needs more than 16 samples; check socket range or radius."));
-        return false;
+        UE_LOG(LogTemp, Warning, TEXT("[LMWeaponHitTrace] %s: Invalid sweep segment count."), *GetNameSafe(Attacker));
+        return true;
     }
 
-    const int32 Segments = FMath::Max(1, FMath::CeilToInt(RequiredSegments));
+    const int32 Segments = FMath::Max(1, FMath::CeilToInt32(RequiredSegments));
 
     FCollisionQueryParams Query(SCENE_QUERY_STAT(LMWeaponHitTrace), false, Attacker);
     Query.bFindInitialOverlaps = true;
@@ -432,7 +462,7 @@ bool ULMAbilityTaskWeaponHitTrace::TraceWeaponMovement(FLMWeaponHitWindowState& 
             return false;
         }
 
-        const float Alpha = static_cast<float>(Index) / Segments;
+        const double Alpha = static_cast<double>(Index) / Segments;
         const FVector SweepStart = FMath::Lerp(PreviousStart, PreviousEnd, Alpha);
         const FVector SweepEnd = FMath::Lerp(CurrentStart, CurrentEnd, Alpha);
 

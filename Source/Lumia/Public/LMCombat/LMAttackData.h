@@ -5,23 +5,41 @@
 #include "Engine/EngineTypes.h"
 #include "LMAttackData.generated.h"
 
-/** 공격 종류별 기본 피해와 검 판정 설정을 보관한다. 실행 중 결과는 저장하지 않는다.*/
+USTRUCT(BlueprintType)
+struct LUMIA_API FLMTraceSocketPair
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Trace")
+	FName StartSocket = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Trace")
+	FName EndSocket = NAME_None;
+};
+
+// 공격 종류별 기본 피해와 타격 판정 설정을 보관한다.
 UCLASS(BlueprintType)
 class LUMIA_API ULMAttackData : public UDataAsset
 {
 	GENERATED_BODY()
 	
 public:
+	// 기존 공격 데이터의 단일 소켓 쌍을 배열의 첫 줄로 옮긴다.
+	virtual void PostLoad() override;
+
 	/** 추가 계산 전의 기본 피해 입력이다. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage", meta = (ClampMin = "0.0"))
 	float BaseDamage = 10.0f;
 	
-	/** 플레이어 몸체 Mesh에 만든 검 시작점 소켓이다. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="LM|Trace")
+	// 한 타격창에서 검사할 시작점과 끝점의 목록이다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Trace", meta = (TitleProperty = "EndSocket", ToolTip = "비워 두면 기존에 저장된 시작·끝 소켓을 사용합니다. 새 DA의 기본 소켓은 LMTraceStart와 LMTraceEnd입니다. 에셋을 로드하면 사용되는 쌍이 첫 줄에 표시됩니다."))
+	TArray<FLMTraceSocketPair> TraceSocketPairs;
+
+	// 기존 애셋에 저장된 소켓 이름을 읽기 위해 두 필드를 유지한다.
+	UPROPERTY(BlueprintReadOnly, Category = "LM|Trace")
 	FName TraceStartSocket = TEXT("LMTraceStart");
 	
-	/** 플레이어 몸체 Mesh에 만든 검 끝점 소켓이다. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Trace")
+	UPROPERTY(BlueprintReadOnly, Category = "LM|Trace")
 	FName TraceEndSocket = TEXT("LMTraceEnd");
 	
 	/** 검 길이를 덮는 구체 판정의 반경이며 단위는 cm이다. */

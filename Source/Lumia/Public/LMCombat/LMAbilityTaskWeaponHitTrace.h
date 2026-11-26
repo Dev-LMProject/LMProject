@@ -3,16 +3,26 @@
 #include "CoreMinimal.h"
 #include "Abilities/Tasks/AbilityTask.h"
 #include "GameplayTagContainer.h"
+#include "LMCombat/LMAttackData.h"
 #include "LMAbilityTaskWeaponHitTrace.generated.h"
 
 class ALMBaseCharacter;
 class UAnimInstance;
 class UAnimMontage;
-class ULMAttackData;
 class ULMAnimNotifyStateAttackHitWindow;
 class USkeletalMeshComponent;
 struct FAnimMontageInstance;
 struct FGameplayEventData;
+
+// 소켓 한 쌍의 두 완료 포즈를 보관한다.
+struct FLMWeaponHitPairState
+{
+    FLMTraceSocketPair Sockets;
+    FVector PreviousStart = FVector::ZeroVector;
+    FVector PreviousEnd = FVector::ZeroVector;
+    FVector CurrentStart = FVector::ZeroVector;
+    FVector CurrentEnd = FVector::ZeroVector;
+};
 
 /** 몽타주의 타격 구간 하나에 해당하는 설정과 실행 기록이다. 각 공격 Task가 독립적으로 소유한다. */
 struct FLMWeaponHitWindowState
@@ -24,8 +34,7 @@ struct FLMWeaponHitWindowState
     float StartTime = 0.0f;
     float EndTime = 0.0f;
 
-    FVector PreviousBladeStart = FVector::ZeroVector;
-    FVector PreviousBladeEnd = FVector::ZeroVector;
+    TArray<FLMWeaponHitPairState> SocketPairs;
 
     /** 같은 타격 구간에서 피해를 요청한 대상을 기억한다. */
     TSet<TWeakObjectPtr<AActor>> ProcessedReceivers;
@@ -34,7 +43,7 @@ struct FLMWeaponHitWindowState
     bool bPendingLastPose = false;
 };
 
-/** 기존 공격 몽타주의 여러 타격 구간에서 검 경로를 검사한다. */
+// 공격 몽타주의 각 타격 구간에서 소켓 쌍별 이동 경로를 검사한다.
 UCLASS()
 class LUMIA_API ULMAbilityTaskWeaponHitTrace : public UAbilityTask
 {
@@ -64,7 +73,7 @@ private:
     /** 완료된 포즈 사이에서 각 타격 구간에 해당하는 검 경로만 검사한다. */
     void HandlePoseFinalized();
 
-    /** 검의 이동 경로를 검사하고 해당 타격 구간에서 대상마다 한 번 피해를 요청한다. */
+    // 소켓 쌍의 경로를 검사한다. 타격창 처리를 중단해야 할 때만 false를 반환한다.
     bool TraceWeaponMovement(FLMWeaponHitWindowState& Window, const FVector& PreviousStart, const FVector& PreviousEnd, const FVector& CurrentStart, const FVector& CurrentEnd);
 
     /** 잘못된 설정을 로그로 알리고 이번 판정 Task를 종료한다. */
@@ -80,7 +89,7 @@ private:
     TWeakObjectPtr<USkeletalMeshComponent> AttackerMesh;
     TWeakObjectPtr<UAnimInstance> AttackerAnimInstance;
 
-    /** 각 타격 구간의 중복 피격 기록과 이전 검 위치를 따로 보관한다. */
+    // 타격 구간마다 피격 기록과 각 소켓 쌍의 위치를 보관한다.
     TArray<FLMWeaponHitWindowState> HitWindows;
 
     FGameplayTagContainer HitWindowEventTags;
