@@ -93,6 +93,18 @@ protected:
 	/** 이전 검 판정을 정리한 뒤 현재 공격 몽타주를 지정한 섹션으로 이동한다. */
 	UFUNCTION(BlueprintCallable, Category = "LM|Attack")
 	void JumpAttackMontageSection(FName SectionName);
+
+	// 준비 취소와 분리하여 첫 특수타격의 전환 조건과 1회 소비를 함께 처리한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Special")
+	bool TryStartSpecialAttack(FName SectionName);
+
+	// BP의 새 준비 진입 분기에서만 검사하며 기존 Q 취소는 막지 않는다.
+	UFUNCTION(BlueprintPure, Category = "LM|Special")
+	bool HasFullSpecialCharge() const;
+
+	// 이번 콤보의 준비 입력 창이 바뀔 때 HUD에 현재 조건을 전달한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Special")
+	void SetSpecialPrepareWindow(bool bOpen);
 	
 	/** 지정한 섹션에서만 지상 평타 접근을 사용한다. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Attack|Approach")
@@ -119,6 +131,12 @@ protected:
 	float RoundTripWindupDistance = 140.893f;
 
 private:
+	// 기존 일반 섹션 이동과 특수 첫 타격이 같은 전환 검증을 사용한다.
+	bool TryJumpAttackSection(FName SectionName, bool bSpendSpecialCharge);
+
+	// 같은 GA 실행의 첫 특수타격에서만 소비하며 다음 실행 때 초기화한다.
+	bool bSpecialChargeSpent = false;
+
 	// 열린 패링 창과 이 공격에서 기록한 몽타주 재생을 비운다.
 	void ResetParryState();
 
