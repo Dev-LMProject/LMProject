@@ -10,6 +10,9 @@ class ULMAbilitySystemComponent;
 class ULMAttackAbility;
 class ULMCombatAttributeSet;
 
+// 보스의 근접 공격 실행이 끝나면 실행 번호와 성공 여부를 알린다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FLMOnBossMeleeFinished, int64, Run, bool, bSucceeded);
+
 // StateTree가 시작한 근접 공격 한 번의 진행 상태다.
 UENUM(BlueprintType)
 enum class ELMBossMonsterMeleeResult : uint8
@@ -41,6 +44,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|Boss")
 	void StopMelee(int64 _Run);
 
+	// 이번 공격을 기다리는 BP 태스크에 종료 결과를 전달한다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|Boss")
+	FLMOnBossMeleeFinished OnMeleeFinished;
+
 	// 능력 부여가 끝나면 BP에서 트리 시작 조건을 다시 확인할 수 있게 알린다.
 	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Boss")
 	void OnCombatReady();
@@ -60,7 +67,7 @@ protected:
 
 private:
 	// 같은 실행의 종료 결과를 한 번만 기록하고 구독을 해제한다.
-	void FinishMelee(int64 _Run, ELMBossMonsterMeleeResult _Result);
+	bool FinishMelee(int64 _Run, ELMBossMonsterMeleeResult _Result);
 
 	UPROPERTY(VisibleAnywhere, Category = "LM|Boss")
 	TObjectPtr<ULMAbilitySystemComponent> BossASC;
