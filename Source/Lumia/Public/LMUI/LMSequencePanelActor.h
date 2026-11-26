@@ -18,23 +18,23 @@ public:
 	ALMSequencePanelActor();
 
 	// 시퀀서가 평가한 타이핑 진행률을 적용한다.
-	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "LM|Sequence Panel")
 	void SetTypingAlpha(float _TypingAlpha);
 
 	// 시퀀서가 평가한 다운로드 진행률을 적용한다.
-	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "LM|Sequence Panel")
 	void SetDownloadAlpha(float _DownloadAlpha);
 
 	// 시퀀서가 평가한 패널 전체 투명도를 적용한다.
-	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "LM|Sequence Panel")
 	void SetPanelOpacity(float _PanelOpacity);
 
 	// 시퀀서가 선택한 위젯 애니메이션으로 전환한다.
-	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "LM|Sequence Panel")
 	void SetWidgetAnimation(ELMSequencePanelAnimation _WidgetAnimation);
 
 	// 현재 프레임에 해당하는 위젯 애니메이션 위치를 적용한다.
-	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "LM|Sequence Panel")
 	void SetWidgetAnimationAlpha(float _WidgetAnimationAlpha);
 
 	// 위젯이 교체되었거나 패널 값이 바뀌면 현재 상태를 적용한다.

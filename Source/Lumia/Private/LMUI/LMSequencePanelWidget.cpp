@@ -68,13 +68,33 @@ void ULMSequencePanelWidget::UpdateWidgetAnimation(ELMSequencePanelAnimation Cli
 	UWidgetAnimation* NextClip = FindPanelAnimation(Clip);
 	if (ActivePanelAnimation != NextClip)
 	{
-		// 일시정지 상태의 클립도 종료 처리해 재생 전의 모습으로 복원한다.
+		// 일시정지 상태의 클립도 종료하고 예약된 평가를 마친다.
 		if (const TSharedPtr<FWidgetAnimationState> OldState = PanelAnimationHandle.PinAnimationState())
 		{
 			OldState->SetPlaybackStatus(EMovieScenePlayerStatus::Paused);
 			OldState->Stop();
 			FlushPanelAnimation(*OldState);
 		}
+
+		// 종료 평가에서 첫 프레임이 적용될 수 있으므로 클립 전 상태를 다시 적용한다.
+		if (UWidget* OldPoseWidget = PanelPoseWidget.Get())
+		{
+			OldPoseWidget->SetRenderTransform(PanelRestTransform);
+			OldPoseWidget->SetRenderOpacity(PanelRestOpacity);
+		}
+		PanelPoseWidget.Reset();
+
+		// 다음 클립이 값을 덮기 전에 내부 패널의 현재 상태를 저장한다.
+		if (NextClip)
+		{
+			if (UWidget* NewPoseWidget = GetWidgetFromName(TEXT("Overlay_Root")))
+			{
+				PanelPoseWidget = NewPoseWidget;
+				PanelRestTransform = NewPoseWidget->GetRenderTransform();
+				PanelRestOpacity = NewPoseWidget->GetRenderOpacity();
+			}
+		}
+
 		PanelAnimationHandle = FWidgetAnimationHandle();
 		ActivePanelAnimation = NextClip;
 	}
