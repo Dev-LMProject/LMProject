@@ -72,6 +72,14 @@ public:
 	// ASC 준비 여부와 구분하여 확정된 사망 상태를 반환한다.
 	// 준비되지 않은 몬스터를 사망한 몬스터로 취급하지 않는다.
 	FORCEINLINE bool IsDead() const{return bIsDead;}
+
+	// 충돌을 정리한 뒤 캐릭터 BP에 사망 후 처리를 한 번 전달한다.
+	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Death")
+	void OnDeathStarted();
+
+	// 사망 모션을 마친 몸체를 지형과 접촉하는 레그돌로 전환한다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Death")
+	void StartDeathPhysics();
 	
 	FORCEINLINE bool IsHitReacting() const{return bIsHitReacting;}
 
@@ -185,6 +193,7 @@ private:
 	bool bSceneFight = false;
 	bool bSceneFirstHitDone = false;
 	bool bSceneFinalHitDone = false;
+	bool bDeathPhysicsStarted = false;
 
 	/** 현재 HP 또는 최대 HP가 바뀌면 표시값을 갱신한다. */
 	void HandleHealthChanged(const FOnAttributeChangeData& Data);
