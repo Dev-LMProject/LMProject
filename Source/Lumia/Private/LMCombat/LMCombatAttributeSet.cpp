@@ -3,6 +3,9 @@
 #include "GameFramework/Actor.h"
 #include "GameplayEffectExtension.h"
 #include "LMCharacter/LMBaseCharacter.h"
+#include "LMCombat/LMAttackData.h"
+#include "LMPlayer/LMPlayerState.h"
+#include "LMGameplayTags/LMGameplayTags.h"
 
 /** 새로 생성되는 전투 속성의 기본 체력과 임시 피해량을 설정한다. */
 ULMCombatAttributeSet::ULMCombatAttributeSet()
@@ -15,6 +18,39 @@ ULMCombatAttributeSet::ULMCombatAttributeSet()
 
 	// 아직 전달받은 피해가 없으므로 임시 피해량은 0에서 시작한다.
 	InitIncomingDamage(0.0f);
+	InitMaxSpecialCharge(100.0f);
+	InitSpecialCharge(0.0f);
+}
+
+// 외부 속성 효과와 공통 API가 같은 충전 범위를 사용한다.
+void ULMCombatAttributeSet::ClampSpecialCharge(const FGameplayAttribute& Attribute, float& NewValue) const
+{
+	if (Attribute == GetMaxSpecialChargeAttribute())
+		NewValue = FMath::IsFinite(NewValue) ? FMath::Max(1.0f, NewValue) : GetMaxSpecialCharge();
+	else if (Attribute == GetSpecialChargeAttribute())
+		NewValue = FMath::Clamp(FMath::IsFinite(NewValue) ? NewValue : GetSpecialCharge(), 0.0f, GetMaxSpecialCharge());
+}
+
+// 현재값 변경 전에 잘못된 게이지 수치를 제한한다.
+void ULMCombatAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
+{
+	Super::PreAttributeChange(Attribute, NewValue);
+	ClampSpecialCharge(Attribute, NewValue);
+}
+
+// 기본값 변경에도 현재값과 동일한 제한을 적용한다.
+void ULMCombatAttributeSet::PreAttributeBaseChange(const FGameplayAttribute& Attribute, float& NewValue) const
+{
+	Super::PreAttributeBaseChange(Attribute, NewValue);
+	ClampSpecialCharge(Attribute, NewValue);
+}
+
+// 최대값 감소 시 기존 충전이 상한을 초과한 상태로 남지 않게 한다.
+void ULMCombatAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue)
+{
+	Super::PostAttributeChange(Attribute, OldValue, NewValue);
+	if (Attribute == GetMaxSpecialChargeAttribute() && GetSpecialCharge() > NewValue)
+		SetSpecialCharge(NewValue);
 }
 
 /** 전달받은 피해를 한 번 소비하고 실제 HP 감소 결과를 알린다. */
@@ -71,6 +107,17 @@ void ULMCombatAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCa
 	// 실제 감소량과 소진 여부를 확정한 뒤 HP를 한 번 변경한다.
 	const bool bHealthDepleted = NewHealth <= 0.0f;
 	SetHealth(NewHealth);
+
+	// 실제 피해 확정 후 보상하되 사망 알림 전에 처리하여 마지막 타격도 인정한다.
+	UAbilitySystemComponent* SourceASC = Data.EffectSpec.GetContext().GetOriginalInstigatorAbilitySystemComponent();
+	ALMPlayerState* SourcePlayer = SourceASC ? Cast<ALMPlayerState>(SourceASC->GetOwnerActor()) : nullptr;
+	const ALMBaseCharacter* SourceBody = SourceASC ? Cast<ALMBaseCharacter>(SourceASC->GetAvatarActor()) : nullptr;
+	const ULMAttackData* HitData = Cast<ULMAttackData>(Data.EffectSpec.GetContext().GetSourceObject());
+	FGameplayTagContainer HitTags;
+	Data.EffectSpec.GetAllAssetTags(HitTags);
+	const bool bSceneDamage = HitTags.HasTagExact(LMGameplayTags::Damage_SceneHit) || HitTags.HasTagExact(LMGameplayTags::Damage_SceneFinish);
+	if (SourcePlayer && SourceBody && DamageReceiver && DamageReceiver->IsHostileTo(SourceBody) && HitData && !bSceneDamage)
+		SourcePlayer->AddSpecialCharge(HitData->SpecialChargeGain);
 
 	UE_LOG(LogTemp, Display, TEXT("[LMDamage] %s Requested=%.1f Actual=%.1f Health=%.1f->%.1f Depleted=%s"), *GetNameSafe(Data.Target.GetAvatarActor()), RequestedDamage, ActualDamage, OldHealth, NewHealth, bHealthDepleted ? TEXT("true") : TEXT("false"));
 
