@@ -61,4 +61,7 @@ private:
 	TObjectPtr<UWidgetAnimation> ActivePanelAnimation;
 
 	FWidgetAnimationHandle PanelAnimationHandle;
+	TWeakObjectPtr<UWidget> PanelPoseWidget;
+	FWidgetTransform PanelRestTransform;
+	float PanelRestOpacity = 1.0f;
 };
