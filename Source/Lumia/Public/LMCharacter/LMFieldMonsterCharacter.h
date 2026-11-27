@@ -4,6 +4,7 @@
 #include "Animation/AnimNotifies/AnimNotify.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "GameplayAbilitySpecHandle.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "LMFieldMonsterCharacter.generated.h"
 
 class ALMPlayerCharacter;
@@ -83,6 +84,13 @@ public:
 	// 사망 모션을 마친 몸체를 지형과 접촉하는 레그돌로 전환한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Death")
 	void StartDeathPhysics();
+
+	// 방 복구 전에 생존 설정과 ASC가 준비되어 있는지 확인한다.
+	bool CanResetForRetry() const;
+
+	// 같은 몸체를 최초 지상 배치와 BP의 생존 설정으로 되돌린다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Retry")
+	bool ResetForRetry();
 	
 	FORCEINLINE bool IsHitReacting() const{return bIsHitReacting;}
 
@@ -190,6 +198,28 @@ protected:
 
 
 private:
+	// 천장 연출과 사망 처리가 바꾸기 전 인스턴스의 설정을 보관한다.
+	FTransform RetryPose;
+	FTransform AliveMeshPose;
+	FCollisionResponseContainer AliveCapsuleResponses;
+	FCollisionResponseContainer AliveMeshResponses;
+	ECollisionEnabled::Type AliveCapsuleCollision = ECollisionEnabled::NoCollision;
+	ECollisionEnabled::Type AliveMeshCollision = ECollisionEnabled::NoCollision;
+	ECollisionChannel AliveCapsuleType = ECC_Pawn;
+	ECollisionChannel AliveMeshType = ECC_WorldDynamic;
+	EVisibilityBasedAnimTickOption AliveAnimTick = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
+	EPhysicsTransformUpdateMode::Type AlivePhysicsMode = EPhysicsTransformUpdateMode::SimulationUpatesComponentTransform;
+	bool bRetryStateSaved = false;
+	bool bResettingForRetry = false;
+	bool bAliveCapsuleOverlap = false;
+	bool bAliveMeshOverlap = false;
+	bool bAliveCapsuleNavigation = false;
+	bool bAliveMeshNavigation = false;
+	bool bAliveMeshTick = false;
+	bool bAliveActorTick = false;
+	bool bAliveTarget = false;
+	bool bAliveDamage = false;
+
 	// 영역 밖에서는 체력이 갱신되어도 체력바를 다시 켜지 않는다.
 	bool bShowHealth = false;
 

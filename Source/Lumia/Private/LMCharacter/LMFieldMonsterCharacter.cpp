@@ -8,6 +8,7 @@
 #include "Components/WidgetComponent.h"
 #include "CollisionShape.h"
 #include "Engine/World.h"
+#include "Engine/LatentActionManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
@@ -144,6 +145,27 @@ void ALMFieldMonsterCharacter::BeginPlay()
     // BP 시작 이벤트에서 이동을 요청하기 전에 최초 위치와 방향을 확정한다.
     StartLocation = GetActorLocation();
     StartRotation = GetActorRotation();
+
+    // 부모 BP가 천장에 올리거나 엘리트를 숨기기 전의 몸체 설정을 보존한다.
+    RetryPose = GetActorTransform();
+    AliveMeshPose = GetMesh()->GetRelativeTransform();
+    AliveCapsuleCollision = GetCapsuleComponent()->GetCollisionEnabled();
+    AliveMeshCollision = GetMesh()->GetCollisionEnabled();
+    AliveCapsuleResponses = GetCapsuleComponent()->GetCollisionResponseToChannels();
+    AliveMeshResponses = GetMesh()->GetCollisionResponseToChannels();
+    AliveCapsuleType = GetCapsuleComponent()->GetCollisionObjectType();
+    AliveMeshType = GetMesh()->GetCollisionObjectType();
+    bAliveCapsuleOverlap = GetCapsuleComponent()->GetGenerateOverlapEvents();
+    bAliveMeshOverlap = GetMesh()->GetGenerateOverlapEvents();
+    bAliveCapsuleNavigation = GetCapsuleComponent()->CanEverAffectNavigation();
+    bAliveMeshNavigation = GetMesh()->CanEverAffectNavigation();
+    bAliveMeshTick = GetMesh()->IsComponentTickEnabled();
+    bAliveActorTick = IsActorTickEnabled();
+    bAliveTarget = bCanBeAttackTarget;
+    bAliveDamage = bCanReceiveCombatDamage;
+    AliveAnimTick = GetMesh()->VisibilityBasedAnimTickOption;
+    AlivePhysicsMode = GetMesh()->PhysicsTransformUpdateMode;
+    bRetryStateSaved = true;
     Super::BeginPlay();
     InitializeAbilitySystem(this, AbilitySystemComponent.Get());
 
@@ -268,7 +290,7 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
 // 사망 연출이 끝난 몸체를 지형에 막히고 플레이어에게 밀리는 레그돌로 한 번 전환한다.
 void ALMFieldMonsterCharacter::StartDeathPhysics()
 {
-    if (bDeathPhysicsStarted || !bIsDead || bSceneFight || bEndingPlay)
+    if (bDeathPhysicsStarted || !bIsDead || bSceneFight || bEndingPlay || bResettingForRetry)
         return;
 
     USkeletalMeshComponent* DeathMesh = GetMesh();
@@ -287,6 +309,118 @@ void ALMFieldMonsterCharacter::StartDeathPhysics()
     DeathMesh->WakeAllRigidBodies();
     // 겹침 이벤트 없이 실제 바디를 조회하므로 엔진의 기본 접촉 힘이 중복되지 않는다.
     SetActorTickEnabled(true);
+}
+
+// 복구 도중 사라진 몸체나 아직 시작하지 않은 몬스터는 변경하지 않는다.
+bool ALMFieldMonsterCharacter::CanResetForRetry() const
+{
+    return bRetryStateSaved && !bEndingPlay && !bResettingForRetry && !IsActorBeingDestroyed() && GetWorld() && IsValid(AbilitySystemComponent.Get()) && IsValid(CombatAttributes.Get()) && AbilitySystemComponent->GetAvatarActor() == this && !RetryPose.ContainsNaN();
+}
+
+// 사망한 적과 살아남은 적 모두 같은 생존 설정과 지상 배치로 복구한다.
+bool ALMFieldMonsterCharacter::ResetForRetry()
+{
+    if (!CanResetForRetry()) return false;
+    TGuardValue<bool> RetryGuard(bResettingForRetry, true);
+
+    // 동기 종료 알림이 새 공격을 만들지 못하도록 판정부터 닫는다.
+    bCanBeAttackTarget = false;
+    bCanReceiveCombatDamage = false;
+    TargetPlayer.Reset();
+    bReturning = false;
+    UpdateCombatFocus();
+    AAIController* RetryController = Cast<AAIController>(GetController());
+    if (RetryController)
+    {
+        RetryController->StopMovement();
+        if (UBrainComponent* RetryBrain = RetryController->GetBrainComponent())
+            RetryBrain->StopLogic(TEXT("Room retry"));
+    }
+
+    // 이전 사망 Delay와 패링 후퇴가 새 생명에 적용되지 않도록 먼저 취소한다.
+    GetWorld()->GetLatentActionManager().RemoveActionsForObject(this);
+    FinishHitReaction();
+    StopAttack();
+    AbilitySystemComponent->ClearAbilityInput(this);
+    AbilitySystemComponent->CancelAbilities();
+    if (!ensureMsgf(!bAttackRunning, TEXT("%s: Attack must finish before retry."), *GetName()))
+        return false;
+    SetSlowFollow(false);
+    GetCharacterMovement()->StopMovementImmediately();
+    GetCharacterMovement()->DisableMovement();
+
+    USkeletalMeshComponent* RetryMesh = GetMesh();
+    UCapsuleComponent* RetryCapsule = GetCapsuleComponent();
+    RetryCapsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    RetryMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    RetryMesh->SetAllPhysicsLinearVelocity(FVector::ZeroVector);
+    RetryMesh->SetAllPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
+    RetryMesh->SetAllBodiesSimulatePhysics(false);
+    RetryMesh->SetSimulatePhysics(false);
+    RetryMesh->SetAllBodiesPhysicsBlendWeight(0.0f);
+    RetryMesh->AttachToComponent(RetryCapsule, FAttachmentTransformRules::KeepRelativeTransform);
+    RetryMesh->PhysicsTransformUpdateMode = AlivePhysicsMode;
+    SetActorTransform(RetryPose, false, nullptr, ETeleportType::TeleportPhysics);
+    RetryMesh->SetRelativeTransform(AliveMeshPose, false, nullptr, ETeleportType::TeleportPhysics);
+
+    // 태그와 HP 변경을 받는 ABP도 처음부터 살아 있는 상태를 읽도록 한다.
+    bIsDead = false;
+    bDeathPhysicsStarted = false;
+    bSceneFight = false;
+    bEliteFightRules = false;
+    bSceneFirstHitDone = false;
+    bSceneFinalHitDone = false;
+    ScenePlayer.Reset();
+    if (bOwnsDeadTag)
+    {
+        bOwnsDeadTag = false;
+        AbilitySystemComponent->RemoveLooseGameplayTag(LMGameplayTags::State_Dead);
+    }
+    CombatAttributes->StartNewLife(StartHealth);
+    StartLocation = RetryPose.GetLocation();
+    StartRotation = RetryPose.Rotator();
+    bHasAttackTurn = false;
+    bAttackAllowed = false;
+    bAttackStopping = false;
+    bCanWork = false;
+    AttackCombatId = 0;
+    AttackId = 0;
+    WaitId = 0;
+
+    // BP 인스턴스의 채널 설정을 복원하며 시체용 고정 프로필을 강제하지 않는다.
+    RetryCapsule->SetCollisionObjectType(AliveCapsuleType);
+    RetryCapsule->SetCollisionResponseToChannels(AliveCapsuleResponses);
+    RetryCapsule->SetGenerateOverlapEvents(bAliveCapsuleOverlap);
+    RetryCapsule->SetCanEverAffectNavigation(bAliveCapsuleNavigation);
+    RetryCapsule->SetCollisionEnabled(AliveCapsuleCollision);
+    RetryMesh->SetCollisionObjectType(AliveMeshType);
+    RetryMesh->SetCollisionResponseToChannels(AliveMeshResponses);
+    RetryMesh->SetGenerateOverlapEvents(bAliveMeshOverlap);
+    RetryMesh->SetCanEverAffectNavigation(bAliveMeshNavigation);
+    RetryMesh->SetCollisionEnabled(AliveMeshCollision);
+    RetryMesh->bPauseAnims = false;
+    RetryMesh->VisibilityBasedAnimTickOption = AliveAnimTick;
+    RetryMesh->SetComponentTickEnabled(bAliveMeshTick);
+    RetryMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint, true);
+    SetActorTickEnabled(bAliveActorTick);
+    bCanBeAttackTarget = bAliveTarget;
+    bCanReceiveCombatDamage = bAliveDamage;
+    GetCharacterMovement()->bRunPhysicsWithNoController = false;
+    GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    SetHealthVisible(false);
+
+    // 최초 낙하 전에 죽은 경우에도 지상 대기용 AI를 만들고 기존 AI는 재시작한다.
+    const bool bHadController = IsValid(RetryController);
+    SpawnDefaultController();
+    RetryController = Cast<AAIController>(GetController());
+    if (RetryController)
+    {
+        RetryController->SetControlRotation(StartRotation);
+        if (bHadController)
+            if (UBrainComponent* RetryBrain = RetryController->GetBrainComponent())
+                RetryBrain->RestartLogic();
+    }
+    return true;
 }
 
 // 플레이어를 막지 않고 실제로 닿은 시체 부위에만 제한된 수평 속도를 더한다.
@@ -693,7 +827,7 @@ bool ALMFieldMonsterCharacter::PrepareAttack()
     const FGameplayAbilitySpecHandle SavedHandle = AttackAbilityHandle;
     const ALMPlayerCharacter* Player = GetTargetPlayer();
     const FGameplayAbilitySpec* Spec = AbilitySystemComponent->FindAbilitySpecFromHandle(SavedHandle);
-    const bool bReady = !bIsDead && !bIsHitReacting && !bReturning && !bSceneFight && IsAliveForCombat()
+    const bool bReady = !bResettingForRetry && !bIsDead && !bIsHitReacting && !bReturning && !bSceneFight && IsAliveForCombat()
         && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
     const bool bCanPrepare = !bStop && Combat == Area->GetCombatId() && bReady
         && IsValid(Player) && Player->IsAliveForCombat() && Spec && !Spec->IsActive();
@@ -868,7 +1002,7 @@ bool ALMFieldMonsterCharacter::ReadMoveData(ALMPlayerCharacter*& _TargetPlayer, 
     _bReturning = bReturning;
 
     // ASC 준비 전이나 사망·경직·능력의 이동 제어 중에는 경로 이동을 막는다.
-    _bCanMove = !bEndingPlay && !bIsDead && !bIsHitReacting && !bSceneFight && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
+    _bCanMove = !bEndingPlay && !bResettingForRetry && !bIsDead && !bIsHitReacting && !bSceneFight && IsAliveForCombat() && !IsMovementBlockedByAbilities() && !IsMovementControlledByAbilities();
 
     // 기존 데이터 갱신 한 번으로 허가 정보도 읽으며 소속이 없으면 이전 값을 남기지 않는다.
     AttackCombatId = 0;
