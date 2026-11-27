@@ -28,8 +28,20 @@ public:
 	virtual void PostLoad() override;
 
 	/** 추가 계산 전의 기본 피해 입력이다. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage", meta = (ClampMin = "0.0", ClampMax = "100000.0"))
 	float BaseDamage = 10.0f;
+
+	// 각성 이벤트 엘리트만 사용하는 기본 피해다. 0이면 일반 피해를 유지한다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage", meta = (ClampMin = "0.0", ClampMax = "100000.0"))
+	float EventDamage = 0.0f;
+
+	// 장면 전용 공격 등은 누적 확률에 참여하지 않도록 끌 수 있다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage")
+	bool bAllowCritical = true;
+
+	// 미들 주먹만 기존 타격창 시작 시 공용 공격 효과를 재생한다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Effects")
+	bool bPlayStrikeEffect = false;
 
 	// 실제 유효 피해가 발생한 타격의 검 게이지 보상이며 피해량과 독립적이다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Special", meta = (ClampMin = "0.0"))

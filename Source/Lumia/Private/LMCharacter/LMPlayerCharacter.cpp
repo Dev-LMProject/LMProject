@@ -4,6 +4,8 @@
 #include "Components/CapsuleComponent.h"
 #include "LMComponent/LMInteractorComponent.h"
 #include "LMCombat/LMDodgeAbility.h"
+#include "LMCombat/LMAttackAbility.h"
+#include "LMCombat/LMCombatAttributeSet.h"
 #include "EnhancedInputComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -48,6 +50,10 @@ ALMPlayerCharacter::ALMPlayerCharacter(const FObjectInitializer& ObjectInitializ
 {
     // 모든 Enemy 계열과 공통 적대 관계를 사용한다.
     CombatTeam = ELMCombatTeam::Player;
+    StartHealth = 1000;
+    CriticalChance = 25;
+    CriticalStep = 10;
+    CriticalLimit = 9;
     
     PrimaryActorTick.bCanEverTick = true;
 
@@ -847,6 +853,7 @@ void ALMPlayerCharacter::Restart()
 /** 조종 해제 시 GAS 연결과 스캔·이동·점프 요청을 정리한다. */
 void ALMPlayerCharacter::UnPossessed()
 {
+    ClearDamageReaction();
     DisconnectAbilitySystem();
 
     if (ScanComponent)
@@ -1190,6 +1197,7 @@ void ALMPlayerCharacter::CancelMoveInput()
 void ALMPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     StopAwakeningWatch();
+    ClearDamageReaction();
     DisconnectAbilitySystem();
 
     BlendOutPivot(0.0f);
@@ -1216,6 +1224,17 @@ void ALMPlayerCharacter::OnAbilitySystemReady()
     Super::OnAbilitySystemReady();
 
     UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+    ULMCombatAttributeSet* PlayerStats = ASC ? const_cast<ULMCombatAttributeSet*>(ASC->GetSet<ULMCombatAttributeSet>()) : nullptr;
+    if (DamageAttributes.Get() != PlayerStats)
+    {
+        if (DamageAttributes.IsValid())
+            DamageAttributes->OnDamageApplied.Remove(PlayerDamageHandle);
+        PlayerDamageHandle.Reset();
+        DamageAttributes = PlayerStats;
+    }
+    if (PlayerStats && !PlayerDamageHandle.IsValid())
+        PlayerDamageHandle = PlayerStats->OnDamageApplied.AddUObject(this, &ThisClass::HandlePlayerDamage);
+
     ALMPlayerState* State = ASC ? Cast<ALMPlayerState>(ASC->GetOwnerActor()) : nullptr;
     if (State)
     {
@@ -1246,8 +1265,90 @@ void ALMPlayerCharacter::RefreshMovementPolicyFromAbilities()
         Resolved.FaceMovement = false;
     }
 
+    if (bPlayerDeathStarted)
+        Resolved.AllowLook = false;
+
     // 카메라 조작 허용 여부는 기본 정책의 AllowLook을 유지한다.
     ApplyResolvedMovementPolicy(Resolved);
+}
+
+// 각성 보호가 확정된 타격은 제외하고, 사망 태그를 먼저 붙여 연속 피해와 입력을 차단한다.
+void ALMPlayerCharacter::HandlePlayerDamage(float ActualDamage, bool bHealthDepleted)
+{
+    ULMAbilitySystemComponent* PlayerASC = Cast<ULMAbilitySystemComponent>(GetAbilitySystemComponent());
+    if (!PlayerASC || PlayerASC->GetAvatarActor() != this || IsActorBeingDestroyed() || bPlayerDeathStarted || bAwakeningStarted || ActualDamage <= 0.0f)
+        return;
+
+    if (bHealthDepleted)
+    {
+        bPlayerDeathStarted = true;
+        bCanReceiveCombatDamage = false;
+        bCanBeAttackTarget = false;
+        PlayerASC->AddLooseGameplayTag(LMGameplayTags::State_Dead);
+        PlayerASC->AddLooseGameplayTag(LMGameplayTags::State_Input_Blocked);
+    }
+    else if (PlayerASC->HasMatchingGameplayTag(LMGameplayTags::State_Stunned))
+        return;
+
+    PlayerASC->ClearAbilityInput(this);
+    CancelMoveInput();
+    CancelPendingJump();
+    // 같은 프레임의 마지막 피해가 사망이어도 예약은 하나만 남긴다.
+    GetWorldTimerManager().ClearTimer(DamageReactionTimer);
+    DamageReactionTimer = GetWorldTimerManager().SetTimerForNextTick(this, &ThisClass::SendDamageReaction);
+}
+
+// 공격의 정리 코드가 몽타주를 다시 끊지 않도록 취소가 끝난 뒤 반응을 재생한다.
+void ALMPlayerCharacter::SendDamageReaction()
+{
+    DamageReactionTimer.Invalidate();
+    UAbilitySystemComponent* PlayerASC = GetAbilitySystemComponent();
+    if (!PlayerASC || PlayerASC->GetAvatarActor() != this || IsActorBeingDestroyed() || bAwakeningStarted)
+        return;
+
+    TArray<FGameplayAbilitySpecHandle> StopHandles;
+    for (const FGameplayAbilitySpec& AbilitySpec : PlayerASC->GetActivatableAbilities())
+    {
+        if (AbilitySpec.IsActive() && AbilitySpec.Ability && (bPlayerDeathStarted || AbilitySpec.Ability->IsA<ULMAttackAbility>() || AbilitySpec.Ability->IsA<ULMDodgeAbility>()))
+            StopHandles.Add(AbilitySpec.Handle);
+    }
+    for (const FGameplayAbilitySpecHandle& StopHandle : StopHandles)
+        PlayerASC->CancelAbilityHandle(StopHandle);
+
+    if (bPlayerDeathStarted)
+    {
+        // 지형 충돌과 중력은 유지해 공중에서 죽어도 바닥으로 내려온다.
+        GetCharacterMovement()->Velocity.X = 0.0f;
+        GetCharacterMovement()->Velocity.Y = 0.0f;
+        GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+        GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
+        if (UAnimInstance* PlayerAnim = GetMesh()->GetAnimInstance())
+            PlayerAnim->Montage_Stop(0.08f);
+        OnPlayerDeathStarted();
+        return;
+    }
+
+    if (ensureMsgf(HitReactAbility, TEXT("%s: Assign HitReactAbility and include it in the startup AbilitySet."), *GetName()))
+        PlayerASC->TryActivateAbilityByClass(HitReactAbility);
+}
+
+// PlayerState의 ASC는 유지하되 이번 몸체가 소유한 구독·예약·태그만 회수한다.
+void ALMPlayerCharacter::ClearDamageReaction()
+{
+    GetWorldTimerManager().ClearTimer(DamageReactionTimer);
+    if (DamageAttributes.IsValid())
+        DamageAttributes->OnDamageApplied.Remove(PlayerDamageHandle);
+    DamageAttributes.Reset();
+    PlayerDamageHandle.Reset();
+
+    UAbilitySystemComponent* PlayerASC = GetAbilitySystemComponent();
+    if (bPlayerDeathStarted && PlayerASC && PlayerASC->GetAvatarActor() == this)
+    {
+        // 먼저 입력 차단을 유지한 채 사망 태그를 정리하고, 바로 이어 ASC를 분리한다.
+        PlayerASC->RemoveLooseGameplayTag(LMGameplayTags::State_Dead);
+        PlayerASC->RemoveLooseGameplayTag(LMGameplayTags::State_Input_Blocked);
+    }
+    bPlayerDeathStarted = false;
 }
 
 // 전투 단계의 지정 엘리트를 약하게 보관하며 중복 호출로 1회 상태를 되돌리지 않는다.
@@ -1276,7 +1377,7 @@ void ALMPlayerCharacter::StopAwakeningWatch()
 }
 
 // 지정 타격의 예상 HP를 먼저 판정해 사망 알림보다 앞서 보호를 확정한다.
-float ALMPlayerCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth)
+float ALMPlayerCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth, bool& bAllowCritical)
 {
     // 예약 직후 같은 프레임에 들어온 다른 공격도 HP를 깎지 못하게 한다.
     if (bAwakeningStarted) return 0.0f;
@@ -1290,7 +1391,7 @@ float ALMPlayerCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& Damage
 
     // 낮은 HP로 진입한 경우도 다음 유효피격에서 인정하며 단순 수치 변화는 사용하지 않는다.
     const float ExpectedHealth = FMath::Clamp(OldHealth - RequestedDamage, 0.0f, MaximumHealth);
-    if (DamageSpec.GetContext().GetEffectCauser() != WatchedMob || OldHealth <= 0.0f || ExpectedHealth >= OldHealth || ExpectedHealth > MaximumHealth * 0.3f)
+    if (DamageSpec.GetContext().GetEffectCauser() != WatchedMob || OldHealth <= 0.0f || ExpectedHealth >= OldHealth || static_cast<int64>(ExpectedHealth) * 100 > static_cast<int64>(MaximumHealth) * 30)
         return RequestedDamage;
 
     bWatchingAwakening = false;

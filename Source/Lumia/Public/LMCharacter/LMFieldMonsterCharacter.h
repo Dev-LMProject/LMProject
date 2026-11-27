@@ -4,6 +4,7 @@
 #include "Animation/AnimNotifies/AnimNotify.h"
 #include "LMCharacter/LMBaseCharacter.h"
 #include "GameplayAbilitySpecHandle.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "LMFieldMonsterCharacter.generated.h"
 
 class ALMPlayerCharacter;
@@ -37,6 +38,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|SceneCombat")
 	void SetEliteFightRules(bool _bEliteFightRules);
 
+	// 지정 이벤트 상태에서만 같은 공격 DA의 이벤트 피해를 선택한다.
+	virtual float GetAttackDamage(const ULMAttackData* AttackData) const override;
+
 	// 지정 플레이어의 시연을 준비하거나 끝내며 같은 활성 요청은 타격 기록을 유지한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|SceneCombat")
 	bool SetSceneFight(ALMPlayerCharacter* _ScenePlayer, bool _bSceneFight);
@@ -46,7 +50,7 @@ public:
 	bool ApplySceneHit(ALMPlayerCharacter* _ScenePlayer, bool bFinalHit);
 
 	// 일반 엘리트 피해와 해당 Spec에만 표시된 시연 예외를 구분한다.
-	virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth) override;
+	virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth, bool& bAllowCritical) override;
 
 	/** 몬스터 ASC / 전투 속성 / 체력 표시 컴포넌트를 생성한다. */
 	ALMFieldMonsterCharacter();
@@ -80,6 +84,13 @@ public:
 	// 사망 모션을 마친 몸체를 지형과 접촉하는 레그돌로 전환한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Death")
 	void StartDeathPhysics();
+
+	// 방 복구 전에 생존 설정과 ASC가 준비되어 있는지 확인한다.
+	bool CanResetForRetry() const;
+
+	// 같은 몸체를 최초 지상 배치와 BP의 생존 설정으로 되돌린다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Retry")
+	bool ResetForRetry();
 	
 	FORCEINLINE bool IsHitReacting() const{return bIsHitReacting;}
 
@@ -108,6 +119,13 @@ public:
 	void FinishReturn();
 
 protected:
+	// 기존 캐릭터 갱신에서 사망한 몸체와 플레이어의 실제 접촉 부위만 민다.
+	virtual void Tick(float DeltaSeconds) override;
+
+	// 질량에 관계없이 접촉 부위에 더할 속도의 초당 증가량이다. 0이면 밀기만 끈다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Death", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float DeadBodyPushForce = 2400.0f;
+
 	// 시연 첫타는 최대 HP의 이 비율을 깎되 최소 HP 1을 남긴다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|SceneCombat", meta = (ClampMin = "0.01", ClampMax = "1.0"))
 	float SceneHitDamageRatio = 0.5f;
@@ -180,6 +198,28 @@ protected:
 
 
 private:
+	// 천장 연출과 사망 처리가 바꾸기 전 인스턴스의 설정을 보관한다.
+	FTransform RetryPose;
+	FTransform AliveMeshPose;
+	FCollisionResponseContainer AliveCapsuleResponses;
+	FCollisionResponseContainer AliveMeshResponses;
+	ECollisionEnabled::Type AliveCapsuleCollision = ECollisionEnabled::NoCollision;
+	ECollisionEnabled::Type AliveMeshCollision = ECollisionEnabled::NoCollision;
+	ECollisionChannel AliveCapsuleType = ECC_Pawn;
+	ECollisionChannel AliveMeshType = ECC_WorldDynamic;
+	EVisibilityBasedAnimTickOption AliveAnimTick = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
+	EPhysicsTransformUpdateMode::Type AlivePhysicsMode = EPhysicsTransformUpdateMode::SimulationUpatesComponentTransform;
+	bool bRetryStateSaved = false;
+	bool bResettingForRetry = false;
+	bool bAliveCapsuleOverlap = false;
+	bool bAliveMeshOverlap = false;
+	bool bAliveCapsuleNavigation = false;
+	bool bAliveMeshNavigation = false;
+	bool bAliveMeshTick = false;
+	bool bAliveActorTick = false;
+	bool bAliveTarget = false;
+	bool bAliveDamage = false;
+
 	// 영역 밖에서는 체력이 갱신되어도 체력바를 다시 켜지 않는다.
 	bool bShowHealth = false;
 

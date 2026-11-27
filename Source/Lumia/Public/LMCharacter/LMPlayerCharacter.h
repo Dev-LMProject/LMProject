@@ -13,6 +13,8 @@ class UAnimInstance;
 class UAnimMontage;
 class UMotionWarpingComponent;
 class ALMFieldMonsterCharacter;
+class ULMCombatAttributeSet;
+class UGameplayAbility;
 
 // 지정 엘리트의 유효피해와 HP 보호를 마친 다음 틱에 각성 연출을 요청한다.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FLMOnAwakeningStarted);
@@ -72,7 +74,7 @@ public:
     FLMOnAwakeningStarted OnAwakeningStarted;
 
     // 지정 엘리트의 유효피해만 각성 조건으로 사용하고 치명 피해를 먼저 막는다.
-    virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth) override;
+    virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth, bool& bAllowCritical) override;
 
     // 실제 감소가 없는 보호도 포함해 피해 계산 이후 각성 알림을 한 번 예약한다.
     virtual void FinishCombatDamage() override;
@@ -197,6 +199,14 @@ public:
     /** 입력 취소 시 유예없이 이동 · 달리기 · 피벗을 정리한다. */
     void CancelMoveInput();
 protected:
+    // 기존 AbilitySet에서 부여한 피격 능력을 실제 피해 때만 실행한다.
+    UPROPERTY(EditDefaultsOnly, Category = "LM|Damage")
+    TSubclassOf<UGameplayAbility> HitReactAbility;
+
+    // 공격 취소가 끝난 다음 틱에 BP가 사망 모션과 재도전 연출을 시작한다.
+    UFUNCTION(BlueprintImplementableEvent, Category = "LM|Damage")
+    void OnPlayerDeathStarted();
+
     /** BP 설정을 검증하고 초기 이동 속도와 카메라 거리를 반영한다. */
     virtual void BeginPlay() override;
 
@@ -240,6 +250,20 @@ protected:
     virtual bool ExecutePreparedJump();
 
 private:
+    // 확정된 피해만 받아 치명 피해를 일반 피격보다 먼저 처리한다.
+    void HandlePlayerDamage(float ActualDamage, bool bHealthDepleted);
+
+    // 피해 계산과 능력 목록 잠금이 끝난 뒤 기존 행동을 취소하고 반응을 재생한다.
+    void SendDamageReaction();
+
+    // 이전 몸체의 구독과 소유한 사망 태그만 제거해 새 몸체에 남기지 않는다.
+    void ClearDamageReaction();
+
+    TWeakObjectPtr<ULMCombatAttributeSet> DamageAttributes;
+    FDelegateHandle PlayerDamageHandle;
+    FTimerHandle DamageReactionTimer;
+    bool bPlayerDeathStarted = false;
+
     // 유효한 감지 소유자가 남아 있을 때 예약된 각성 알림을 한 번 전달한다.
     void SendAwakeningStarted();
 

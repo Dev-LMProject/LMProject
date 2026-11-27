@@ -35,6 +35,14 @@ public:
 	// 감지 시작 한 번당 모든 대상의 사망을 한 번만 알린다.
 	UPROPERTY(BlueprintAssignable, Category = "LM|CombatArea")
 	FLMOnMobsCleared OnMobsCleared;
+
+	// 배치된 몬스터를 복구하고 방 BP와 레벨의 재도전 준비를 알린다.
+	UFUNCTION(BlueprintCallable, Category = "LM|Retry")
+	bool ResetForRetry();
+
+	// 소형방의 큐브 잠금과 사망 집계처럼 맵별 연결을 다시 준비한다.
+	UPROPERTY(BlueprintAssignable, Category = "LM|Retry")
+	FLMOnMobsCleared OnRoomReset;
 	
     // 시작 시 감지 박스 안의 몬스터를 한 번만 등록한다.
     UFUNCTION(BlueprintCallable, Category = "LM|CombatArea")
@@ -112,6 +120,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|CombatPlace", meta = (ClampMin = "15.0", ClampMax = "75.0", Units = "deg"))
 	float WaitArcAngle = 40.0f;
 protected:
+	// 몬스터를 복구하기 전에 방이 소유한 시퀀스와 QTE를 정리한다.
+	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Retry", meta = (ForceAsFunction))
+	void OnRetryStarted();
+
+	// 몬스터 복구가 끝나면 낙하 없이 다시 입장할 상태를 준비한다.
+	UFUNCTION(BlueprintImplementableEvent, Category = "LM|Retry", meta = (ForceAsFunction))
+	void OnRetryReady();
 
 	virtual void BeginPlay() override{ bRegistered = false; bEndingPlay = false; Super::BeginPlay();}
 
@@ -188,6 +203,7 @@ private:
 
     bool bRegistered = false;
     bool bEndingPlay = false;
+	bool bResettingForRetry = false;
 	
 	// 대기 순서와 이전 공격 이후의 복귀 조건을 보관한다.
 	struct FLMQueueEntry

@@ -110,6 +110,16 @@ void ALMBaseCharacter::InitializeAbilitySystem(AActor* AbilityOwner, ULMAbilityS
 		AbilityTagChangedHandle = AbilitySystem->RegisterGenericGameplayTagEvent().AddUObject(this, &ThisClass::HandleAbilityTagChanged);
 	}
 
+	// 이 몸체의 첫 연결에서만 초기화하고 UI 구독보다 먼저 종류별 HP를 확정한다.
+	if (!bCombatStatsInitialized)
+	{
+		ULMCombatAttributeSet* CombatStats = const_cast<ULMCombatAttributeSet*>(AbilitySystem->GetSet<ULMCombatAttributeSet>());
+		if (CombatStats && ensureMsgf(StartHealth >= 1 && StartHealth <= 100000 && CombatStats->SetCriticalSettings(CriticalChance, CriticalStep, CriticalLimit, CriticalDamagePercent), TEXT("%s: Invalid starting combat settings."), *GetName()))
+		{
+			bCombatStatsInitialized = true;
+			CombatStats->StartNewLife(StartHealth);
+		}
+	}
 	OnAbilitySystemReady();
 
 	if (CachedAbilitySystem.Get() == AbilitySystem && AbilitySystem->GetAvatarActor() == this)
@@ -285,7 +295,15 @@ void ALMBaseCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ALMBaseCharacter::ReceiveCombatDamage(AActor* DamageSource, const ULMAttackData* AttackData, const FHitResult& HitResult)
 {
     if (!IsValid(AttackData)) return;
-    ApplyCombatDamage(Cast<ALMBaseCharacter>(DamageSource), AttackData->BaseDamage, AttackData, HitResult, FGameplayTag());
+    ALMBaseCharacter* SourceBody = Cast<ALMBaseCharacter>(DamageSource);
+    if (!IsValid(SourceBody)) return;
+    ApplyCombatDamage(SourceBody, SourceBody->GetAttackDamage(AttackData), AttackData, HitResult, FGameplayTag());
+}
+
+// 플레이어와 보스는 기존 DA의 일반 피해를 그대로 사용한다.
+float ALMBaseCharacter::GetAttackDamage(const ULMAttackData* AttackData) const
+{
+    return IsValid(AttackData) ? AttackData->BaseDamage : 0.0f;
 }
 
 // 일반 피해와 시연 피해가 같은 출처·GE·속성·사망 경로를 사용하도록 적용 부분을 공유한다.
@@ -294,8 +312,12 @@ bool ALMBaseCharacter::ApplyCombatDamage(ALMBaseCharacter* DamageSource, float R
     if (!HasAuthority() || IsActorBeingDestroyed()) return false;
     if (!IsValid(DamageSource) || DamageSource->IsActorBeingDestroyed() || DamageSource->GetWorld() != GetWorld())
         return false;
-    if (!FMath::IsFinite(RequestedDamage) || RequestedDamage < 0.0f)
+    int32 DamageValue = 0;
+    if (!ULMCombatAttributeSet::TryGetDamage(RequestedDamage, 100, DamageValue))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LMCombat] %s: Damage must be a whole number from 0 to 100000: %f"), *GetNameSafe(AttackData), RequestedDamage);
         return false;
+    }
 
     // 명시한 두 시연 이유만 방어와 일반 피해 제한을 우회할 수 있다.
     const bool bSceneHit = SceneTag == LMGameplayTags::Damage_SceneHit || SceneTag == LMGameplayTags::Damage_SceneFinish;
@@ -338,7 +360,6 @@ bool ALMBaseCharacter::ApplyCombatDamage(ALMBaseCharacter* DamageSource, float R
 
     FGameplayEffectSpecHandle DamageSpec = AttackerASC->MakeOutgoingSpec(DamageEffectClass, 1.0f, DamageContext);
     if (!DamageSpec.IsValid()) return false;
-    DamageSpec.Data->SetSetByCallerMagnitude(LMGameplayTags::Data_Damage, RequestedDamage);
     if (bSceneHit)
         DamageSpec.Data->AddDynamicAssetTag(SceneTag);
 
@@ -360,12 +381,21 @@ bool ALMBaseCharacter::ApplyCombatDamage(ALMBaseCharacter* DamageSource, float R
         }
     }
 
+    // 방어를 통과한 타격만 판정한다. 공격자의 누적 확정은 실제 HP 감소 지점에서 한다.
+    const ULMCombatAttributeSet* AttackerStats = AttackerASC->GetSet<ULMCombatAttributeSet>();
+    if (!bSceneHit && DamageValue > 0 && AttackData->bAllowCritical && AttackerStats && AttackerStats->RollCritical())
+    {
+        if (!ULMCombatAttributeSet::TryGetDamage(RequestedDamage, AttackerStats->GetCriticalDamagePercent(), DamageValue))
+            return false;
+        DamageSpec.Data->AddDynamicAssetTag(LMGameplayTags::Damage_Critical);
+    }
+    DamageSpec.Data->SetSetByCallerMagnitude(LMGameplayTags::Data_Damage, static_cast<float>(DamageValue));
     ReceiverASC->ApplyGameplayEffectSpecToSelf(*DamageSpec.Data.Get());
     return true;
 }
 
 // 별도 규칙이 없는 캐릭터의 피해량은 바꾸지 않는다.
-float ALMBaseCharacter::ChangeIncomingDamage(const FGameplayEffectSpec&, float RequestedDamage, float, float)
+float ALMBaseCharacter::ChangeIncomingDamage(const FGameplayEffectSpec&, float RequestedDamage, float, float, bool&)
 {
     return RequestedDamage;
 }

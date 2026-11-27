@@ -9,6 +9,7 @@
 #include "Components/SceneComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
+#include "Engine/LatentActionManager.h"
 #include "LMCharacter/LMFieldMonsterCharacter.h"
 #include "LMCharacter/LMPlayerCharacter.h"
 #include "LMGameplayTags/LMGameplayTags.h"
@@ -142,6 +143,36 @@ void ALMCombatArea::StopMobWatch()
 	PendingMobDeaths.Reset();
 }
 
+// 기존 고정 명단을 유지한 채 이전 전투를 끝내고 방의 재도전 상태를 준비한다.
+bool ALMCombatArea::ResetForRetry()
+{
+	if (bEndingPlay || bResettingForRetry || !bRegistered || RegisteredMonsters.IsEmpty() || !GetWorld())
+		return false;
+
+	// 일부 대상만 되살린 상태로 진행하지 않도록 전체 명단을 먼저 확인한다.
+	for (ALMFieldMonsterCharacter* RetryMonster : RegisteredMonsters)
+		if (!IsValid(RetryMonster) || RetryMonster->GetCombatArea() != this || !RetryMonster->CanResetForRetry())
+			return false;
+
+	TGuardValue<bool> RetryGuard(bResettingForRetry, true);
+	StopMobWatch();
+	EndCombat();
+	GetWorld()->GetLatentActionManager().RemoveActionsForObject(this);
+	OnRetryStarted();
+
+	for (ALMFieldMonsterCharacter* RetryMonster : RegisteredMonsters)
+		if (!IsValid(RetryMonster) || !RetryMonster->ResetForRetry())
+			return false;
+
+	// 다음 시도와 옛 공격 종료 알림이 같은 번호를 사용하지 않도록 전진만 한다.
+	++CombatId;
+	ActiveAttacks.Reset();
+	AttackQueue.Reset();
+	OnRetryReady();
+	OnRoomReset.Broadcast();
+	return true;
+}
+
 void ALMCombatArea::RegisterMonsters()
 {
 	if (bEndingPlay||bRegistered)return;
@@ -176,7 +207,7 @@ void ALMCombatArea::RegisterMonsters()
 
 void ALMCombatArea::HandlePlayerOverlap(AActor* OtherActor, UPrimitiveComponent* OtherComp)
 {
-	if (bEndingPlay||!bRegistered) return;
+	if (bEndingPlay || bResettingForRetry || !bRegistered) return;
 	ALMPlayerCharacter* Player=Cast<ALMPlayerCharacter>(OtherActor);
 	
 	if (!IsValid(Player)||OtherComp!=Player->GetCapsuleComponent()) return;
@@ -211,7 +242,7 @@ void ALMCombatArea::HandlePlayerOverlap(AActor* OtherActor, UPrimitiveComponent*
 // 시야 성공 이벤트도 실제 후보와 현재 Sight를 확인한 뒤에만 인정한다.
 void ALMCombatArea::ReportPlayerSeen(ALMFieldMonsterCharacter* Observer, AActor* Player, bool bSuccessfullySensed)
 {
-    if (bEndingPlay || !bRegistered || bIsSight || !bSuccessfullySensed)
+    if (bEndingPlay || bResettingForRetry || !bRegistered || bIsSight || !bSuccessfullySensed)
     {
         return;
     }
@@ -243,7 +274,8 @@ bool ALMCombatArea::CanSeePlayer(ALMFieldMonsterCharacter* Observer, ALMPlayerCh
 {
     if (!IsValid(Observer) || !IsValid(Player)) return false;
 
-    if (Observer->IsDead() || Observer->IsActorBeingDestroyed())
+    // 재도전에서 AI가 복구되어도 숨겨 둔 엘리트는 등장 전 발견을 보고하지 않는다.
+    if (Observer->IsDead() || Observer->IsActorBeingDestroyed() || Observer->IsHidden())
     {
         return false;
     }
@@ -267,7 +299,7 @@ bool ALMCombatArea::CanSeePlayer(ALMFieldMonsterCharacter* Observer, ALMPlayerCh
 // 발견 상태를 먼저 확정하여 중복 Sight 보고가 전투를 다시 시작하지 않게 한다.
 void ALMCombatArea::BeginCombat()
 {
-    if (bEndingPlay ||bIsSight || !IsValid(TargetPlayer)) return;
+    if (bEndingPlay || bResettingForRetry || bIsSight || !IsValid(TargetPlayer)) return;
 
     bIsSight = true;
 	++CombatId;
@@ -607,7 +639,7 @@ int32 ALMCombatArea::FindAttackTurn(ALMFieldMonsterCharacter* Monster) const
 // 준비되지 않은 항목의 순서는 보존하고 현재 가능한 몬스터로 빈 정원만 채운다.
 void ALMCombatArea::FillAttackSlots()
 {
-	if (bEndingPlay || !bIsSight) return;
+	if (bEndingPlay || bResettingForRetry || !bIsSight) return;
 
 	if (!IsValid(TargetPlayer) || TargetPlayer->IsActorBeingDestroyed())
 	{
