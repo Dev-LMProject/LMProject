@@ -9,6 +9,7 @@ class UAnimMontage;
 class ULMAbilitySystemComponent;
 class ULMAttackData;
 class UGameplayEffect;
+class USkeletalMeshComponent;
 
 struct FGameplayTag;
 struct FGameplayEffectSpec;
@@ -66,6 +67,10 @@ public:
 	/** 현재 몸체의 ASC·체력·사망 상태를 확인한다. */
 	UFUNCTION(BlueprintPure, Category = "LM|Combat")
 	bool IsAliveForCombat() const;
+
+	// 몽타주 첫 슬롯의 소켓 접촉점을 원본 루트 모션으로 평가하고 워프 종료 시 발 기준 오프셋을 반환한다.
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "LM|Combat|Motion Warping")
+	bool TryCalculateMotionWarpingOffset(const UAnimMontage* Montage, const USkeletalMeshComponent* SocketMesh, FName StartSocket, FName EndSocket, float WarpEndTime, float ContactTime, float ContactFraction, FVector& OutOffset) const;
 
 	// 이 캐릭터의 회피 GA가 재생할 몽타주다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Dodge")

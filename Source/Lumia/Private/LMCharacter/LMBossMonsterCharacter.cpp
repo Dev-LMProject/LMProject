@@ -79,8 +79,12 @@ int64 ALMBossMonsterCharacter::TryStartMelee(ALMPlayerCharacter* _TargetPlayer, 
 	// 활성화 호출 안에서 몽타주가 즉시 종료돼도 결과를 보존하도록 먼저 구독한다.
 	const auto OnEnded = [this, StartedRun, StartedHandle](const FAbilityEndedData& Ended)
 	{
-		if (Ended.AbilitySpecHandle == StartedHandle)
-			FinishMelee(StartedRun, Ended.bWasCancelled ? ELMBossMonsterMeleeResult::Failed : ELMBossMonsterMeleeResult::Succeeded);
+		if (Ended.AbilitySpecHandle != StartedHandle) return;
+
+		const bool bSucceeded = !Ended.bWasCancelled;
+		const ELMBossMonsterMeleeResult Result = bSucceeded ? ELMBossMonsterMeleeResult::Succeeded : ELMBossMonsterMeleeResult::Failed;
+		if (FinishMelee(StartedRun, Result))
+			OnMeleeFinished.Broadcast(StartedRun, bSucceeded);
 	};
 	EndedHandle = BossASC->OnAbilityEnded.AddWeakLambda(this, OnEnded);
 	if (!BossASC->TryActivateAbility(StartedHandle, false))
@@ -98,24 +102,25 @@ ELMBossMonsterMeleeResult ALMBossMonsterCharacter::ReadMeleeResult(int64 _Run) c
 }
 
 // 현재 공격의 종료 구독을 해제하고 해당 Task가 읽을 결과를 남긴다.
-void ALMBossMonsterCharacter::FinishMelee(int64 _Run, ELMBossMonsterMeleeResult _Result)
+bool ALMBossMonsterCharacter::FinishMelee(int64 _Run, ELMBossMonsterMeleeResult _Result)
 {
-	if (_Run != MeleeRun || !ActiveAttack.IsValid()) return;
+	if (_Run != MeleeRun || !ActiveAttack.IsValid()) return false;
 
 	BossASC->OnAbilityEnded.Remove(EndedHandle);
 	EndedHandle.Reset();
 	ActiveAttack = FGameplayAbilitySpecHandle();
 	MeleeResult = _Result;
+	return true;
 }
 
 // 같은 실행만 취소하며 GAS의 동기 종료 알림이 결과를 다시 쓰지 않게 한다.
 void ALMBossMonsterCharacter::StopMelee(int64 _Run)
 {
-	if (_Run != MeleeRun || !ActiveAttack.IsValid()) return;
-
 	const FGameplayAbilitySpecHandle HandleToStop = ActiveAttack;
-	FinishMelee(_Run, ELMBossMonsterMeleeResult::Failed);
+	if (!FinishMelee(_Run, ELMBossMonsterMeleeResult::Failed)) return;
+
 	BossASC->CancelAbilityHandle(HandleToStop);
+	OnMeleeFinished.Broadcast(_Run, false);
 }
 
 // 몸체가 끝날 때 새 공격을 막고 부여한 능력을 회수한 뒤 부모의 ASC 연결을 해제한다.
