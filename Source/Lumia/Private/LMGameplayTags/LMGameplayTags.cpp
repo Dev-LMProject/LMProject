@@ -2,6 +2,7 @@
 
 namespace LMGameplayTags
 {
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Critical, "LM.Damage.Critical", "이번 타격의 치명타 판정");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(QTE_Interaction_Press, "LM.QTE.Interaction.Press", "한 번 누르기 판정");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(QTE_Interaction_Mash, "LM.QTE.Interaction.Mash", "서로 다른 누름 횟수 판정");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(QTE_Interaction_Drag, "LM.QTE.Interaction.Drag", "지정 영역의 포인터 드래그 판정");

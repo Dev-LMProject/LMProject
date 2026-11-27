@@ -24,6 +24,7 @@
 #include "Abilities/GameplayAbilityTypes.h"
 #include "GameplayAbilitySpec.h"
 #include "LMCombat/LMAttackAbility.h"
+#include "LMCombat/LMAttackData.h"
 #include "GameplayEffect.h"
 #include "PhysicsEngine/BodyInstance.h"
 #include "PhysicsEngine/PhysicsAsset.h"
@@ -1070,6 +1071,14 @@ void ALMFieldMonsterCharacter::SetEliteFightRules(bool _bEliteFightRules)
     bEliteFightRules = _bEliteFightRules;
 }
 
+// 일반 엘리트 150과 이벤트 엘리트 250을 같은 DA에서 명시적으로 구분한다.
+float ALMFieldMonsterCharacter::GetAttackDamage(const ULMAttackData* AttackData) const
+{
+    if (bEliteFightRules && IsValid(AttackData) && AttackData->EventDamage != 0.0f)
+        return AttackData->EventDamage;
+    return Super::GetAttackDamage(AttackData);
+}
+
 // 지정 시연을 먼저 확정한 뒤 공격을 중단해 반납 과정에서 공격권을 다시 받지 않게 한다.
 bool ALMFieldMonsterCharacter::SetSceneFight(ALMPlayerCharacter* _ScenePlayer, bool _bSceneFight)
 {
@@ -1110,7 +1119,8 @@ bool ALMFieldMonsterCharacter::ApplySceneHit(ALMPlayerCharacter* _ScenePlayer, b
     if (!FMath::IsFinite(SceneHitDamageRatio) || SceneHitDamageRatio <= 0.0f || SceneHitDamageRatio > 1.0f)
         return false;
 
-    const float RequestedDamage = bFinalHit ? CombatAttributes->GetHealth() : CombatAttributes->GetMaxHealth() * SceneHitDamageRatio;
+    // 기존 비율은 보존하고 실제 요청 피해만 양수 정수로 한 번 반올림한다.
+    const float RequestedDamage = bFinalHit ? CombatAttributes->GetHealth() : FMath::Max(1.0f, FMath::RoundToFloat(CombatAttributes->GetMaxHealth() * SceneHitDamageRatio));
     const FGameplayTag SceneTag = bFinalHit ? LMGameplayTags::Damage_SceneFinish : LMGameplayTags::Damage_SceneHit;
     if (!ApplyCombatDamage(_ScenePlayer, RequestedDamage, nullptr, FHitResult(), SceneTag))
         return false;
@@ -1120,13 +1130,14 @@ bool ALMFieldMonsterCharacter::ApplySceneHit(ALMPlayerCharacter* _ScenePlayer, b
 }
 
 // Spec별 시연 예외와 일반 피해 제한을 분리해 콜백 재진입에도 다른 공격은 우회하지 못한다.
-float ALMFieldMonsterCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth)
+float ALMFieldMonsterCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth, bool& bAllowCritical)
 {
     AActor* DamageSource = DamageSpec.GetContext().GetEffectCauser();
     const bool bSceneHit = DamageSpec.GetDynamicAssetTags().HasTagExact(LMGameplayTags::Damage_SceneHit);
     const bool bSceneFinish = DamageSpec.GetDynamicAssetTags().HasTagExact(LMGameplayTags::Damage_SceneFinish);
     if (bSceneHit || bSceneFinish)
     {
+        bAllowCritical = false;
         if (!bSceneFight || !ScenePlayer.IsValid() || DamageSource != ScenePlayer.Get() || bSceneHit == bSceneFinish || bSceneFinalHitDone)
             return 0.0f;
         if (bSceneFinish)
@@ -1142,6 +1153,9 @@ float ALMFieldMonsterCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& 
     }
     if (bSceneFight) return 0.0f;
     if (bEliteFightRules && Cast<ALMPlayerCharacter>(DamageSource))
+    {
+        bAllowCritical = false;
         return FMath::Min(1.0f, FMath::Max(0.0f, OldHealth - FMath::Min(OldHealth, 1.0f)));
-    return Super::ChangeIncomingDamage(DamageSpec, RequestedDamage, OldHealth, MaximumHealth);
+    }
+    return Super::ChangeIncomingDamage(DamageSpec, RequestedDamage, OldHealth, MaximumHealth, bAllowCritical);
 }
