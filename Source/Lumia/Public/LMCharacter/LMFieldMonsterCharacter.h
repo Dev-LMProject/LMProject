@@ -108,6 +108,13 @@ public:
 	void FinishReturn();
 
 protected:
+	// 기존 캐릭터 갱신에서 사망한 몸체와 플레이어의 실제 접촉 부위만 민다.
+	virtual void Tick(float DeltaSeconds) override;
+
+	// 질량에 관계없이 접촉 부위에 더할 속도의 초당 증가량이다. 0이면 밀기만 끈다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Death", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float DeadBodyPushForce = 2400.0f;
+
 	// 시연 첫타는 최대 HP의 이 비율을 깎되 최소 HP 1을 남긴다.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|SceneCombat", meta = (ClampMin = "0.01", ClampMax = "1.0"))
 	float SceneHitDamageRatio = 0.5f;

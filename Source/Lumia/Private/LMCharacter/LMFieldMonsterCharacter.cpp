@@ -6,9 +6,11 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/WidgetComponent.h"
+#include "CollisionShape.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/RootMotionSource.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMCombat/LMCombatAttributeSet.h"
@@ -23,6 +25,9 @@
 #include "GameplayAbilitySpec.h"
 #include "LMCombat/LMAttackAbility.h"
 #include "GameplayEffect.h"
+#include "PhysicsEngine/BodyInstance.h"
+#include "PhysicsEngine/PhysicsAsset.h"
+#include "PhysicsEngine/SkeletalBodySetup.h"
 
 /** 몬스터의 실제 체력과 표시 객체를 각 인스턴스에 독립적으로 생성한다. */
 ALMFieldMonsterCharacter::ALMFieldMonsterCharacter()
@@ -235,14 +240,12 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
     bCanReceiveCombatDamage = false;
     SetHealthVisible(false);
     GetCapsuleComponent()->SetGenerateOverlapEvents(false);
-    GetCapsuleComponent()->SetCollisionResponseToAllChannels(ECR_Ignore);
     GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     GetCapsuleComponent()->SetCanEverAffectNavigation(false);
 
     if (USkeletalMeshComponent* DeathMesh = GetMesh())
     {
         DeathMesh->SetGenerateOverlapEvents(false);
-        DeathMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
         DeathMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         DeathMesh->SetCanEverAffectNavigation(false);
         // 화면 밖에서도 사망 모션의 마지막 자세를 갱신한다.
@@ -257,11 +260,11 @@ void ALMFieldMonsterCharacter::HandleDamageApplied(float ActualDamage, bool _bIs
             DeadBrain->StopLogic(TEXT("Monster dead"));
     }
 
-    // 스몰 BP가 기존 사망 모션을 기다린 뒤 물리를 시작하도록 알린다.
+    // 각 몬스터 BP가 기존 사망 모션을 기다린 뒤 물리를 시작하도록 알린다.
     OnDeathStarted();
 }
 
-// 사망 모션이 끝난 스몰의 메시를 지형과만 충돌하는 레그돌로 한 번 전환한다.
+// 사망 연출이 끝난 몸체를 지형에 막히고 플레이어에게 밀리는 레그돌로 한 번 전환한다.
 void ALMFieldMonsterCharacter::StartDeathPhysics()
 {
     if (bDeathPhysicsStarted || !bIsDead || bSceneFight || bEndingPlay)
@@ -274,17 +277,68 @@ void ALMFieldMonsterCharacter::StartDeathPhysics()
     // 반복 요청에도 이미 움직이는 시체의 상태를 다시 초기화하지 않는다.
     bDeathPhysicsStarted = true;
     DeathMesh->PhysicsTransformUpdateMode = EPhysicsTransformUpdateMode::SimulationUpatesComponentTransform;
-    DeathMesh->SetCollisionObjectType(ECC_PhysicsBody);
-    DeathMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
-    // 회전하는 큐브 방은 WorldDynamic이므로 고정 지형과 함께 물리 접촉을 남긴다.
-    DeathMesh->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-    DeathMesh->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
-    DeathMesh->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+    // BP Mesh의 채널별 응답과 물리값을 유지하고 사망할 때만 시뮬레이션을 허용한다.
+    DeathMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     DeathMesh->SetSimulatePhysics(true);
     // 바닥이 회전하거나 높은 곳에서 떨어질 때 얇은 지형을 관통할 가능성을 줄인다.
     DeathMesh->SetAllUseCCD(true);
     DeathMesh->SetAllBodiesPhysicsBlendWeight(1.0f);
     DeathMesh->WakeAllRigidBodies();
+    // 겹침 이벤트 없이 실제 바디를 조회하므로 엔진의 기본 접촉 힘이 중복되지 않는다.
+    SetActorTickEnabled(true);
+}
+
+// 플레이어를 막지 않고 실제로 닿은 시체 부위에만 제한된 수평 속도를 더한다.
+void ALMFieldMonsterCharacter::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    if (!bDeathPhysicsStarted || bSceneFight || bEndingPlay || DeltaSeconds <= 0.0f)
+        return;
+
+    // 편집한 강도나 시간이 유효하지 않으면 물리 계산으로 전달하지 않는다.
+    if (!ensureMsgf(FMath::IsFinite(DeltaSeconds) && FMath::IsFinite(DeadBodyPushForce) && DeadBodyPushForce >= 0.0f, TEXT("[LMCombat] Corpse push time and force must be finite and non-negative.")))
+        return;
+    if (DeadBodyPushForce == 0.0f) return;
+
+    const APlayerController* LocalPlayerController = GetWorld()->GetFirstPlayerController();
+    const ALMPlayerCharacter* TouchPlayer = LocalPlayerController ? Cast<ALMPlayerCharacter>(LocalPlayerController->GetCharacter()) : nullptr;
+    USkeletalMeshComponent* DeathMesh = GetMesh();
+    if (!IsValid(TouchPlayer) || !IsValid(DeathMesh) || !TouchPlayer->GetCharacterMovement()->IsMovingOnGround())
+        return;
+
+    const UCapsuleComponent* TouchCapsule = TouchPlayer->GetCapsuleComponent();
+    const FVector PlayerSpeed = TouchPlayer->GetVelocity();
+    // 멀리 떨어진 시체는 범위 비교만 하고 개별 물리 바디를 검사하지 않는다.
+    if (!TouchCapsule->IsQueryCollisionEnabled() || PlayerSpeed.ContainsNaN() || PlayerSpeed.IsNearlyZero() || !DeathMesh->Bounds.GetBox().Intersect(TouchCapsule->Bounds.GetBox()))
+        return;
+
+    const UPhysicsAsset* DeathAsset = DeathMesh->GetPhysicsAsset();
+    const FVector PushDirection = PlayerSpeed.GetSafeNormal2D();
+    if (!DeathAsset || PushDirection.IsNearlyZero()) return;
+    const FCollisionShape TouchShape = FCollisionShape::MakeCapsule(TouchCapsule->GetScaledCapsuleRadius(), TouchCapsule->GetScaledCapsuleHalfHeight());
+    const float PushGoal = FMath::Min(static_cast<float>(PlayerSpeed.Size2D()) * 0.35f, 120.0f);
+    const float PushStep = DeadBodyPushForce * FMath::Min(DeltaSeconds, 0.05f);
+
+    for (const USkeletalBodySetup* DeathBodySetup : DeathAsset->SkeletalBodySetups)
+    {
+        if (!IsValid(DeathBodySetup)) continue;
+        // 바디 번호를 스켈레톤 번호로 해석하지 않고 해당 바디의 뼈 이름을 사용한다.
+        const FName BodyBone = DeathBodySetup->BoneName;
+        const FBodyInstance* DeathBody = DeathMesh->GetBodyInstance(BodyBone);
+        if (!DeathBody || !DeathMesh->IsSimulatingPhysics(BodyBone)) continue;
+        /* 애니메이션 자세가 아닌 현재 시뮬레이션 위치로 접촉을 판정한다.
+         * shortcut: 현재 캡슐 기준이다. 고속 돌진 경로까지 밀어야 하면 Sweep으로 확장한다. */
+        if (!DeathBody->OverlapTest(TouchCapsule->GetComponentLocation(), TouchCapsule->GetComponentQuat(), TouchShape))
+            continue;
+
+        const FVector BodyVelocity = DeathMesh->GetPhysicsLinearVelocity(BodyBone);
+        if (BodyVelocity.ContainsNaN()) continue;
+        const float BodySpeed = static_cast<float>(FVector::DotProduct(BodyVelocity, PushDirection));
+        const float SpeedStep = FMath::Clamp(PushGoal - BodySpeed, 0.0f, PushStep);
+        // 질량이 큰 Crunch도 반응하되 이미 충분히 밀린 부위는 더 가속하지 않는다.
+        if (SpeedStep > 0.0f)
+            DeathMesh->AddImpulse(PushDirection * SpeedStep, BodyBone, true);
+    }
 }
 
 // 패링 경직을 시작하고 피격 애니메이션 길이만큼 기다린 뒤 그로기로 전환한다.
