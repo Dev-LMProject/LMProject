@@ -7,6 +7,9 @@
 #include "LMPlayer/LMPlayerState.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "LMCharacter/LMPlayerCharacter.h"
+#include "LMPlayer/LMPlayerController.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Kismet/GameplayStatics.h"
 
 /** 새로 생성되는 전투 속성의 기본 체력과 임시 피해량을 설정한다. */
 ULMCombatAttributeSet::ULMCombatAttributeSet()
@@ -205,9 +208,21 @@ void ULMCombatAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCa
 	Result.bHealthDepleted = NewHealth <= 0.0f;
 	Result.bSceneDamage = bSceneDamage;
 	Result.bPlayerAttack = Cast<ALMPlayerCharacter>(SourceBody) != nullptr;
+	if (DamageReceiver)
+	{
+		Result.HitLocation = DamageReceiver->GetMesh() ? DamageReceiver->GetMesh()->Bounds.Origin : DamageReceiver->GetActorLocation();
+		if (SourceBody)
+			Result.HitDirection = (Result.HitLocation - SourceBody->GetActorLocation()).GetSafeNormal(UE_SMALL_NUMBER, FVector::ForwardVector);
+	}
+	if (const FHitResult* Contact = Data.EffectSpec.GetContext().GetHitResult(); Contact && Contact->GetActor() == DamageReceiver && !Contact->ImpactPoint.ContainsNaN())
+	{
+		Result.HitLocation = Contact->ImpactPoint;
+		Result.HitDirection = (-Contact->ImpactNormal).GetSafeNormal(UE_SMALL_NUMBER, Result.HitDirection);
+	}
 	const bool bChargeHit = SourceBody && DamageReceiver && DamageReceiver->IsHostileTo(SourceBody) && HitData && !bSceneDamage;
 	const float ChargeGain = bChargeHit ? HitData->SpecialChargeGain : 0.0f;
 	TWeakObjectPtr<ALMPlayerState> SourcePlayer = SourceASC ? Cast<ALMPlayerState>(SourceASC->GetOwnerActor()) : nullptr;
+	TWeakObjectPtr<ALMPlayerController> EffectPlayer = Cast<ALMPlayerController>(UGameplayStatics::GetPlayerController(GetWorld(), 0));
 
 	// SetHealth의 UI 알림이 재진입하더라도 다음 타격은 갱신된 누적을 사용한다.
 	if (bAllowCritical)
@@ -224,4 +239,6 @@ void ULMCombatAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCa
 	// HP 및 기존 사망 수신자가 모두 끝난 뒤 캐릭터가 다음 틱 반응을 예약한다.
 	if (IsValid(DamageReceiver) && !DamageReceiver->IsActorBeingDestroyed())
 		DamageReceiver->FinishCombatDamage();
+	if (EffectPlayer.IsValid())
+		EffectPlayer->PlayHitEffect(Result);
 }

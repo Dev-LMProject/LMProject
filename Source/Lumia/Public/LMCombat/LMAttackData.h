@@ -24,6 +24,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Damage")
 	bool bAllowCritical = true;
 
+	// 미들 주먹만 기존 타격창 시작 시 공용 공격 효과를 재생한다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Effects")
+	bool bPlayStrikeEffect = false;
+
 	// 실제 유효 피해가 발생한 타격의 검 게이지 보상이며 피해량과 독립적이다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Special", meta = (ClampMin = "0.0"))
 	float SpecialChargeGain = 0.0f;

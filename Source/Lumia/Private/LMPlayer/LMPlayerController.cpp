@@ -31,6 +31,15 @@
 #include "LMCharacter/LMPlayerCharacter.h"
 #include "Camera/CameraActor.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/AssetManager.h"
+#include "Engine/StreamableManager.h"
+#include "LMCombat/LMCombatAttributeSet.h"
+#include "LMCombat/LMCombatEffectData.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Camera/CameraShakeBase.h"
 
 // 공통 카메라와 한 명의 플레이어가 사용할 QTE 판정을 준비한다.
 ALMPlayerController::ALMPlayerController()
@@ -39,9 +48,15 @@ ALMPlayerController::ALMPlayerController()
 	QTEComponent = CreateDefaultSubobject<ULMQTEComponent>(TEXT("QTEComponent"));
 }
 
+// 공용 전투 효과를 먼저 비동기로 요청하고 기존 HUD를 연결한다.
 void ALMPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	if (IsLocalPlayerController() && CombatEffectId.IsValid())
+	{
+		LoadedCombatEffectId = CombatEffectId;
+		CombatEffectLoad = UAssetManager::Get().LoadPrimaryAsset(LoadedCombatEffectId, {FName(TEXT("Combat"))}, FStreamableDelegate::CreateUObject(this, &ThisClass::FinishLoadingCombatEffects));
+	}
 	if (IsLocalPlayerController() &&
 		ensureMsgf(UserHUDClass, TEXT("Assign UserHUDClass in the player controller BP.")))
 	{
@@ -105,6 +120,14 @@ void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	// 종료 중 새 포커스 갱신이 실행되지 않도록 먼저 막는다.
 	bIsEndingPlay = true;
+	// 이 컨트롤러가 요청한 공용 번들만 해제하며 풀 반환은 Niagara가 맡는다.
+	if (CombatEffectLoad)
+		CombatEffectLoad->CancelHandle();
+	CombatEffectLoad.Reset();
+	CombatEffects = nullptr;
+	if (LoadedCombatEffectId.IsValid())
+		UAssetManager::Get().UnloadPrimaryAsset(LoadedCombatEffectId);
+	LoadedCombatEffectId = FPrimaryAssetId();
 	QTEComponent->ResetInputState();
 	
 	// 액터의 Tick·타이머·벽 표시부터 정리하고 남은 화면도 제거한다.
@@ -142,6 +165,65 @@ void ALMPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 
 	Super::EndPlay(EndPlayReason);
+}
+
+// 준비가 끝난 리소스만 사용하며 실패한 첫 타격을 나중에 재생하지 않는다.
+void ALMPlayerController::FinishLoadingCombatEffects()
+{
+	if (bIsEndingPlay) return;
+	CombatEffects = UAssetManager::Get().GetPrimaryAssetObject<ULMCombatEffectData>(LoadedCombatEffectId);
+	if (!CombatEffects || !CombatEffects->NormalHit.IsValid() || !CombatEffects->CriticalHit.IsValid() || !CombatEffects->MonsterStrike.IsValid() || !CombatEffects->CriticalShake.IsValid())
+		UE_LOG(LogTemp, Warning, TEXT("[LMCombatEffects] Check %s and its Combat bundle references."), *LoadedCombatEffectId.ToString());
+}
+
+// 체력 감소 결과 하나에서 효과 하나를 선택하고 플레이어의 성공에만 셰이크를 더한다.
+void ALMPlayerController::PlayHitEffect(const FLMDamageResult& Result)
+{
+	if (bIsEndingPlay || !CombatEffects || Result.ActualDamage <= 0 || Result.bSceneDamage || !IsLocalPlayerController())
+		return;
+	ALMPlayerCameraManager* ViewManager = Cast<ALMPlayerCameraManager>(PlayerCameraManager);
+	if (IsPaused() || bCinematicMode || (ViewManager && ViewManager->IsSequenceCameraActive()) || QTEComponent->HasActiveQTE())
+		return;
+	const bool bStrongHit = Result.bPlayerAttack && Result.bCritical;
+	UNiagaraSystem* HitSystem = bStrongHit ? CombatEffects->CriticalHit.Get() : CombatEffects->NormalHit.Get();
+	const float HitScale = bStrongHit ? CombatEffects->CriticalHitScale : CombatEffects->NormalHitScale;
+	if (HitSystem && FMath::IsFinite(HitScale) && HitScale > 0.0f && !Result.HitLocation.ContainsNaN() && !Result.HitDirection.ContainsNaN())
+	{
+		// 풀에서 꺼낸 인스턴스는 이전 색·크기를 남기지 않고 활성화 전에 다시 설정한다.
+		UNiagaraComponent* HitEffect = UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, HitSystem, Result.HitLocation, Result.HitDirection.Rotation(), FVector(HitScale), true, false, ENCPoolMethod::AutoRelease, true);
+		if (HitEffect)
+		{
+			HitEffect->SetVariableLinearColor(TEXT("User.Color"), CombatEffects->HitColor);
+			HitEffect->Activate(true);
+		}
+	}
+	// 다수 적을 동시에 맞혀도 짧은 간격에 셰이크가 겹치지 않게 한다.
+	const double Now = GetWorld()->GetTimeSeconds();
+	if (bStrongHit && PlayerCameraManager && Now >= NextCriticalShakeTime && CombatEffects->CriticalShake.IsValid())
+	{
+		NextCriticalShakeTime = Now + 0.1;
+		PlayerCameraManager->StartCameraShake(CombatEffects->CriticalShake.Get(), 1.0f);
+	}
+}
+
+// 미들 공격 효과는 기존 손 소켓을 따라가며 종료 시 자동으로 풀에 돌아간다.
+void ALMPlayerController::PlayMonsterStrike(USkeletalMeshComponent* StrikeMesh, FName StrikeSocket)
+{
+	if (bIsEndingPlay || !CombatEffects || !IsValid(StrikeMesh) || !StrikeMesh->DoesSocketExist(StrikeSocket) || !IsLocalPlayerController())
+		return;
+	ALMPlayerCameraManager* ViewManager = Cast<ALMPlayerCameraManager>(PlayerCameraManager);
+	if (IsPaused() || bCinematicMode || (ViewManager && ViewManager->IsSequenceCameraActive()) || QTEComponent->HasActiveQTE())
+		return;
+	UNiagaraSystem* StrikeSystem = CombatEffects->MonsterStrike.Get();
+	const float StrikeScale = CombatEffects->MonsterStrikeScale;
+	if (!StrikeSystem || !FMath::IsFinite(StrikeScale) || StrikeScale <= 0.0f)
+		return;
+	UNiagaraComponent* StrikeEffect = UNiagaraFunctionLibrary::SpawnSystemAttached(StrikeSystem, StrikeMesh, StrikeSocket, FVector::ZeroVector, FRotator::ZeroRotator, FVector(StrikeScale), EAttachLocation::SnapToTarget, true, ENCPoolMethod::AutoRelease, false, true);
+	if (StrikeEffect)
+	{
+		StrikeEffect->SetVariableLinearColor(TEXT("User.Color"), CombatEffects->StrikeColor);
+		StrikeEffect->Activate(true);
+	}
 }
 
 void ALMPlayerController::SelectPreviousInteractionTarget()

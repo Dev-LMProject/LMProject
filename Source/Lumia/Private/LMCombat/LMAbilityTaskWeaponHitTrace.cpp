@@ -1,4 +1,6 @@
 #include "LMCombat/LMAbilityTaskWeaponHitTrace.h"
+#include "LMPlayer/LMPlayerController.h"
+#include "Kismet/GameplayStatics.h"
 
 #include "Abilities/GameplayAbility.h"
 #include "Abilities/GameplayAbilityTypes.h"
@@ -245,6 +247,12 @@ void ULMAbilityTaskWeaponHitTrace::HandleHitWindowEvent(FGameplayTag EventTag, c
             Window.bOpen = true;
             Window.bPendingLastPose = false;
             ++TraceRevision;
+            // 기존 타격창을 재사용하므로 물기와 플레이어 공격에는 별도 효과를 추가하지 않는다.
+            if (Window.AttackData.IsValid() && Window.AttackData->bPlayStrikeEffect)
+            {
+                if (ALMPlayerController* EffectPlayer = Cast<ALMPlayerController>(UGameplayStatics::GetPlayerController(this, 0)))
+                    EffectPlayer->PlayMonsterStrike(Window.SocketMesh.Get(), Window.AttackData->TraceStartSocket);
+            }
         }
         else if (EventTag == LMGameplayTags::Event_Combat_HitWindow_End && Window.bOpen)
         {

@@ -1,12 +1,17 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/AssetManagerTypes.h"
 #include "GameFramework/PlayerController.h"
 #include "GameplayTagContainer.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMPlayerController.generated.h"
 
 class ULMQTEComponent;
+class ULMCombatEffectData;
+class USkeletalMeshComponent;
+struct FStreamableHandle;
+struct FLMDamageResult;
 class UUserWidget;
 class ULMInputConfig;
 class ULMScanComponent;
@@ -40,6 +45,11 @@ class LUMIA_API ALMPlayerController : public APlayerController
 	GENERATED_BODY()
 	
 public:
+	// 확정된 실제 피해에 맞춰 일반 또는 치명타 효과 한 개를 재생한다.
+	void PlayHitEffect(const FLMDamageResult& Result);
+
+	// 미들 주먹의 기존 타격창에서 지정 손 소켓에 단발 효과를 붙인다.
+	void PlayMonsterStrike(USkeletalMeshComponent* StrikeMesh, FName StrikeSocket);
 	// 플레이어 카메라 매니저 클래스를 지정한다.
 	ALMPlayerController();
 
@@ -168,6 +178,21 @@ public:
 	void RefreshCubePanel(ALMCubeRoomPuzzle* Puzzle);
 
 protected:
+	// 플레이 중 동기 로드를 하지 않도록 시작 시 Combat 번들을 한 번 요청한다.
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Effects")
+	FPrimaryAssetId CombatEffectId = FPrimaryAssetId(TEXT("LMCombatEffectData"), TEXT("DA_LM_RobotCombatEffects"));
+
+	// 비동기 로드가 끝난 공용 설정만 보관한다.
+	UPROPERTY(Transient)
+	TObjectPtr<ULMCombatEffectData> CombatEffects;
+
+	// 요청 수명과 월드 종료 정리를 현재 컨트롤러가 소유한다.
+	TSharedPtr<FStreamableHandle> CombatEffectLoad;
+	FPrimaryAssetId LoadedCombatEffectId;
+	double NextCriticalShakeTime = 0.0;
+
+	// 로드 실패는 전투 계산에 영향을 주지 않고 원인만 알린다.
+	void FinishLoadingCombatEffects();
 	// UserHUD를 생성하고 화면에 등록한다.
 	virtual void BeginPlay() override;
 
