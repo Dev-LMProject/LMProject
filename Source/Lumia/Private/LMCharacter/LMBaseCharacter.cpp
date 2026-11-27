@@ -1,6 +1,11 @@
 #include "LMCharacter/LMBaseCharacter.h"
 
 #include "AbilitySystemBlueprintLibrary.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimTypes.h"
+#include "BoneContainer.h"
+#include "BonePose.h"
 #include "LMAbilitySystem/LMAbilitySystemComponent.h"
 #include "LMGameplayTags/LMGameplayTags.h"
 #include "GameplayEffect.h"
@@ -9,8 +14,11 @@
 #include "LMCombat/LMCombatAttributeSet.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "GameplayAbilitySpec.h"
 #include "LMCombat/LMDodgeAbility.h"
+#include "Misc/MemStack.h"
+#include "MotionWarpingComponent.h"
 
 /** 공통 GAS 연결을 관리할 캐릭터 기반을 생성한다. */
 /** 모든 캡슐형 전투 캐릭터가 같은 몸체 충돌 기본값을 사용하도록 한다. */
@@ -397,4 +405,102 @@ bool ALMBaseCharacter::CanBeAttackTargetFor(const ALMBaseCharacter* Attacker) co
 bool ALMBaseCharacter::CanReceiveAttackFrom(const ALMBaseCharacter* Attacker) const
 {
 	return bCanReceiveCombatDamage && IsHostileTo(Attacker) && IsAliveForCombat() && Attacker->IsAliveForCombat();
+}
+
+// 실제 소켓 쌍의 접촉점을 샘플링하고 워프 종료 시점의 캡슐 발 좌표계로 변환한다.
+bool ALMBaseCharacter::TryCalculateMotionWarpingOffset(const UAnimMontage* Montage, const USkeletalMeshComponent* SocketMesh, FName StartSocket, FName EndSocket, float WarpEndTime, float ContactTime, float ContactFraction, FVector& OutOffset) const
+{
+	OutOffset = FVector::ZeroVector;
+	const USkeletalMeshComponent* BodyMesh = GetMesh();
+	const UCapsuleComponent* Capsule = GetCapsuleComponent();
+	const bool bValidComponents = IsValid(Montage) && IsValid(BodyMesh) && IsValid(Capsule) && IsValid(SocketMesh) && SocketMesh->GetOwner() == this;
+	if (!bValidComponents) return false;
+
+	// 엔진의 모션 워핑 포즈 추출과 같은 첫 슬롯에서 연속 재생 가능한 시각을 사용한다.
+	const bool bValidTimes = FMath::IsFinite(WarpEndTime) && FMath::IsFinite(ContactTime) && 0.0f <= WarpEndTime && WarpEndTime <= ContactTime && ContactTime <= Montage->GetPlayLength();
+	const bool bValidFraction = FMath::IsFinite(ContactFraction) && 0.0f <= ContactFraction && ContactFraction <= 1.0f;
+	if (!bValidTimes || !bValidFraction || Montage->SlotAnimTracks.IsEmpty())
+	{
+		return false;
+	}
+
+	const bool bUsesBodyMesh = SocketMesh == BodyMesh;
+	const bool bStableFollower = SocketMesh->LeaderPoseComponent.Get() == BodyMesh && SocketMesh->GetAttachParent() == BodyMesh
+		&& SocketMesh->GetAttachSocketName().IsNone() && !SocketMesh->IsUsingAbsoluteLocation() && !SocketMesh->IsUsingAbsoluteRotation();
+	const auto HasPositiveUniformScale = [](const USkeletalMeshComponent& MeshComponent)
+	{
+		const FVector MeshScale = MeshComponent.GetComponentTransform().GetScale3D();
+		return !MeshScale.ContainsNaN() && MeshScale.GetMin() > 0.0 && MeshScale.IsUniform();
+	};
+
+	// 고정 상대 변환과 균일 스케일에서 실제 포즈 추종 소켓의 좌표 합성을 재현한다.
+	if ((!bUsesBodyMesh && !bStableFollower) || BodyMesh->IsUsingAbsoluteLocation() || BodyMesh->IsUsingAbsoluteRotation()
+		|| !HasPositiveUniformScale(*BodyMesh) || !HasPositiveUniformScale(*SocketMesh))
+	{
+		return false;
+	}
+
+	const UAnimInstance* BodyAnim = BodyMesh->GetAnimInstance();
+	const USkeletalMesh* BodyAsset = BodyMesh->GetSkeletalMeshAsset();
+	const FAnimTrack& Track = Montage->SlotAnimTracks[0].AnimTrack;
+	const FAnimSegment* ContactSegment = Track.GetSegmentAtTime(ContactTime);
+	const UAnimSequenceBase* ContactAnimation = ContactSegment ? ContactSegment->GetAnimReference().Get() : nullptr;
+	const bool bValidPose = IsValid(BodyAnim) && IsValid(BodyAsset) && IsValid(Montage->GetSkeleton()) && BodyAsset->GetSkeleton() == Montage->GetSkeleton()
+		&& ContactSegment && ContactSegment->IsValid() && IsValid(ContactAnimation) && !ContactAnimation->IsValidAdditive();
+	if (!bValidPose) return false;
+
+	const FBoneContainer& RequiredBones = BodyAnim->GetRequiredBones();
+	if (!RequiredBones.IsValid()) return false;
+
+	// 소켓의 로컬 변환은 실제 판정 메시에서 읽고 본 인덱스는 본체의 평가 포즈에 맞춘다.
+	const auto ResolveSocketBone = [SocketMesh, bUsesBodyMesh, &RequiredBones](FName SocketName, FTransform& SocketLocalTransform)
+	{
+		int32 MeshBoneIndex = INDEX_NONE;
+		if (!SocketMesh->GetSocketInfoByName(SocketName, SocketLocalTransform, MeshBoneIndex) || MeshBoneIndex == INDEX_NONE)
+		{
+			return FCompactPoseBoneIndex(INDEX_NONE);
+		}
+
+		if (!bUsesBodyMesh)
+		{
+			const TArray<int32>& LeaderBoneMap = SocketMesh->GetLeaderBoneMap();
+			if (!LeaderBoneMap.IsValidIndex(MeshBoneIndex))
+			{
+				return FCompactPoseBoneIndex(INDEX_NONE);
+			}
+			MeshBoneIndex = LeaderBoneMap[MeshBoneIndex];
+		}
+
+		if (MeshBoneIndex == INDEX_NONE) return FCompactPoseBoneIndex(INDEX_NONE);
+		return RequiredBones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshBoneIndex));
+	};
+
+	FTransform StartSocketLocal = FTransform::Identity;
+	FTransform EndSocketLocal = FTransform::Identity;
+	const FCompactPoseBoneIndex StartBone = ResolveSocketBone(StartSocket, StartSocketLocal);
+	const FCompactPoseBoneIndex EndBone = ResolveSocketBone(EndSocket, EndSocketLocal);
+	if (StartBone == INDEX_NONE || EndBone == INDEX_NONE)
+	{
+		return false;
+	}
+
+	// 루트가 추출된 같은 접촉 포즈에서 두 소켓을 평가해 소켓 사이의 접촉점을 구한다.
+	FMemMark PoseMemory(FMemStack::Get());
+	FCSPose<FCompactPose> ContactPose;
+	UMotionWarpingUtilities::ExtractComponentSpacePose(Montage, RequiredBones, ContactTime, true, ContactPose);
+	const FVector StartPoint = ContactPose.GetComponentSpaceTransform(StartBone).TransformPosition(StartSocketLocal.GetTranslation());
+	const FVector EndPoint = ContactPose.GetComponentSpaceTransform(EndBone).TransformPosition(EndSocketLocal.GetTranslation());
+
+	// 실제 월드 크기를 유지한 발 좌표계에 워프 종료 이후 재생되는 루트 이동을 합성한다.
+	const FVector FeetLocation = GetActorLocation() - GetActorUpVector() * Capsule->GetScaledCapsuleHalfHeight();
+	const FTransform FeetWorld(GetActorQuat(), FeetLocation);
+	const FTransform BodyFromFeet = BodyMesh->GetComponentTransform().GetRelativeTransform(FeetWorld);
+	const FTransform SocketMeshFromBody = bUsesBodyMesh ? FTransform::Identity : SocketMesh->GetRelativeTransform();
+	const FTransform RemainingRootMotion = ContactTime == WarpEndTime ? FTransform::Identity : Montage->ExtractRootMotionFromTrackRange(WarpEndTime, ContactTime, FAnimExtractContext());
+	const FTransform SocketMeshFromWarpFeet = SocketMeshFromBody * RemainingRootMotion * BodyFromFeet;
+	const FVector ContactOffset = SocketMeshFromWarpFeet.TransformPosition(FMath::Lerp(StartPoint, EndPoint, ContactFraction));
+	if (ContactOffset.ContainsNaN()) return false;
+
+	OutOffset = ContactOffset;
+	return true;
 }
