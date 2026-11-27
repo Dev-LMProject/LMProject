@@ -92,6 +92,53 @@ void LinkSpecialHitData()
         UE_LOG(LogLMSpecialGaugeAssets, Display, TEXT("LM_SPECIAL_HIT_DATA_LINKED"));
 }
 
+// 기존 강공격의 한 창을 실제 전진·복귀 구간으로 나누고 다른 알림은 보존한다.
+void SplitHeavyHitWindows()
+{
+    UAnimMontage* Montage = LoadObject<UAnimMontage>(nullptr, TEXT("/Game/LMCharacter/LMPlayer/LMAnimation/LMCombat/AM_LM_PlayerHeavy.AM_LM_PlayerHeavy"));
+    if (!Montage) return;
+    TArray<int32> WindowIndices;
+    for (int32 NotifyIndex = 0; NotifyIndex < Montage->Notifies.Num(); ++NotifyIndex)
+    {
+        if (Cast<ULMAnimNotifyStateAttackHitWindow>(Montage->Notifies[NotifyIndex].NotifyStateClass))
+            WindowIndices.Add(NotifyIndex);
+    }
+    if (WindowIndices.Num() == 2)
+    {
+        UE_LOG(LogLMSpecialGaugeAssets, Display, TEXT("Heavy already has two hit windows; preserving the authored times."));
+        return;
+    }
+    if (WindowIndices.Num() != 1)
+    {
+        UE_LOG(LogLMSpecialGaugeAssets, Error, TEXT("Expected the original single heavy hit window."));
+        return;
+    }
+    FAnimNotifyEvent& FirstWindow = Montage->Notifies[WindowIndices[0]];
+    if (!FMath::IsNearlyEqual(FirstWindow.GetTime(), 13.0f / 30.0f, 0.001f) || !FMath::IsNearlyEqual(FirstWindow.GetDuration(), 22.0f / 30.0f, 0.001f))
+    {
+        UE_LOG(LogLMSpecialGaugeAssets, Error, TEXT("Heavy hit window has changed; preserving the authored timing."));
+        return;
+    }
+
+    Montage->Modify();
+    // 원본 루트 모션은 28프레임에 방향을 바꾼다. 창 사이에 1프레임의 간격을 둔다.
+    FirstWindow.SetDuration(14.0f / 30.0f);
+    FirstWindow.MontageTickType = EMontageNotifyTickType::BranchingPoint;
+    FAnimNotifyEvent ReturnWindow = FirstWindow;
+    ReturnWindow.NotifyStateClass = DuplicateObject<ULMAnimNotifyStateAttackHitWindow>(CastChecked<ULMAnimNotifyStateAttackHitWindow>(FirstWindow.NotifyStateClass), Montage, MakeUniqueObjectName(Montage, ULMAnimNotifyStateAttackHitWindow::StaticClass(), TEXT("LMReturnHitWindow")));
+    ReturnWindow.Guid = FGuid::NewGuid();
+    ReturnWindow.Link(Montage, 28.0f / 30.0f);
+    ReturnWindow.TriggerTimeOffset = GetTriggerTimeOffsetForType(Montage->CalculateOffsetForNotify(ReturnWindow.GetTime()));
+    ReturnWindow.SetDuration(7.0f / 30.0f);
+    ReturnWindow.EndLink.Link(Montage, ReturnWindow.EndLink.GetTime());
+    Montage->Notifies.Add(ReturnWindow);
+    Montage->RefreshCacheData();
+    Montage->PostEditChange();
+    if (SaveGaugeAsset(*Montage))
+        UE_LOG(LogLMSpecialGaugeAssets, Display, TEXT("LM_HEAVY_TWO_HITS_LINKED"));
+}
+
+FAutoConsoleCommand SplitHeavyHitWindowsCommand(TEXT("LM.Combat.SplitHeavyHitWindows"), TEXT("Split the original heavy hit window into its outward and return strikes."), FConsoleCommandDelegate::CreateStatic(&SplitHeavyHitWindows));
 FAutoConsoleCommand LinkGaugeViewCommand(TEXT("LM.SpecialGauge.LinkView"), TEXT("Implement the gauge view interface on the temporary gauge widget."), FConsoleCommandDelegate::CreateStatic(&LinkGaugeView));
 FAutoConsoleCommand LinkSpecialHitDataCommand(TEXT("LM.SpecialGauge.LinkHitData"), TEXT("Assign zero-charge attack data to the two existing special hit windows."), FConsoleCommandDelegate::CreateStatic(&LinkSpecialHitData));
 }

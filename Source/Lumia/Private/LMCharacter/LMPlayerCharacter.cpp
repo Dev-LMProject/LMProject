@@ -48,6 +48,10 @@ ALMPlayerCharacter::ALMPlayerCharacter(const FObjectInitializer& ObjectInitializ
 {
     // 모든 Enemy 계열과 공통 적대 관계를 사용한다.
     CombatTeam = ELMCombatTeam::Player;
+    StartHealth = 1000;
+    CriticalChance = 25;
+    CriticalStep = 10;
+    CriticalLimit = 9;
     
     PrimaryActorTick.bCanEverTick = true;
 
@@ -1276,7 +1280,7 @@ void ALMPlayerCharacter::StopAwakeningWatch()
 }
 
 // 지정 타격의 예상 HP를 먼저 판정해 사망 알림보다 앞서 보호를 확정한다.
-float ALMPlayerCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth)
+float ALMPlayerCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth, bool& bAllowCritical)
 {
     // 예약 직후 같은 프레임에 들어온 다른 공격도 HP를 깎지 못하게 한다.
     if (bAwakeningStarted) return 0.0f;
@@ -1290,7 +1294,7 @@ float ALMPlayerCharacter::ChangeIncomingDamage(const FGameplayEffectSpec& Damage
 
     // 낮은 HP로 진입한 경우도 다음 유효피격에서 인정하며 단순 수치 변화는 사용하지 않는다.
     const float ExpectedHealth = FMath::Clamp(OldHealth - RequestedDamage, 0.0f, MaximumHealth);
-    if (DamageSpec.GetContext().GetEffectCauser() != WatchedMob || OldHealth <= 0.0f || ExpectedHealth >= OldHealth || ExpectedHealth > MaximumHealth * 0.3f)
+    if (DamageSpec.GetContext().GetEffectCauser() != WatchedMob || OldHealth <= 0.0f || ExpectedHealth >= OldHealth || static_cast<int64>(ExpectedHealth) * 100 > static_cast<int64>(MaximumHealth) * 30)
         return RequestedDamage;
 
     bWatchingAwakening = false;

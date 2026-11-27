@@ -45,8 +45,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|Combat", meta = (AutoCreateRefTerm = "HitResult"))
 	void ReceiveCombatDamage(AActor* DamageSource, const ULMAttackData* AttackData, const FHitResult& HitResult);
 
+	// 공격자의 현재 전투 정책에 맞는 DA 기본 피해를 읽는다.
+	virtual float GetAttackDamage(const ULMAttackData* AttackData) const;
+
 	// 유효한 원래 피해를 캐릭터별 규칙에 맞게 바꾸며 기본 캐릭터는 그대로 받는다.
-	virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth);
+	virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth, bool& bAllowCritical);
 
 	// 피해 계산이 끝난 뒤 예약된 반응을 처리하며 실제 HP 감소가 0인 보호도 포함한다.
 	virtual void FinishCombatDamage();
@@ -69,6 +72,22 @@ public:
 	TObjectPtr<UAnimMontage> DodgeMontage;
 
 protected:
+	// 종류별 BP에서 설정하며 ASC 재연결 때 다시 채우지 않는다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LM|Combat", meta = (ClampMin = "1", ClampMax = "100000"))
+	int32 StartHealth = 100;
+
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Critical", meta = (ClampMin = "0", ClampMax = "100"))
+	int32 CriticalChance = 10;
+
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Critical", meta = (ClampMin = "0", ClampMax = "100"))
+	int32 CriticalStep = 5;
+
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Critical", meta = (ClampMin = "1", ClampMax = "100"))
+	int32 CriticalLimit = 10;
+
+	UPROPERTY(EditDefaultsOnly, Category = "LM|Critical", meta = (ClampMin = "100", ClampMax = "300"))
+	int32 CriticalDamagePercent = 150;
+
 	// 검증된 일반 타격 또는 지정 시연 Spec을 기존 Instant GE로 적용한다.
 	bool ApplyCombatDamage(ALMBaseCharacter* DamageSource, float RequestedDamage, const ULMAttackData* AttackData, const FHitResult& HitResult, FGameplayTag SceneTag);
 
@@ -122,6 +141,7 @@ private:
 #if WITH_DEV_AUTOMATION_TESTS
 	// 실제 피해 경로 검사의 ASC 연결과 GE 설정만 허용한다.
 	friend class FLMEliteCombatDamageTest;
+	friend class FLMCombatDamagePathTest;
 #endif
 
 	/** 현재 Avatar의 태그 변경만 파생 클래스의 행동 정책에 전달한다. */
@@ -133,4 +153,5 @@ private:
 
 	bool bInitializingAbilitySystem = false;
 	bool bDisconnectingAbilitySystem = false;
+	bool bCombatStatsInitialized = false;
 };

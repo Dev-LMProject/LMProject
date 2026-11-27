@@ -4,6 +4,8 @@
 
 namespace LMGameplayTags
 {
+	// 이번 Spec의 임시 치명타 결과이며 최종 방어 정책에서 제외될 수 있다.
+	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_Critical);
 	// 한 번 누르기 판정.
 	LUMIA_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(QTE_Interaction_Press);
 	// 서로 다른 누름 횟수 판정.

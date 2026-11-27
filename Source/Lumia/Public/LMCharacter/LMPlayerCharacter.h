@@ -72,7 +72,7 @@ public:
     FLMOnAwakeningStarted OnAwakeningStarted;
 
     // 지정 엘리트의 유효피해만 각성 조건으로 사용하고 치명 피해를 먼저 막는다.
-    virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth) override;
+    virtual float ChangeIncomingDamage(const FGameplayEffectSpec& DamageSpec, float RequestedDamage, float OldHealth, float MaximumHealth, bool& bAllowCritical) override;
 
     // 실제 감소가 없는 보호도 포함해 피해 계산 이후 각성 알림을 한 번 예약한다.
     virtual void FinishCombatDamage() override;
