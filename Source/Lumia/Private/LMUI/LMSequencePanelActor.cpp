@@ -84,23 +84,26 @@ void ALMSequencePanelActor::RefreshPanel()
 	const float NewTyping = FMath::Clamp(TypingAlpha, 0.0f, 1.0f);
 	const float NewDownload = FMath::Clamp(DownloadAlpha, 0.0f, 1.0f);
 	const float NewOpacity = FMath::Clamp(PanelOpacity, 0.0f, 1.0f);
-	const bool bTypingChanged = bNewWidget || NewTyping != LastTypingAlpha;
+	const bool bTypingChanged = bNewWidget || NewTyping != LastTypingAlpha || !TypingText.Equals(LastTypingText, ESearchCase::CaseSensitive);
 	const bool bDownloadChanged = bNewWidget || NewDownload != LastDownloadAlpha;
 	const bool bOpacityChanged = bNewWidget || NewOpacity != LastPanelOpacity;
 	const float NewAnimationAlpha = FMath::Clamp(WidgetAnimationAlpha, 0.0f, 1.0f);
 	const bool bAnimationChanged = bNewWidget || WidgetAnimation != LastWidgetAnimation || NewAnimationAlpha != LastWidgetAnimationAlpha;
 
-	// 외곽 위젯에 전체 투명도를 적용해 내부 Overlay 애니메이션과 합성한다.
+	// 진행률이 같아도 문구를 바꾸면 새 문구의 현재 부분을 표시한다.
 	if (bTypingChanged)
-		WidgetRef->UpdateTyping(NewTyping);
+		WidgetRef->UpdateTypingFromText(TypingText, NewTyping);
 	if (bDownloadChanged)
 		WidgetRef->UpdateDownload(NewDownload);
+	// 외곽 위젯에 전체 투명도를 적용해 내부 Overlay 애니메이션과 합성한다.
 	if (bOpacityChanged)
 		WidgetRef->SetRenderOpacity(NewOpacity);
 	if (bAnimationChanged)
 		WidgetRef->UpdateWidgetAnimation(WidgetAnimation, NewAnimationAlpha);
 
 	LastTypingAlpha = NewTyping;
+	if (bTypingChanged)
+		LastTypingText = TypingText;
 	LastDownloadAlpha = NewDownload;
 	LastPanelOpacity = NewOpacity;
 	LastWidgetAnimation = WidgetAnimation;

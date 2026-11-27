@@ -60,6 +60,10 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Interp, Category = "LM|Sequence Panel", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0"))
 	float TypingAlpha = 0.0f;
 
+	// 비워 두면 위젯 블루프린트의 기본 문구를 표시한다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LM|Sequence Panel", meta = (AllowPrivateAccess = "true", MultiLine = true))
+	FString TypingText;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Interp, Category = "LM|Sequence Panel", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "1.0"))
 	float DownloadAlpha = 0.0f;
 
@@ -76,6 +80,7 @@ private:
 	TObjectPtr<ULMSequencePanelWidget> WidgetRef;
 
 	float LastTypingAlpha = -1.0f;
+	FString LastTypingText;
 	float LastDownloadAlpha = -1.0f;
 	float LastPanelOpacity = -1.0f;
 	ELMSequencePanelAnimation LastWidgetAnimation = ELMSequencePanelAnimation::None;

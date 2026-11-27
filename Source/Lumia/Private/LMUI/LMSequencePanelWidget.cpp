@@ -25,12 +25,19 @@ void FlushPanelAnimation(const FWidgetAnimationState& AnimationState)
 // 재생 방향에 상관없이 해당 프레임의 문자 수를 적용한다.
 void ULMSequencePanelWidget::UpdateTyping(float Alpha)
 {
+	UpdateTypingFromText(FullText, Alpha);
+}
+
+// 액터의 문구가 비어 있으면 위젯 기본 문구를 사용한다.
+void ULMSequencePanelWidget::UpdateTypingFromText(const FString& TypingText, float Alpha)
+{
 	if (!TXT_Typing) return;
 
 	// 앞부분을 매번 다시 구해 이전 프레임의 입력과 무관하게 표시한다.
 	const float Progress = FMath::Clamp(Alpha, 0.0f, 1.0f);
-	const int32 LetterCount = FMath::FloorToInt(static_cast<double>(FullText.Len()) * Progress);
-	TXT_Typing->SetText(FText::FromString(FullText.Left(LetterCount)));
+	const FString& SourceText = TypingText.IsEmpty() ? FullText : TypingText;
+	const int32 LetterCount = FMath::FloorToInt(static_cast<double>(SourceText.Len()) * Progress);
+	TXT_Typing->SetText(FText::FromString(SourceText.Left(LetterCount)));
 }
 
 // 같은 진행률에서 게이지와 다운로드 상태를 함께 계산한다.
