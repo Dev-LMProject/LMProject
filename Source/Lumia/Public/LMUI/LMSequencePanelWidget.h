@@ -29,6 +29,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
 	void UpdateTyping(float Alpha);
 
+	// 액터의 문구가 있으면 해당 문구를 현재 진행률에 맞춰 표시한다.
+	void UpdateTypingFromText(const FString& TypingText, float Alpha);
+
 	// 게이지, 정수 퍼센트, 완료 문구를 같은 진행률로 갱신한다.
 	UFUNCTION(BlueprintCallable, Category = "LM|Sequence Panel")
 	void UpdateDownload(float Alpha);
