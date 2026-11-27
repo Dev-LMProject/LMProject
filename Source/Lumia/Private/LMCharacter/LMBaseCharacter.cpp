@@ -413,41 +413,49 @@ bool ALMBaseCharacter::TryCalculateMotionWarpingOffset(const UAnimMontage* Monta
 	OutOffset = FVector::ZeroVector;
 	const USkeletalMeshComponent* BodyMesh = GetMesh();
 	const UCapsuleComponent* Capsule = GetCapsuleComponent();
-	const bool bValidComponents = IsValid(Montage) && IsValid(BodyMesh) && IsValid(Capsule) && IsValid(SocketMesh) && SocketMesh->GetOwner() == this;
-	if (!bValidComponents) return false;
+	if (!IsValid(Montage) || !IsValid(BodyMesh) || !IsValid(Capsule) || !IsValid(SocketMesh) || SocketMesh->GetOwner() != this)
+	{
+		return false;
+	}
 
-	// 엔진의 모션 워핑 포즈 추출과 같은 첫 슬롯에서 연속 재생 가능한 시각을 사용한다.
-	const bool bValidTimes = FMath::IsFinite(WarpEndTime) && FMath::IsFinite(ContactTime) && 0.0f <= WarpEndTime && WarpEndTime <= ContactTime && ContactTime <= Montage->GetPlayLength();
-	const bool bValidFraction = FMath::IsFinite(ContactFraction) && 0.0f <= ContactFraction && ContactFraction <= 1.0f;
-	if (!bValidTimes || !bValidFraction || Montage->SlotAnimTracks.IsEmpty())
+	// 포즈를 평가하기 전에 워프와 접촉 시각, 소켓 사이 비율을 확인한다.
+	if (!FMath::IsFinite(ContactTime) || !(0.0f <= WarpEndTime && WarpEndTime <= ContactTime && ContactTime <= Montage->GetPlayLength())
+		|| !FMath::IsWithinInclusive(ContactFraction, 0.0f, 1.0f) || Montage->SlotAnimTracks.IsEmpty())
+	{
+		return false;
+	}
+
+	const FTransform& BodyWorld = BodyMesh->GetComponentTransform();
+	const auto HasPositiveUniformScale = [](const FVector& MeshScale)
+	{
+		return MeshScale.GetMin() > 0.0 && MeshScale.IsUniform();
+	};
+
+	// 고정 상대 변환과 양수 균일 스케일에서 소켓의 좌표 합성을 재현한다.
+	if (BodyMesh->IsUsingAbsoluteLocation() || BodyMesh->IsUsingAbsoluteRotation() || !HasPositiveUniformScale(BodyWorld.GetScale3D()))
 	{
 		return false;
 	}
 
 	const bool bUsesBodyMesh = SocketMesh == BodyMesh;
-	const bool bStableFollower = SocketMesh->LeaderPoseComponent.Get() == BodyMesh && SocketMesh->GetAttachParent() == BodyMesh
-		&& SocketMesh->GetAttachSocketName().IsNone() && !SocketMesh->IsUsingAbsoluteLocation() && !SocketMesh->IsUsingAbsoluteRotation();
-	const auto HasPositiveUniformScale = [](const USkeletalMeshComponent& MeshComponent)
-	{
-		const FVector MeshScale = MeshComponent.GetComponentTransform().GetScale3D();
-		return !MeshScale.ContainsNaN() && MeshScale.GetMin() > 0.0 && MeshScale.IsUniform();
-	};
-
-	// 고정 상대 변환과 균일 스케일에서 실제 포즈 추종 소켓의 좌표 합성을 재현한다.
-	if ((!bUsesBodyMesh && !bStableFollower) || BodyMesh->IsUsingAbsoluteLocation() || BodyMesh->IsUsingAbsoluteRotation()
-		|| !HasPositiveUniformScale(*BodyMesh) || !HasPositiveUniformScale(*SocketMesh))
+	if (!bUsesBodyMesh && (SocketMesh->LeaderPoseComponent.Get() != BodyMesh || SocketMesh->GetAttachParent() != BodyMesh
+		|| !SocketMesh->GetAttachSocketName().IsNone() || SocketMesh->IsUsingAbsoluteLocation() || SocketMesh->IsUsingAbsoluteRotation()
+		|| !HasPositiveUniformScale(SocketMesh->GetComponentTransform().GetScale3D())))
 	{
 		return false;
 	}
 
+	// 엔진이 평가하는 몽타주 첫 슬롯에서 본체 스켈레톤의 접촉 포즈를 확인한다.
 	const UAnimInstance* BodyAnim = BodyMesh->GetAnimInstance();
 	const USkeletalMesh* BodyAsset = BodyMesh->GetSkeletalMeshAsset();
-	const FAnimTrack& Track = Montage->SlotAnimTracks[0].AnimTrack;
-	const FAnimSegment* ContactSegment = Track.GetSegmentAtTime(ContactTime);
-	const UAnimSequenceBase* ContactAnimation = ContactSegment ? ContactSegment->GetAnimReference().Get() : nullptr;
-	const bool bValidPose = IsValid(BodyAnim) && IsValid(BodyAsset) && IsValid(Montage->GetSkeleton()) && BodyAsset->GetSkeleton() == Montage->GetSkeleton()
-		&& ContactSegment && ContactSegment->IsValid() && IsValid(ContactAnimation) && !ContactAnimation->IsValidAdditive();
-	if (!bValidPose) return false;
+	const USkeleton* MontageSkeleton = Montage->GetSkeleton();
+	const FAnimSegment* ContactSegment = Montage->SlotAnimTracks[0].AnimTrack.GetSegmentAtTime(ContactTime);
+	const UAnimSequenceBase* ContactAnimation = ContactSegment && ContactSegment->IsValid() ? ContactSegment->GetAnimReference().Get() : nullptr;
+	if (!IsValid(BodyAnim) || !IsValid(BodyAsset) || !IsValid(MontageSkeleton) || BodyAsset->GetSkeleton() != MontageSkeleton
+		|| !IsValid(ContactAnimation) || ContactAnimation->IsValidAdditive())
+	{
+		return false;
+	}
 
 	const FBoneContainer& RequiredBones = BodyAnim->GetRequiredBones();
 	if (!RequiredBones.IsValid()) return false;
@@ -456,7 +464,7 @@ bool ALMBaseCharacter::TryCalculateMotionWarpingOffset(const UAnimMontage* Monta
 	const auto ResolveSocketBone = [SocketMesh, bUsesBodyMesh, &RequiredBones](FName SocketName, FTransform& SocketLocalTransform)
 	{
 		int32 MeshBoneIndex = INDEX_NONE;
-		if (!SocketMesh->GetSocketInfoByName(SocketName, SocketLocalTransform, MeshBoneIndex) || MeshBoneIndex == INDEX_NONE)
+		if (!SocketMesh->GetSocketInfoByName(SocketName, SocketLocalTransform, MeshBoneIndex))
 		{
 			return FCompactPoseBoneIndex(INDEX_NONE);
 		}
@@ -471,7 +479,6 @@ bool ALMBaseCharacter::TryCalculateMotionWarpingOffset(const UAnimMontage* Monta
 			MeshBoneIndex = LeaderBoneMap[MeshBoneIndex];
 		}
 
-		if (MeshBoneIndex == INDEX_NONE) return FCompactPoseBoneIndex(INDEX_NONE);
 		return RequiredBones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshBoneIndex));
 	};
 
@@ -493,8 +500,7 @@ bool ALMBaseCharacter::TryCalculateMotionWarpingOffset(const UAnimMontage* Monta
 
 	// 실제 월드 크기를 유지한 발 좌표계에 워프 종료 이후 재생되는 루트 이동을 합성한다.
 	const FVector FeetLocation = GetActorLocation() - GetActorUpVector() * Capsule->GetScaledCapsuleHalfHeight();
-	const FTransform FeetWorld(GetActorQuat(), FeetLocation);
-	const FTransform BodyFromFeet = BodyMesh->GetComponentTransform().GetRelativeTransform(FeetWorld);
+	const FTransform BodyFromFeet = BodyWorld.GetRelativeTransform(FTransform(GetActorQuat(), FeetLocation));
 	const FTransform SocketMeshFromBody = bUsesBodyMesh ? FTransform::Identity : SocketMesh->GetRelativeTransform();
 	const FTransform RemainingRootMotion = ContactTime == WarpEndTime ? FTransform::Identity : Montage->ExtractRootMotionFromTrackRange(WarpEndTime, ContactTime, FAnimExtractContext());
 	const FTransform SocketMeshFromWarpFeet = SocketMeshFromBody * RemainingRootMotion * BodyFromFeet;
